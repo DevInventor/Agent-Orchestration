@@ -1,0 +1,10 @@
+# Agent-Orchestration run artifacts (created wherever /ship runs)
+pipeline/
+
+# a user's own registry may contain local machine paths — keep it out of the plugin repo
+agent-orchestration.config.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log

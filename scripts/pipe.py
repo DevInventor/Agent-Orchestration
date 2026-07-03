@@ -1,0 +1,402 @@
+#!/usr/bin/env python3
+"""
+pipe.py - the shared coordination bus for the Agent-Orchestration multi-agent pipeline.
+
+Every agent coordinates through files under <repo>/pipeline. This CLI is the
+ONLY sanctioned way to touch that state, so writes stay atomic and the append
+-only message log never corrupts under concurrent subagents.
+
+Phases (drive the header progress bar), in order:
+    spec -> plan -> implement -> test -> review -> qa -> done
+
+Usage examples:
+    pipe.py init --feature "Add SSO logout endpoint"
+    pipe.py phase plan
+    pipe.py agent planner
+    pipe.py progress 30
+    pipe.py loop --count 2 --max 5
+    pipe.py event --agent coder --type handoff --summary "Implemented 4/4 tasks" --ref pipeline/code/changes.json
+    pipe.py task add --id T1 --title "Add /logout controller" --owner coder
+    pipe.py task update --id T1 --status done
+    pipe.py status
+"""
+import argparse, json, os, sys, tempfile, time
+from datetime import datetime, timezone
+
+PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
+RUN_STATUSES = ["running", "awaiting_approval", "blocked", "done", "failed"]
+CONFIG_NAME = "agent-orchestration.config.json"
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def find_pipeline(start="."):
+    """Walk up from cwd to locate an existing pipeline/ dir; default to ./pipeline."""
+    cur = os.path.abspath(start)
+    while True:
+        cand = os.path.join(cur, "pipeline")
+        if os.path.isdir(cand):
+            return cand
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return os.path.abspath(os.path.join(start, "pipeline"))
+        cur = parent
+
+
+def find_config(start="."):
+    """Walk up from cwd to locate agent-orchestration.config.json. Returns path or None."""
+    cur = os.path.abspath(start)
+    while True:
+        cand = os.path.join(cur, CONFIG_NAME)
+        if os.path.isfile(cand):
+            return cand
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+
+def atomic_write(path, text):
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+class Lock:
+    """Portable advisory lock (WSL2 + native Windows) via O_CREAT|O_EXCL lockfile.
+    Wrap read-modify-write of run.json / tasks.json so parallel service teams
+    don't lose updates. NOT used for messages.jsonl — single-line appends <4KB
+    are atomic, and locking the log would serialize events and kill parallelism.
+    ponytail: spin-wait with stale-steal; fine for a handful of concurrent
+    subagents. Swap for fcntl/msvcrt if contention ever gets heavy."""
+    def __init__(self, path, timeout=10, stale=30):
+        self.lp, self.timeout, self.stale, self.fd = path + ".lock", timeout, stale, None
+
+    def __enter__(self):
+        start = time.time()
+        while True:
+            try:
+                self.fd = os.open(self.lp, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.path.getmtime(self.lp) > self.stale:
+                        os.unlink(self.lp); continue
+                except FileNotFoundError:
+                    continue
+                if time.time() - start > self.timeout:
+                    raise TimeoutError(f"lock busy: {self.lp}")
+                time.sleep(0.05)
+
+    def __exit__(self, *a):
+        try: os.close(self.fd)
+        except Exception: pass
+        try: os.unlink(self.lp)
+        except FileNotFoundError: pass
+
+
+def read_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def run_path(root):
+    return os.path.join(root, "run.json")
+
+
+def load_run(root):
+    return read_json(run_path(root), {})
+
+
+def save_run(root, run):
+    run["updatedAt"] = now_iso()
+    atomic_write(run_path(root), json.dumps(run, indent=2))
+
+
+def recompute_progress(run):
+    """Progress = phase completion + partial credit for the coder/test loop."""
+    phase = run.get("phase", "spec")
+    idx = PHASES.index(phase) if phase in PHASES else 0
+    base = idx / (len(PHASES) - 1)
+    run["progressPct"] = round(base * 100)
+
+
+def cmd_init(root, args):
+    os.makedirs(root, exist_ok=True)
+    for sub in ("code", "test", "review", "status"):
+        os.makedirs(os.path.join(root, sub), exist_ok=True)
+    run = {
+        "runId": time.strftime("run-%Y%m%d-%H%M%S"),
+        "feature": args.feature,
+        "phases": PHASES,
+        "phase": "spec",
+        "activeAgent": "orchestrator",
+        "status": "running",
+        "loop": {"count": 0, "max": args.max_loop},
+        "progressPct": 0,
+        "startedAt": now_iso(),
+    }
+    save_run(root, run)
+    atomic_write(os.path.join(root, "spec.md"),
+                 f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
+    atomic_write(os.path.join(root, "tasks.json"), json.dumps({"tasks": []}, indent=2))
+    # touch the append-only log
+    open(os.path.join(root, "messages.jsonl"), "a").close()
+    _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}", None, None)
+    print(json.dumps(run, indent=2))
+
+
+def _event(root, agent, etype, phase, summary, detail, ref, service=None):
+    rec = {
+        "ts": now_iso(),
+        "agent": agent,
+        "type": etype,
+        "phase": phase,
+        "summary": summary,
+    }
+    if service:
+        rec["service"] = service
+    if detail:
+        rec["detail"] = detail
+    if ref:
+        rec["ref"] = ref
+    with open(os.path.join(root, "messages.jsonl"), "a") as f:
+        f.write(json.dumps(rec) + "\n")
+    return rec
+
+
+def cmd_event(root, args):
+    run = load_run(root)
+    phase = args.phase or run.get("phase", "spec")
+    rec = _event(root, args.agent, args.type, phase, args.summary, args.detail, args.ref, args.service)
+    print(json.dumps(rec))
+
+
+def cmd_phase(root, args):
+    if args.name not in PHASES:
+        sys.exit(f"unknown phase '{args.name}'. valid: {', '.join(PHASES)}")
+    with Lock(run_path(root)):
+        run = load_run(root)
+        run["phase"] = args.name
+        recompute_progress(run)
+        if args.name == "done":
+            run["status"] = "done"
+            run["activeAgent"] = "orchestrator"
+        save_run(root, run)
+    print(f"phase -> {args.name} ({run['progressPct']}%)")
+
+
+def cmd_agent(root, args):
+    with Lock(run_path(root)):
+        run = load_run(root)
+        run["activeAgent"] = args.name
+        save_run(root, run)
+    print(f"activeAgent -> {args.name}")
+
+
+def cmd_progress(root, args):
+    with Lock(run_path(root)):
+        run = load_run(root)
+        run["progressPct"] = max(0, min(100, args.pct))
+        save_run(root, run)
+    print(f"progress -> {run['progressPct']}%")
+
+
+def cmd_loop(root, args):
+    with Lock(run_path(root)):
+        run = load_run(root)
+        loop = run.get("loop", {"count": 0, "max": 5})
+        if args.count is not None:
+            loop["count"] = args.count
+        if args.max is not None:
+            loop["max"] = args.max
+        run["loop"] = loop
+        save_run(root, run)
+    print(f"loop -> {loop['count']}/{loop['max']}")
+
+
+def cmd_status_set(root, args):
+    """Set the run-level status (e.g. awaiting_approval, running, blocked)."""
+    if args.value not in RUN_STATUSES:
+        sys.exit(f"unknown status '{args.value}'. valid: {', '.join(RUN_STATUSES)}")
+    with Lock(run_path(root)):
+        run = load_run(root)
+        run["status"] = args.value
+        save_run(root, run)
+    print(f"status -> {args.value}")
+
+
+def cmd_svc(root, args):
+    """Upsert per-service state into run.services[name] for the dashboard."""
+    with Lock(run_path(root)):
+        run = load_run(root)
+        services = run.setdefault("services", {})
+        svc = services.setdefault(args.name, {})
+        if args.phase is not None:
+            svc["phase"] = args.phase
+        if args.agent is not None:
+            svc["activeAgent"] = args.agent
+        if args.status is not None:
+            svc["status"] = args.status
+        if args.loop_count is not None or args.loop_max is not None:
+            loop = svc.setdefault("loop", {"count": 0, "max": 5})
+            if args.loop_count is not None:
+                loop["count"] = args.loop_count
+            if args.loop_max is not None:
+                loop["max"] = args.loop_max
+        if args.passed is not None:
+            svc["passed"] = args.passed
+        if args.failed is not None:
+            svc["failed"] = args.failed
+        svc["updatedAt"] = now_iso()
+        save_run(root, run)
+    print(json.dumps({args.name: svc}))
+
+
+def cmd_status(root, args):
+    print(json.dumps(load_run(root), indent=2))
+
+
+def cmd_config(root, args):
+    """Load + validate the optional agent-orchestration.config.json service registry.
+
+    Prints {"configured": false, "services": []} (exit 0) when no config exists —
+    absence is valid; the pipeline then falls back to indexing. On a present-but-broken
+    config it exits non-zero with a clear message (trust-boundary validation)."""
+    path = args.file or find_config()
+    if not path or not os.path.isfile(path):
+        print(json.dumps({"configured": False, "services": []}))
+        return
+    try:
+        cfg = json.loads(open(path).read())
+    except json.JSONDecodeError as e:
+        sys.exit(f"config: invalid JSON in {path}: {e}")
+    base = os.path.dirname(os.path.abspath(path))
+    repos_root = os.path.abspath(os.path.join(base, cfg.get("reposRoot", ".")))
+    services = cfg.get("services")
+    if not isinstance(services, list) or not services:
+        sys.exit(f"config {path}: 'services' must be a non-empty list")
+    names, norm = set(), []
+    for i, s in enumerate(services):
+        name = s.get("name")
+        if not name:
+            sys.exit(f"config: service #{i} is missing 'name'")
+        if name in names:
+            sys.exit(f"config: duplicate service name '{name}'")
+        names.add(name)
+        p = s.get("path", name)
+        abspath = p if os.path.isabs(p) else os.path.join(repos_root, p)
+        abspath = os.path.abspath(abspath)
+        if not os.path.isdir(abspath):
+            sys.exit(f"config: service '{name}' path does not exist: {abspath}")
+        deps = s.get("dependsOnServices", [])
+        if not isinstance(deps, list):
+            sys.exit(f"config: service '{name}' dependsOnServices must be a list")
+        norm.append({"name": name, "path": abspath, "test": s.get("test"),
+                     "build": s.get("build"), "dependsOnServices": deps})
+    for s in norm:
+        for d in s["dependsOnServices"]:
+            if d not in names:
+                sys.exit(f"config: service '{s['name']}' dependsOnServices references unknown '{d}'")
+    print(json.dumps({"configured": True, "reposRoot": repos_root, "services": norm}, indent=2))
+
+
+def cmd_task(root, args):
+    tp = os.path.join(root, "tasks.json")
+    with Lock(tp):
+        data = read_json(tp, {"tasks": []})
+        tasks = data["tasks"]
+        if args.task_cmd == "add":
+            task = {
+                "id": args.id, "title": args.title,
+                "owner": args.owner or "coder", "status": args.status or "todo",
+                "createdAt": now_iso(),
+            }
+            if args.service:
+                task["service"] = args.service
+            tasks.append(task)
+        elif args.task_cmd == "update":
+            found = False
+            for t in tasks:
+                if t["id"] == args.id:
+                    if args.title: t["title"] = args.title
+                    if args.owner: t["owner"] = args.owner
+                    if args.status: t["status"] = args.status
+                    if args.service: t["service"] = args.service
+                    t["updatedAt"] = now_iso()
+                    found = True
+            if not found:
+                sys.exit(f"no task with id {args.id}")
+        atomic_write(tp, json.dumps(data, indent=2))
+    print(json.dumps(data, indent=2))
+
+
+def build_parser():
+    p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
+    p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("event")
+    s.add_argument("--agent", required=True)
+    s.add_argument("--type", required=True, choices=["status", "handoff", "finding", "question", "result", "error"])
+    s.add_argument("--phase", default=None)
+    s.add_argument("--summary", required=True)
+    s.add_argument("--detail", default=None)
+    s.add_argument("--ref", default=None)
+    s.add_argument("--service", default=None)
+    s = sub.add_parser("phase"); s.add_argument("name")
+    s = sub.add_parser("agent"); s.add_argument("name")
+    s = sub.add_parser("progress"); s.add_argument("pct", type=int)
+    s = sub.add_parser("loop"); s.add_argument("--count", type=int); s.add_argument("--max", type=int)
+    s = sub.add_parser("set-status"); s.add_argument("value", choices=RUN_STATUSES)
+    s = sub.add_parser("svc")
+    s.add_argument("--name", required=True)
+    s.add_argument("--phase", default=None)
+    s.add_argument("--agent", default=None)
+    s.add_argument("--status", default=None)
+    s.add_argument("--loop-count", type=int, default=None, dest="loop_count")
+    s.add_argument("--loop-max", type=int, default=None, dest="loop_max")
+    s.add_argument("--passed", type=int, default=None)
+    s.add_argument("--failed", type=int, default=None)
+    s = sub.add_parser("status")
+    s = sub.add_parser("config"); s.add_argument("--file", default=None)
+    s = sub.add_parser("task")
+    ts = s.add_subparsers(dest="task_cmd", required=True)
+    for name in ("add", "update"):
+        t = ts.add_parser(name)
+        t.add_argument("--id", required=True)
+        t.add_argument("--title", default=None)
+        t.add_argument("--owner", default=None)
+        t.add_argument("--status", default=None, choices=["todo", "in_progress", "done", "blocked"])
+        t.add_argument("--service", default=None)
+    return p
+
+
+def main():
+    args = build_parser().parse_args()
+    # `init` creates ./pipeline in the CURRENT dir — it must never walk up, or a run
+    # started in a subdir would hijack/overwrite a parent's existing pipeline (data
+    # loss). Every other command walks up to locate the active bus.
+    if args.cmd == "init":
+        root = args.root or os.path.abspath("pipeline")
+    else:
+        root = args.root or find_pipeline()
+    {
+        "init": cmd_init, "event": cmd_event, "phase": cmd_phase,
+        "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
+        "set-status": cmd_status_set, "svc": cmd_svc,
+        "status": cmd_status, "config": cmd_config, "task": cmd_task,
+    }[args.cmd](root, args)
+
+
+if __name__ == "__main__":
+    main()

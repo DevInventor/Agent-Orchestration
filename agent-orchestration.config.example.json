@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/DevInventor/Agent-Orchestration/main/agent-orchestration.schema.json",
+  "reposRoot": ".",
+  "services": [
+    {
+      "name": "api",
+      "path": "services/api",
+      "test": "npm test",
+      "build": "npm run build",
+      "dependsOnServices": []
+    },
+    {
+      "name": "web",
+      "path": "services/web",
+      "test": "npm test",
+      "dependsOnServices": ["api"]
+    }
+  ]
+}

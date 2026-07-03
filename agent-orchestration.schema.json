@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/DevInventor/Agent-Orchestration/main/agent-orchestration.schema.json",
+  "title": "Agent-Orchestration service registry",
+  "description": "Optional. Drop this file (as agent-orchestration.config.json) at your repos root to declare the services you work with and where their repos live locally. If absent, Agent-Orchestration discovers services by indexing.",
+  "type": "object",
+  "required": ["services"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "reposRoot": {
+      "type": "string",
+      "default": ".",
+      "description": "Base directory for relative service paths, resolved relative to this config file's location."
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Registry of all services you work with. Each /ship run picks the subset a feature touches.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique service id used on the pipeline bus and in plan.json service tags."
+          },
+          "path": {
+            "type": "string",
+            "description": "Local directory of the service repo (relative to reposRoot, or absolute). Defaults to name."
+          },
+          "test": {
+            "type": "string",
+            "description": "Shell command to run this service's tests, executed inside its directory (e.g. 'npm test', 'pytest -q', 'mvn -q test')."
+          },
+          "build": {
+            "type": "string",
+            "description": "Shell command to build this service, executed inside its directory."
+          },
+          "dependsOnServices": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Other service names that must reach done before this one enters a coder batch (dependency waves)."
+          }
+        }
+      }
+    }
+  }
+}

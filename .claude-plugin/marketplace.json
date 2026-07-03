@@ -1,0 +1,14 @@
+{
+  "name": "agent-orchestration-marketplace",
+  "owner": { "name": "Het Patel" },
+  "metadata": {
+    "description": "Marketplace hosting the Agent-Orchestration multi-agent feature pipeline for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "agent-orchestration",
+      "source": "./",
+      "description": "Multi-agent /ship pipeline with a finalize gate: plan -> (approve) -> implement -> test (fix loop max 5 per service) -> review -> QA. Ships one service or many in parallel, configurable via agent-orchestration.config.json, with a live dashboard."
+    }
+  ]
+}
