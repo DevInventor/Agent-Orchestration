@@ -65,6 +65,17 @@ repos (your "repos root"):
 /ship "add request-id propagation across the api and worker services"
 ```
 
+**Already have a spec?** Skip the authoring step and point the pipeline straight at
+your spec doc:
+
+```
+/ship-from-spec ./docs/my-feature-spec.md
+```
+
+`ship` writes the spec from your one-line feature request; `ship-from-spec` consumes
+a spec doc you already have. Everything after the spec (plan → build → test → review →
+QA) is identical — both share `docs/orchestration-runbook.md`.
+
 In both cases the planner presents a plan and **waits** — reply `finalize` to start.
 Watch progress at **http://localhost:4600**:
 
