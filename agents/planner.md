@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Architect and team lead. Indexes the codebase, turns a feature spec into a concrete implementation plan and task list grounded in the real architecture. Invoked by the ship-orchestrator during the plan phase.
+description: Architect and team lead. Indexes the codebase, turns a feature spec into a concrete implementation plan and task list grounded in the real architecture. Invoked by the /ship orchestrator during the plan phase.
 tools: Read, Grep, Glob, Bash
 ---
 

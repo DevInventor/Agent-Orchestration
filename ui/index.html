@@ -6,8 +6,9 @@
 <title>Agent-Orchestration · pipeline</title>
 <style>
   :root{
-    --ink:#0B0E14; --panel:#11151D; --panel-2:#0E121A; --line:#1C2430;
-    --text:#C7CEDA; --muted:#697384; --faint:#3C4552;
+    --ink:#0A0D13; --panel:#11151D; --panel-2:#0E121A; --raise:#151B26;
+    --line:#1C2430; --line-2:#252E3B; --text:#C7CEDA; --bright:#EAEEF4;
+    --muted:#697384; --faint:#3C4552;
     --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B;
     --orchestrator:#8A93A3; --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
     --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
@@ -15,63 +16,109 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
-  body{
-    background:var(--ink);color:var(--text);font-family:var(--sans);
-    font-size:14px;line-height:1.5;display:flex;flex-direction:column;height:100vh;
-    -webkit-font-smoothing:antialiased;
-  }
-  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--muted)}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:14px;
+    line-height:1.5;display:flex;flex-direction:column;height:100vh;-webkit-font-smoothing:antialiased}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 
-  /* ---------- header ---------- */
-  header{border-bottom:1px solid var(--line);padding:16px 22px 0;flex:0 0 auto;background:var(--panel-2)}
-  .topline{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
-  .brand{font-family:var(--mono);font-weight:600;letter-spacing:.04em}
-  .brand b{color:var(--coder)}
-  .feature{font-size:15px;font-weight:600;color:#EAEEF4}
-  .status-chip{margin-left:auto;font-family:var(--mono);font-size:11px;
-    letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border:1px solid var(--line);border-radius:2px}
+  /* demo ribbon */
+  #demo{display:none;align-items:center;gap:12px;background:repeating-linear-gradient(45deg,#1a1206,#1a1206 10px,#181004 10px,#181004 20px);
+    border-bottom:1px solid #3a2a0a;padding:6px 22px;font-family:var(--mono);font-size:11px;color:var(--warn)}
+  #demo.on{display:flex}
+  #demo .seg{margin-left:auto;display:flex;border:1px solid #3a2a0a;border-radius:3px;overflow:hidden}
+  #demo button{background:transparent;border:0;color:var(--muted);font-family:var(--mono);font-size:11px;
+    padding:3px 10px;cursor:pointer}
+  #demo button.sel{background:var(--warn);color:#1a1206}
+
+  /* header */
+  header{border-bottom:1px solid var(--line);padding:14px 22px 0;flex:0 0 auto;background:var(--panel-2)}
+  .topline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:11px}
+  .brand{font-family:var(--mono);font-weight:600;letter-spacing:.02em;font-size:13px}
+  .brand b{color:var(--coder)} .brand span{color:var(--faint)}
+  .feature{font-size:15px;font-weight:600;color:var(--bright)}
+  .conn{font-family:var(--mono);font-size:10px;color:var(--faint);display:flex;align-items:center;gap:5px}
+  .conn .led{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .conn.live .led{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  .status-chip{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    padding:3px 10px;border:1px solid var(--line);border-radius:2px}
   .status-running{color:var(--coder);border-color:color-mix(in srgb,var(--coder) 45%,var(--line))}
   .status-done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
   .status-blocked,.status-failed{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
   .status-awaiting_approval{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
 
-  /* progress bar */
-  .bar-wrap{position:relative;height:6px;background:var(--panel);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .bar-meta{display:flex;justify-content:space-between;align-items:baseline;margin:2px 0 4px}
+  .bar-meta .right{display:flex;gap:14px;align-items:baseline}
+  .pct{font-family:var(--mono);font-size:12px;color:var(--text)}
+  .elapsed{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .bar-wrap{position:relative;height:5px;background:var(--panel);border:1px solid var(--line);border-radius:3px;overflow:hidden}
   .bar-fill{position:absolute;inset:0 auto 0 0;width:0;background:var(--coder);
     transition:width .5s cubic-bezier(.4,0,.2,1),background .4s}
-  .bar-meta{display:flex;justify-content:space-between;margin:8px 0 2px}
-  .pct{font-family:var(--mono);font-size:12px;color:var(--text)}
+  /* phase ticks under the bar */
+  .ticks{display:flex;margin:5px 0 0}
+  .tick{flex:1;font-family:var(--mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--faint);text-align:center;position:relative;padding-top:8px}
+  .tick::before{content:"";position:absolute;top:0;left:50%;width:5px;height:5px;margin-left:-2.5px;
+    border-radius:50%;background:var(--line-2)}
+  .tick.done{color:var(--muted)} .tick.done::before{background:var(--reviewer)}
+  .tick.cur{color:var(--coder)} .tick.cur::before{background:var(--coder);box-shadow:0 0 6px var(--coder)}
 
-  /* ---------- assembly line (signature) ---------- */
-  .line{display:flex;align-items:center;gap:0;padding:18px 4px 20px;overflow-x:auto}
-  .station{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:96px;position:relative}
+  /* ---- single-service hero: assembly line ---- */
+  .hero{padding:16px 4px 18px;overflow-x:auto}
+  .line{display:flex;align-items:center}
+  .station{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:92px}
   .dot{width:13px;height:13px;border-radius:50%;border:1.5px solid var(--faint);background:var(--panel)}
   .st-label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--muted)}
   .st-phase{font-size:10px;color:var(--faint);font-family:var(--mono)}
-  .connector{flex:1;height:1.5px;background:var(--line);min-width:26px;position:relative;top:-16px}
+  .connector{flex:1;height:1.5px;background:var(--line);min-width:24px;position:relative;top:-16px}
   .station.pending .dot{opacity:.55}
   .station.active .dot{border-color:currentColor;background:currentColor;box-shadow:0 0 0 4px color-mix(in srgb,currentColor 18%,transparent);animation:pulse 1.6s ease-in-out infinite}
   .station.active .st-label{color:currentColor}
   .station.complete .dot{border-color:currentColor;background:currentColor}
   .station.complete .st-label{color:var(--text)}
-  .st-planner{color:var(--planner)} .st-coder{color:var(--coder)}
-  .st-tester{color:var(--tester)} .st-reviewer{color:var(--reviewer)}
-  /* fix-loop return arc between coder and tester */
-  .loop-arc{position:relative;top:-16px;min-width:70px;height:34px;display:flex;align-items:flex-end;justify-content:center}
+  .st-planner{color:var(--planner)} .st-coder{color:var(--coder)} .st-tester{color:var(--tester)} .st-reviewer{color:var(--reviewer)}
+  .loop-arc{position:relative;top:-16px;min-width:68px;height:34px;display:flex;align-items:flex-end;justify-content:center}
   .loop-arc svg{position:absolute;top:-16px;left:0;width:100%;height:34px;overflow:visible}
   .loop-arc path{fill:none;stroke:var(--tester);stroke-width:1.5;stroke-dasharray:3 3;opacity:.5}
-  .loop-badge{font-family:var(--mono);font-size:10px;color:var(--tester);
-    background:var(--ink);padding:0 5px;position:relative;z-index:2}
+  .loop-badge{font-family:var(--mono);font-size:10px;color:var(--tester);background:var(--ink);padding:0 5px;position:relative;z-index:2}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 4px color-mix(in srgb,currentColor 18%,transparent)}50%{box-shadow:0 0 0 7px color-mix(in srgb,currentColor 6%,transparent)}}
 
-  /* ---------- body grid ---------- */
+  /* ---- multi-service hero: swimlanes grouped by wave (the signature) ---- */
+  .waves{display:flex;flex-direction:column;gap:12px;padding:14px 2px 16px;max-height:38vh;overflow-y:auto}
+  .wave{border-left:2px solid var(--line-2);padding-left:12px}
+  .wave-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .wave-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .wave-note{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .lanes{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+  .lane{border:1px solid var(--line);border-radius:5px;background:var(--panel);padding:9px 11px;cursor:pointer;transition:border-color .2s}
+  .lane:hover{border-color:var(--line-2)}
+  .lane.sel{border-color:var(--coder)}
+  .lane.waiting{opacity:.5}
+  .lane.blocked{border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+  .lane.done{border-color:color-mix(in srgb,var(--ok) 30%,var(--line))}
+  .lane-top{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .lane-name{font-family:var(--mono);font-size:12px;color:var(--bright);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lane-state{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;margin-left:auto;padding:1px 6px;border-radius:2px;border:1px solid var(--line)}
+  .lane-state.running{color:var(--coder)} .lane-state.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+  .lane-state.blocked{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+  .lane-state.pending,.lane-state.waiting{color:var(--muted)}
+  /* mini pipeline inside a lane */
+  .mini{display:flex;align-items:center;gap:0}
+  .mini .m-dot{width:9px;height:9px;border-radius:50%;border:1.4px solid var(--faint);background:var(--panel)}
+  .mini .m-seg{flex:1;height:1.4px;background:var(--line);min-width:12px}
+  .mini .m-dot.done{background:currentColor;border-color:currentColor}
+  .mini .m-dot.cur{background:currentColor;border-color:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 20%,transparent);animation:pulse 1.6s infinite}
+  .mc-coder{color:var(--coder)} .mc-tester{color:var(--tester)} .mc-reviewer{color:var(--reviewer)}
+  .lane-meta{display:flex;gap:12px;margin-top:9px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .lane-meta b{color:var(--text);font-weight:600}
+  .lane-meta .fail{color:var(--bad)}
+  .lane-wait{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:7px}
+
+  /* body */
   main{flex:1 1 auto;display:grid;grid-template-columns:1fr 340px;gap:1px;background:var(--line);min-height:0}
   .col{background:var(--ink);display:flex;flex-direction:column;min-height:0}
-  .col-head{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .col-head{padding:11px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex:0 0 auto}
   .col-head .count{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto}
+  .filter-clear{font-family:var(--mono);font-size:10px;color:var(--coder);cursor:pointer;border:1px solid var(--line);border-radius:2px;padding:1px 7px}
 
-  /* left: comms feed */
   .feed{overflow-y:auto;padding:6px 0;flex:1 1 auto}
   .msg{display:grid;grid-template-columns:14px 1fr;gap:11px;padding:9px 18px;border-left:2px solid transparent}
   .msg:hover{background:var(--panel-2)}
@@ -80,25 +127,32 @@
   .msg .m-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
   .m-agent{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase}
   .m-type{font-family:var(--mono);font-size:10px;color:var(--muted);border:1px solid var(--line);padding:0 5px;border-radius:2px}
+  .m-service{font-family:var(--mono);font-size:10px;color:var(--bright);background:var(--raise);padding:0 6px;border-radius:2px}
   .m-time{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:auto}
   .m-summary{color:var(--text);margin-top:2px}
   .m-detail{color:var(--muted);font-size:13px;margin-top:3px}
   .m-ref{font-family:var(--mono);font-size:11px;color:var(--coder);margin-top:3px}
-  .a-planner{color:var(--planner)} .a-coder{color:var(--coder)}
-  .a-tester{color:var(--tester)} .a-reviewer{color:var(--reviewer)}
-  .a-orchestrator{color:var(--orchestrator)}
-  .msg.t-error{border-left-color:var(--bad)}
-  .msg.t-question{border-left-color:var(--warn)}
+  .a-planner{color:var(--planner)} .a-coder{color:var(--coder)} .a-tester{color:var(--tester)}
+  .a-reviewer{color:var(--reviewer)} .a-orchestrator{color:var(--orchestrator)}
+  .msg.t-error{border-left-color:var(--bad)} .msg.t-question{border-left-color:var(--warn)}
 
-  /* right: task summary */
-  .summary{overflow-y:auto;padding:16px 18px;flex:1 1 auto;display:flex;flex-direction:column;gap:18px}
+  .summary{overflow-y:auto;padding:16px 18px;flex:1 1 auto;display:flex;flex-direction:column;gap:16px}
   .chips{display:flex;gap:8px;flex-wrap:wrap}
   .chip{font-family:var(--mono);font-size:11px;padding:4px 9px;border:1px solid var(--line);border-radius:2px;color:var(--muted)}
   .chip b{color:var(--text);font-weight:600}
   .now-card{border:1px solid var(--line);border-radius:4px;padding:13px;background:var(--panel)}
   .now-card .eyebrow{margin-bottom:6px}
   .now-agent{font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase}
-  .now-task{margin-top:5px;color:#EAEEF4}
+  .now-task{margin-top:5px;color:var(--bright)}
+  .now-line{display:flex;gap:8px;align-items:baseline;padding:3px 0;font-family:var(--mono);font-size:12px}
+  .now-svc{color:var(--bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .now-ph{color:var(--muted);font-size:11px;margin-left:auto;white-space:nowrap}
+  .find-card{border:1px solid var(--line);border-radius:4px;padding:11px 13px;background:var(--panel)}
+  .find-txt{margin-top:5px;color:var(--text);font-size:13px}
+  .find-card.blocking{border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+  .approve{border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--panel));
+    border-radius:4px;padding:12px;color:var(--warn);font-size:13px}
+  .approve b{color:var(--bright)}
   .task-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
   .task{display:flex;align-items:center;gap:9px;padding:6px 2px;font-size:13px}
   .task .box{width:13px;height:13px;border:1.5px solid var(--faint);border-radius:2px;flex:0 0 auto;position:relative}
@@ -108,50 +162,41 @@
   .task.blocked .box{border-color:var(--bad)}
   .task.done .t-title{color:var(--muted);text-decoration:line-through}
   .t-owner{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:auto}
-
-  /* per-service strip (multi-service runs) */
-  .svc-strip{display:flex;flex-direction:column;gap:7px}
-  .svc-row{border:1px solid var(--line);border-radius:4px;padding:9px 11px;background:var(--panel)}
-  .svc-top{display:flex;align-items:baseline;gap:8px}
-  .svc-name{font-family:var(--mono);font-size:12px;color:#EAEEF4;font-weight:600}
-  .svc-state{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-left:auto}
-  .svc-state.running{color:var(--coder)} .svc-state.done{color:var(--ok)}
-  .svc-state.blocked,.svc-state.failed{color:var(--bad)} .svc-state.pending{color:var(--muted)}
-  .svc-meta{display:flex;gap:12px;margin-top:5px;font-family:var(--mono);font-size:11px;color:var(--muted)}
-  .svc-meta b{color:var(--text);font-weight:600}
   .svc-group-head{font-family:var(--mono);font-size:11px;color:var(--muted);margin:10px 0 4px}
-  /* service badge on task rows + message feed */
-  .m-service,.t-service{font-family:var(--mono);font-size:10px;color:var(--muted);
-    border:1px solid var(--line);padding:0 5px;border-radius:2px}
+
   .empty{color:var(--faint);font-size:13px;padding:30px 18px;text-align:center;font-family:var(--mono)}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
   :focus-visible{outline:2px solid var(--coder);outline-offset:2px}
-  @media (max-width:760px){
-    main{grid-template-columns:1fr;grid-template-rows:1fr auto}
-    .col-right{max-height:45vh}
-  }
+  @media (max-width:820px){main{grid-template-columns:1fr;grid-template-rows:1fr auto}.col-right{max-height:44vh}}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
+<div id="demo">
+  <span>◆ demo data — no live pipeline connected. Serve with <b style="color:var(--text)">node ui/server.js</b> to go live.</span>
+  <div class="seg"><button id="d-multi" class="sel">multi-service</button><button id="d-single">single</button></div>
+</div>
 <header>
   <div class="topline">
-    <span class="brand"><b>ship</b>-team</span>
+    <span class="brand"><b>agent</b><span>·</span>orchestration</span>
     <span class="feature" id="feature">waiting for a run…</span>
+    <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
     <span class="status-chip" id="status">idle</span>
   </div>
   <div class="bar-meta">
     <span class="eyebrow" id="phase-label">phase</span>
-    <span class="pct" id="pct">0%</span>
+    <span class="right"><span class="elapsed" id="elapsed"></span><span class="pct" id="pct">0%</span></span>
   </div>
   <div class="bar-wrap"><div class="bar-fill" id="bar"></div></div>
-  <div class="line" id="line"></div>
+  <div class="ticks" id="ticks"></div>
+  <div class="hero" id="hero"></div>
 </header>
 
 <main>
   <section class="col col-left">
     <div class="col-head"><span class="eyebrow">agent communication</span>
+      <span class="filter-clear" id="filter-clear" style="display:none"></span>
       <span class="count" id="msg-count">0 events</span></div>
     <div class="feed" id="feed"><div class="empty">no events yet</div></div>
   </section>
@@ -163,154 +208,299 @@
 </main>
 
 <script>
-const AGENTS = ["planner","coder","tester","reviewer"];
-const AGENT_PHASE = {planner:"plan",coder:"implement",tester:"test",reviewer:"review"};
-const PHASES = ["spec","plan","implement","test","review","qa","done"];
-const COLORS = {planner:"var(--planner)",coder:"var(--coder)",tester:"var(--tester)",
-  reviewer:"var(--reviewer)",orchestrator:"var(--orchestrator)"};
+const AGENTS=["planner","coder","tester","reviewer"];
+const AGENT_PHASE={planner:"plan",coder:"implement",tester:"test",reviewer:"review"};
+const PHASES=["spec","plan","implement","test","review","qa","done"];
+const MINI=["coder","tester","reviewer"];
+const MINI_PHASE={coder:"implement",tester:"test",reviewer:"review"};
+const COLORS={planner:"var(--planner)",coder:"var(--coder)",tester:"var(--tester)",reviewer:"var(--reviewer)",orchestrator:"var(--orchestrator)"};
+let FILTER=null; // service filter for the feed
 
-function esc(s){return String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
-function timeOf(iso){try{return new Date(iso).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return"";}}
+const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const timeOf=iso=>{try{return new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return"";}};
+function since(iso){if(!iso)return"";const s=Math.max(0,(Date.now()-new Date(iso))/1000);const m=Math.floor(s/60);return m?`${m}m ${Math.floor(s%60)}s`:`${Math.floor(s)}s`;}
 
-function stationState(agent, run){
-  if(!run) return "pending";
-  const active = run.activeAgent, phase = run.phase;
-  if(active===agent) return "active";
-  // complete if the pipeline has moved past this agent's phase
-  const ai = PHASES.indexOf(AGENT_PHASE[agent]), pi = PHASES.indexOf(phase);
-  return pi>ai ? "complete" : "pending";
+function isMulti(run){return !!(run&&run.services&&Object.keys(run.services).length);}
+
+/* progress that actually moves in a multi-service build */
+function computeProgress(run){
+  if(!run) return 0;
+  if(typeof run.progressPct==="number" && !isMulti(run)) return run.progressPct;
+  if(!isMulti(run)) return run.progressPct||0;
+  const svc=run.services, names=Object.keys(svc);
+  const p=run.phase;
+  if(p==="spec") return 5; if(p==="plan") return 15;
+  if(p==="qa") return 92; if(p==="done") return 100;
+  // implement/test/review: 20%..90% by fraction of services resolved (with partial credit)
+  const weight=s=>{const st=s.status;if(st==="done"||st==="blocked")return 1;
+    const ph=s.phase;return ph==="review"?0.7:ph==="test"?0.45:ph==="implement"?0.2:0;};
+  const frac=names.reduce((a,n)=>a+weight(svc[n]),0)/names.length;
+  return Math.round(20+frac*70);
 }
 
-function renderLine(run){
-  const loop = run?.loop || {count:0,max:5};
-  let html="";
-  AGENTS.forEach((a,i)=>{
-    const state = stationState(a,run);
-    html += `<div class="station st-${a} ${state}">
-      <div class="dot"></div>
-      <div class="st-label">${a}</div>
-      <div class="st-phase">${AGENT_PHASE[a]}</div></div>`;
-    if(i<AGENTS.length-1){
-      if(a==="coder"){ // coder -> tester with the return arc + loop badge
-        html += `<div class="loop-arc">
-          <svg viewBox="0 0 70 34" preserveAspectRatio="none"><path d="M6,17 C6,-8 64,-8 64,17"/></svg>
-          <span class="loop-badge">↻ ${loop.count}/${loop.max}</span></div>`;
-      } else {
-        html += `<div class="connector"></div>`;
-      }
-    }
-  });
-  document.getElementById("line").innerHTML = html;
+function renderTicks(run){
+  const cur=run?.phase||"spec", ci=PHASES.indexOf(cur);
+  document.getElementById("ticks").innerHTML=PHASES.map((p,i)=>{
+    const cls=i<ci?"done":i===ci?"cur":"";
+    return `<span class="tick ${cls}">${p}</span>`;}).join("");
 }
 
 function renderHeader(run){
-  document.getElementById("feature").textContent = run?.feature || "waiting for a run…";
-  const st = document.getElementById("status");
-  const status = run?.status || "idle";
-  st.textContent = status;
-  st.className = "status-chip status-"+status;
-  const pct = run?.progressPct ?? 0;
-  const bar = document.getElementById("bar");
-  bar.style.width = pct+"%";
-  bar.style.background = COLORS[run?.activeAgent] || "var(--coder)";
-  document.getElementById("pct").textContent = pct+"%";
-  document.getElementById("phase-label").textContent =
-    run ? `phase · ${run.phase}` : "phase";
+  document.getElementById("feature").textContent=run?.feature||"waiting for a run…";
+  const st=document.getElementById("status"),status=run?.status||"idle";
+  st.textContent=status.replace(/_/g," "); st.className="status-chip status-"+status;
+  const pct=computeProgress(run),bar=document.getElementById("bar");
+  bar.style.width=pct+"%";
+  bar.style.background=status==="done"?"var(--ok)":status==="blocked"?"var(--bad)":(COLORS[run?.activeAgent]||"var(--coder)");
+  document.getElementById("pct").textContent=pct+"%";
+  document.getElementById("phase-label").textContent=run?`phase · ${run.phase}`:"phase";
+  document.getElementById("elapsed").textContent=run?.startedAt&&status!=="done"?"⏱ "+since(run.startedAt):"";
+  renderTicks(run);
+}
+
+/* single-service assembly line */
+function stationState(agent,run){
+  if(!run)return"pending";
+  if(run.activeAgent===agent)return"active";
+  return PHASES.indexOf(run.phase)>PHASES.indexOf(AGENT_PHASE[agent])?"complete":"pending";
+}
+function renderHeroSingle(run){
+  const loop=run?.loop||{count:0,max:5};let h="";
+  AGENTS.forEach((a,i)=>{
+    h+=`<div class="station st-${a} ${stationState(a,run)}"><div class="dot"></div>
+      <div class="st-label">${a}</div><div class="st-phase">${AGENT_PHASE[a]}</div></div>`;
+    if(i<AGENTS.length-1){
+      h+=a==="coder"
+        ?`<div class="loop-arc"><svg viewBox="0 0 70 34" preserveAspectRatio="none"><path d="M6,17 C6,-8 64,-8 64,17"/></svg><span class="loop-badge">↻ ${loop.count}/${loop.max}</span></div>`
+        :`<div class="connector"></div>`;
+    }
+  });
+  document.getElementById("hero").innerHTML=`<div class="line">${h}</div>`;
+}
+
+/* multi-service swimlanes grouped by dependency wave */
+function computeWaves(run,plan){
+  const svc=run.services, names=Object.keys(svc);
+  const deps={}; (plan?.services||[]).forEach(s=>deps[s.name]=s.dependsOnServices||[]);
+  names.forEach(n=>{if(!(n in deps))deps[n]=[];});
+  // wave = longest dependency chain depth
+  const depth={},seen={};
+  const d=n=>{if(n in depth)return depth[n];if(seen[n])return 0;seen[n]=1;
+    const ds=(deps[n]||[]).filter(x=>x in deps);
+    return depth[n]=ds.length?1+Math.max(...ds.map(d)):0;};
+  const waves={}; names.forEach(n=>{const w=d(n);(waves[w]=waves[w]||[]).push(n);});
+  return {waves,deps};
+}
+function laneEligible(s,deps,svc){return (deps||[]).every(x=>!svc[x]||svc[x].status==="done");}
+function miniState(svcObj,agent){
+  const order=["implement","test","review"],cur=svcObj.phase;
+  const ai=order.indexOf(MINI_PHASE[agent]),ci=order.indexOf(cur);
+  if(svcObj.status==="done")return"done";
+  if(ci<0)return""; if(ai<ci)return"done"; if(ai===ci)return"cur"; return"";
+}
+function renderHeroMulti(run,plan){
+  const svc=run.services;const {waves,deps}=computeWaves(run,plan);
+  const wnums=Object.keys(waves).map(Number).sort((a,b)=>a-b);
+  let h="";
+  wnums.forEach(w=>{
+    const admitted=w===0; // wave 0 always eligible; later waves gated
+    h+=`<div class="wave"><div class="wave-head"><span class="wave-title">wave ${w+1}</span>`;
+    h+=`<span class="wave-note">${w===0?"no dependencies":"runs after upstream services are done"}</span></div><div class="lanes">`;
+    waves[w].forEach(n=>{
+      const s=svc[n]||{},status=s.status||"pending",sl=s.loop||{count:0,max:5};
+      const elig=laneEligible(s,deps[n],svc);
+      const waiting=status==="pending"&&!elig;
+      const cls=[waiting?"waiting":"",status==="done"?"done":"",status==="blocked"?"blocked":"",FILTER===n?"sel":""].join(" ");
+      const total=(s.passed||0)+(s.failed||0);
+      const tests=total?`<span class="${s.failed?"fail":""}">tests <b>${s.passed||0}/${total}</b></span>`:"";
+      const stLabel=waiting?"waiting":status;
+      let mini="";
+      MINI.forEach((a,i)=>{mini+=`<span class="m-dot mc-${a} ${miniState(s,a)}"></span>`;
+        if(i<MINI.length-1)mini+=`<span class="m-seg"></span>`;});
+      const wait=waiting?`<div class="lane-wait">⤷ waiting on ${esc((deps[n]||[]).filter(x=>svc[x]&&svc[x].status!=="done").join(", ")||"dependencies")}</div>`:"";
+      h+=`<div class="lane ${cls}" data-svc="${esc(n)}">
+        <div class="lane-top"><span class="lane-name">${esc(n)}</span>
+          <span class="lane-state ${status==="running"||(!waiting&&status!=="done"&&status!=="blocked"&&status!=="pending")?"running":esc(waiting?"waiting":status)}">${esc(stLabel)}</span></div>
+        <div class="mini">${mini}</div>
+        <div class="lane-meta"><span>phase <b>${esc(s.phase||"—")}</b></span><span>loop <b>${sl.count}/${sl.max}</b></span>${tests}</div>
+        ${wait}</div>`;
+    });
+    h+=`</div></div>`;
+  });
+  const hero=document.getElementById("hero");
+  hero.innerHTML=`<div class="waves">${h}</div>`;
+  hero.querySelectorAll(".lane").forEach(el=>el.onclick=()=>{
+    const n=el.getAttribute("data-svc");FILTER=FILTER===n?null:n;render(LAST);});
+}
+
+function renderHero(run,plan){
+  if(isMulti(run))renderHeroMulti(run,plan); else renderHeroSingle(run);
 }
 
 function renderFeed(messages){
-  const feed = document.getElementById("feed");
-  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
-  if(!messages.length){feed.innerHTML='<div class="empty">no events yet</div>';return;}
-  feed.innerHTML = messages.map(m=>`
+  const feed=document.getElementById("feed");
+  let msgs=messages||[];
+  if(FILTER)msgs=msgs.filter(m=>m.service===FILTER||m.agent==="orchestrator");
+  const fc=document.getElementById("filter-clear");
+  if(FILTER){fc.style.display="";fc.textContent="✕ "+FILTER;fc.onclick=()=>{FILTER=null;render(LAST);};}
+  else fc.style.display="none";
+  const atBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<60;
+  if(!msgs.length){feed.innerHTML='<div class="empty">no events'+(FILTER?" for "+esc(FILTER):"")+" yet</div>";}
+  else feed.innerHTML=msgs.map(m=>`
     <div class="msg t-${esc(m.type)}">
       <div class="rail" style="background:${COLORS[m.agent]||"var(--orchestrator)"}"></div>
-      <div class="body">
-        <div class="m-head">
-          <span class="m-agent a-${esc(m.agent)}">${esc(m.agent)}</span>
-          <span class="m-type">${esc(m.type)}</span>
-          ${m.service?`<span class="m-service">${esc(m.service)}</span>`:""}
-          <span class="m-time">${timeOf(m.ts)}</span>
-        </div>
+      <div class="body"><div class="m-head">
+        <span class="m-agent a-${esc(m.agent)}">${esc(m.agent)}</span>
+        <span class="m-type">${esc(m.type)}</span>
+        ${m.service?`<span class="m-service">${esc(m.service)}</span>`:""}
+        <span class="m-time">${timeOf(m.ts)}</span></div>
         <div class="m-summary">${esc(m.summary)}</div>
         ${m.detail?`<div class="m-detail">${esc(m.detail)}</div>`:""}
         ${m.ref?`<div class="m-ref">→ ${esc(m.ref)}</div>`:""}
-      </div>
-    </div>`).join("");
-  document.getElementById("msg-count").textContent = messages.length+" events";
-  if(atBottom) feed.scrollTop = feed.scrollHeight;
+      </div></div>`).join("");
+  document.getElementById("msg-count").textContent=(messages||[]).length+" events";
+  if(atBottom&&!FILTER)feed.scrollTop=feed.scrollHeight;
 }
 
-function renderSummary(run, tasks){
-  const el = document.getElementById("summary");
-  tasks = tasks||[];
-  const done = tasks.filter(t=>t.status==="done").length;
-  document.getElementById("task-count").textContent = `${done} / ${tasks.length}`;
-  const current = tasks.find(t=>t.status==="in_progress");
-  const loop = run?.loop||{count:0,max:5};
-  const services = run?.services||null;
-  const svcNames = services?Object.keys(services):[];
+function renderSummary(run,tasks){
+  const el=document.getElementById("summary");tasks=tasks||[];
+  const done=tasks.filter(t=>t.status==="done").length;
+  document.getElementById("task-count").textContent=`${done} / ${tasks.length}`;
+  const current=tasks.find(t=>t.status==="in_progress");
+  const multi=isMulti(run);
+  let html="";
 
-  let html = `<div class="chips">
-      <span class="chip">phase <b>${esc(run?.phase||"—")}</b></span>
-      <span class="chip">agent <b>${esc(run?.activeAgent||"—")}</b></span>
-      <span class="chip">fix loop <b>${loop.count}/${loop.max}</b></span>
-    </div>`;
-
-  html += `<div class="now-card">
-      <div class="eyebrow">now working</div>
-      <div class="now-agent a-${esc(run?.activeAgent||"orchestrator")}">${esc(run?.activeAgent||"—")}</div>
-      <div class="now-task">${current?esc(current.title):(run?.status==="done"?"run complete ✓":"—")}</div>
-    </div>`;
-
-  // per-service status strip (multi-service runs only)
-  if(svcNames.length){
-    html += `<div><div class="eyebrow" style="margin-bottom:8px">services</div>
-      <div class="svc-strip">${svcNames.map(n=>{
-        const s=services[n]||{}, sl=s.loop||{count:0,max:5}, st=s.status||"pending";
-        const total=(s.passed||0)+(s.failed||0);
-        const tests=(s.passed!=null||s.failed!=null)?`<span>tests <b>${s.passed||0}/${total}</b></span>`:"";
-        return `<div class="svc-row">
-          <div class="svc-top"><span class="svc-name">${esc(n)}</span>
-            <span class="svc-state ${esc(st)}">${esc(st)}</span></div>
-          <div class="svc-meta"><span>phase <b>${esc(s.phase||"—")}</b></span>
-            <span>loop <b>${sl.count}/${sl.max}</b></span>${tests}</div></div>`;
-      }).join("")}</div></div>`;
+  if(run?.status==="awaiting_approval"){
+    html+=`<div class="approve">◆ <b>Plan ready.</b> Reply <b>finalize</b> in Claude Code to start, or edit scope at the gate. Nothing is coded until you approve.</div>`;
   }
+  html+=`<div class="chips"><span class="chip">phase <b>${esc(run?.phase||"—")}</b></span>`;
+  if(multi){const s=run.services,n=Object.keys(s).length,d=Object.values(s).filter(x=>x.status==="done").length;
+    html+=`<span class="chip">services <b>${d}/${n}</b></span>`;}
+  else html+=`<span class="chip">agent <b>${esc(run?.activeAgent||"—")}</b></span>
+    <span class="chip">fix loop <b>${(run?.loop||{count:0}).count}/${(run?.loop||{max:5}).max}</b></span>`;
+  html+=`</div>`;
+
+  // now-working summary (BOTH modes) — restores the current-task/agent panel
+  const PA={implement:"coder",test:"tester",review:"reviewer"};
+  if(multi){
+    const svc=run.services;
+    const active=Object.keys(svc).filter(n=>{const s=svc[n];return s.status!=="done"&&s.status!=="blocked"&&PA[s.phase];});
+    let inner;
+    if(run?.status==="done") inner=`<div class="now-task">run complete ✓</div>`;
+    else if(active.length) inner=active.map(n=>{const s=svc[n],ag=PA[s.phase],sl=s.loop||{count:0,max:5};
+      return `<div class="now-line"><span class="now-agent a-${ag}">${ag}</span>
+        <span class="now-svc">${esc(n)}</span><span class="now-ph">${esc(s.phase)} · ↻${sl.count}/${sl.max}</span></div>`;}).join("");
+    else inner=`<div class="now-task">between batches…</div>`;
+    html+=`<div class="now-card"><div class="eyebrow">now working · ${active.length} active</div>${inner}</div>`;
+  } else {
+    html+=`<div class="now-card"><div class="eyebrow">now working</div>
+      <div class="now-agent a-${esc(run?.activeAgent||"orchestrator")}">${esc(run?.activeAgent||"—")}</div>
+      <div class="now-task">${current?esc(current.title):(run?.status==="done"?"run complete ✓":"—")}</div></div>`;
+  }
+  // latest finding from the bus — "summary of findings from agents"
+  const finds=(LAST?.messages||[]).filter(m=>m.type==="finding");
+  if(finds.length){const f=finds[finds.length-1];
+    const blk=/blocking/i.test(f.summary)&&!/0 blocking/i.test(f.summary);
+    html+=`<div class="find-card ${blk?"blocking":""}"><div class="eyebrow">latest finding${f.service?" · "+esc(f.service):""}</div>
+      <div class="find-txt">${esc(f.summary)}</div></div>`;}
 
   if(tasks.length){
-    const taskLi = t=>`<li class="task ${esc(t.status)}"><span class="box"></span>
-        <span class="t-title">${esc(t.title)}</span>
-        ${(t.service&&!svcNames.length)?`<span class="t-service">${esc(t.service)}</span>`:""}
-        <span class="t-owner">${esc(t.owner||"")}</span></li>`;
-    let tasksHtml;
-    if(tasks.some(t=>t.service)){                 // group by service when tagged
-      const groups={};
-      tasks.forEach(t=>{const k=t.service||"(untagged)";(groups[k]=groups[k]||[]).push(t);});
-      tasksHtml = Object.keys(groups).map(g=>
-        `<div class="svc-group-head">${esc(g)}</div>
-         <ul class="task-list">${groups[g].map(taskLi).join("")}</ul>`).join("");
-    } else {
-      tasksHtml = `<ul class="task-list">${tasks.map(taskLi).join("")}</ul>`;
-    }
-    html += `<div><div class="eyebrow" style="margin-bottom:8px">tasks</div>${tasksHtml}</div>`;
+    const taskLi=t=>`<li class="task ${esc(t.status)}"><span class="box"></span>
+      <span class="t-title">${esc(t.title)}</span><span class="t-owner">${esc(t.owner||"")}</span></li>`;
+    let th;
+    if(tasks.some(t=>t.service)){
+      const g={};tasks.forEach(t=>{const k=t.service||"(untagged)";(g[k]=g[k]||[]).push(t);});
+      let keys=Object.keys(g); if(FILTER)keys=keys.filter(k=>k===FILTER);
+      th=keys.map(k=>`<div class="svc-group-head">${esc(k)}</div><ul class="task-list">${g[k].map(taskLi).join("")}</ul>`).join("");
+    } else th=`<ul class="task-list">${tasks.map(taskLi).join("")}</ul>`;
+    html+=`<div><div class="eyebrow" style="margin-bottom:8px">tasks</div>${th}</div>`;
   }
-  el.innerHTML = html;
+  el.innerHTML=html||'<div class="empty">no tasks yet</div>';
 }
 
-function render(s){
-  renderHeader(s.run); renderLine(s.run);
-  renderFeed(s.messages||[]); renderSummary(s.run, s.tasks);
-}
+let LAST=null;
+function render(s){LAST=s;renderHeader(s.run);renderHero(s.run,s.plan);renderFeed(s.messages||[]);renderSummary(s.run,s.tasks);}
 
-// live stream
-let es;
+/* live SSE, with a demo fallback when opened as a bare file / no server */
+function setConn(live){const c=document.getElementById("conn");
+  c.className="conn"+(live?" live":"");document.getElementById("conn-txt").textContent=live?"live":"offline";}
+let gotLive=false,es;
 function connect(){
-  es = new EventSource("/events");
-  es.onmessage = e => { try{ render(JSON.parse(e.data)); }catch{} };
-  es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+  try{es=new EventSource("/events");}catch{startDemo();return;}
+  es.onmessage=e=>{gotLive=true;setConn(true);document.getElementById("demo").classList.remove("on");
+    try{render(JSON.parse(e.data));}catch{}};
+  es.onerror=()=>{es.close();if(!gotLive)startDemo();else{setConn(false);setTimeout(connect,2000);}};
 }
+setTimeout(()=>{if(!gotLive)startDemo();},1400);
 connect();
+if(location.protocol==="file:")startDemo();
+
+/* ------- demo data (only shown when not live) ------- */
+function startDemo(){if(gotLive)return;document.getElementById("demo").classList.add("on");render(DEMO.multi);tick();}
+function tick(){if(gotLive)return;renderHeader(LAST.run);setTimeout(tick,1000);} // keep elapsed ticking
+document.addEventListener("click",e=>{
+  if(e.target.id==="d-multi"){sel("d-multi");render(DEMO.multi);}
+  if(e.target.id==="d-single"){sel("d-single");render(DEMO.single);}
+});
+function sel(id){["d-multi","d-single"].forEach(x=>document.getElementById(x).classList.toggle("sel",x===id));}
+
+const now=new Date(),ago=s=>new Date(now-s*1000).toISOString();
+const DEMO={
+  multi:{
+    run:{feature:"Propagate tenant SSO logout across services",phase:"implement",status:"running",
+      startedAt:ago(214),activeAgent:"coder",
+      services:{
+        "GTAuthLib":{status:"done",phase:"review",loop:{count:1,max:5},passed:9,failed:0},
+        "oauth_v3.8.0":{status:"running",phase:"test",loop:{count:2,max:5},passed:6,failed:1},
+        "SAML2_server_v251024":{status:"running",phase:"implement",loop:{count:1,max:5},passed:0,failed:0},
+        "MFA_Server":{status:"pending",phase:"—",loop:{count:0,max:5}},
+        "GTID_Radius":{status:"pending",phase:"—",loop:{count:0,max:5}}
+      }},
+    plan:{services:[
+      {name:"GTAuthLib",dependsOnServices:[]},
+      {name:"oauth_v3.8.0",dependsOnServices:["GTAuthLib"]},
+      {name:"SAML2_server_v251024",dependsOnServices:["GTAuthLib"]},
+      {name:"MFA_Server",dependsOnServices:["oauth_v3.8.0"]},
+      {name:"GTID_Radius",dependsOnServices:[]}
+    ]},
+    tasks:[
+      {id:"T1",title:"Add revokeSession() to shared auth lib",owner:"coder",status:"done",service:"GTAuthLib"},
+      {id:"T2",title:"Call revokeSession on OIDC back-channel logout",owner:"coder",status:"in_progress",service:"oauth_v3.8.0"},
+      {id:"T3",title:"Wire SAML SLO to revokeSession",owner:"coder",status:"in_progress",service:"SAML2_server_v251024"},
+      {id:"T4",title:"Invalidate MFA session cache on logout",owner:"coder",status:"todo",service:"MFA_Server"},
+      {id:"T5",title:"Drop RADIUS session on logout event",owner:"coder",status:"todo",service:"GTID_Radius"}
+    ],
+    messages:[
+      {ts:ago(210),agent:"orchestrator",type:"status",summary:"Spec normalized: 5 acceptance criteria"},
+      {ts:ago(198),agent:"planner",type:"handoff",summary:"Plan ready: 5 services, 2 dependency waves",ref:"pipeline/plan.md"},
+      {ts:ago(150),agent:"orchestrator",type:"status",summary:"Finalized. Wave 1: GTAuthLib, SAML2, GTID_Radius"},
+      {ts:ago(120),agent:"coder",type:"handoff",service:"GTAuthLib",summary:"revokeSession() added",ref:"pipeline/services/GTAuthLib/code/changes.json"},
+      {ts:ago(96),agent:"tester",type:"result",service:"GTAuthLib",summary:"Tests 9/9 passed (iter 1)"},
+      {ts:ago(88),agent:"reviewer",type:"finding",service:"GTAuthLib",summary:"Review: 0 blocking, 1 note — prefer constant-time token compare"},
+      {ts:ago(70),agent:"orchestrator",type:"status",summary:"GTAuthLib done → wave 2 admitted: oauth_v3.8.0, MFA_Server"},
+      {ts:ago(48),agent:"coder",type:"handoff",service:"oauth_v3.8.0",summary:"Back-channel logout hooked"},
+      {ts:ago(24),agent:"tester",type:"result",service:"oauth_v3.8.0",summary:"Tests 6/7 — 1 failing (iter 1)",detail:"logout_race: session lingered 200ms after revoke"},
+      {ts:ago(12),agent:"coder",type:"status",service:"oauth_v3.8.0",summary:"Fixing logout_race (iter 2)"},
+      {ts:ago(4),agent:"coder",type:"status",service:"SAML2_server_v251024",summary:"Implementing SLO handler"}
+    ]
+  },
+  single:{
+    run:{feature:"Add /logout endpoint that revokes the session server-side",phase:"test",status:"running",
+      startedAt:ago(88),activeAgent:"tester",loop:{count:2,max:5}},
+    plan:{},
+    tasks:[
+      {id:"T1",title:"Add /logout controller",owner:"coder",status:"done"},
+      {id:"T2",title:"Revoke server session + clear cookie",owner:"coder",status:"done"},
+      {id:"T3",title:"Return 204 + audit log entry",owner:"coder",status:"in_progress"}
+    ],
+    messages:[
+      {ts:ago(84),agent:"planner",type:"handoff",summary:"Plan ready: 3 tasks, 1 service"},
+      {ts:ago(60),agent:"coder",type:"handoff",summary:"Implemented 3/3 tasks",ref:"pipeline/code/changes.json"},
+      {ts:ago(30),agent:"tester",type:"result",summary:"Tests 7/8 — 1 failing (iter 1)"},
+      {ts:ago(10),agent:"coder",type:"status",summary:"Fixing cookie flag on logout (iter 2)"}
+    ]
+  }
+};
 </script>
 </body>
 </html>

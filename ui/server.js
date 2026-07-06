@@ -37,6 +37,9 @@ function tailMessages(limit) {
 function snapshot() {
   return {
     run: readJSON(path.join(PIPELINE, "run.json"), null),
+    // plan carries services[].dependsOnServices, which the dashboard uses to draw
+    // dependency waves in a multi-service run.
+    plan: readJSON(path.join(PIPELINE, "plan.json"), null),
     tasks: readJSON(path.join(PIPELINE, "tasks.json"), { tasks: [] }).tasks,
     messages: tailMessages(400),
     pipelineDir: PIPELINE,
@@ -53,7 +56,7 @@ function broadcast() {
 let lastSig = "";
 setInterval(() => {
   let sig = "";
-  for (const f of ["run.json", "tasks.json", "messages.jsonl"]) {
+  for (const f of ["run.json", "plan.json", "tasks.json", "messages.jsonl"]) {
     try { sig += f + fs.statSync(path.join(PIPELINE, f)).mtimeMs + ";"; } catch {}
   }
   if (sig !== lastSig) { lastSig = sig; broadcast(); }

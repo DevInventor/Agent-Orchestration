@@ -1,7 +1,7 @@
 {
   "name": "agent-orchestration",
   "description": "A feature-shipping pipeline (planner, coder, tester, reviewer) driven by /ship: plan with a finalize gate, then ship one service or fan out across many in parallel (phase-batched), configurable via an optional agent-orchestration.config.json registry, coordinating through a shared ./pipeline bus with a live local dashboard.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": { "name": "Het Patel" },
   "homepage": "https://github.com/DevInventor/Agent-Orchestration",
   "repository": "https://github.com/DevInventor/Agent-Orchestration",

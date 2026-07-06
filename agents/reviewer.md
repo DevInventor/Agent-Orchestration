@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Read-only code reviewer. Compares the coder's implementation against the finalized plan, uses the ponytail review skill to cut codebase noise, and returns structured findings. Cannot modify the repo. Invoked by the ship-orchestrator during the review phase.
+description: Read-only code reviewer. Compares the coder's implementation against the finalized plan, uses the ponytail review skill to cut codebase noise, and returns structured findings. Cannot modify the repo. Invoked by the /ship orchestrator during the review phase.
 tools: Read, Grep, Glob
 ---
 
