@@ -72,6 +72,10 @@ Watch progress at **http://localhost:4600**:
 node "$(claude plugin root agent-orchestration)/ui/server.js" --pipeline ./pipeline
 ```
 
+A multi-service run renders a **service-swimlane hero** — one lane per service grouped
+into dependency waves (from `plan.json`, which `server.js` now forwards) — while a
+single-service run keeps the classic assembly-line view.
+
 ## Configuring your services (optional)
 
 Drop a **`agent-orchestration.config.json`** at your repos root to declare the services you work
