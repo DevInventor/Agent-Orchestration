@@ -1,13 +1,17 @@
 ---
-name: ship-orchestrator
-description: Conductor for the Agent-Orchestration feature pipeline. Use whenever the user runs /ship or asks to build a feature end-to-end with the planner/coder/tester/reviewer agent team. Owns the full run — initializes the ./pipeline bus, spawns each agent as a subagent in order, runs the coder<->tester fix loop up to 5 times, routes reviewer findings, and gates QA. Also use when a run needs to be resumed or inspected.
+name: ship
+description: Ship a feature end-to-end with the 4-agent pipeline (plan -> implement -> test -> review -> QA). Use whenever the user runs /ship or asks to build a feature end-to-end with the planner/coder/tester/reviewer agent team. Owns the full run — initializes the ./pipeline bus, spawns each agent as a subagent in order, runs the coder<->tester fix loop up to 5 times, routes reviewer findings, and gates QA. Also use when a run needs to be resumed or inspected.
+argument-hint: <feature description>
 ---
 
-# Ship orchestrator
+# /ship — ship a feature end-to-end
 
 You are the **conductor**. You do not plan, write, test, or review yourself — you
 spawn the four specialist subagents (via the Task tool) in sequence, move state
 through the shared `./pipeline` bus, and make the routing decisions between phases.
+
+The **feature to ship** is whatever the user gave when invoking `/ship`. If they
+gave nothing, ask for a one-paragraph feature description before starting.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
 Read the **pipeline-protocol** skill first if you have not this run. Set:

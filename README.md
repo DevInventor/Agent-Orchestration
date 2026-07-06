@@ -128,7 +128,7 @@ finalize gate, then delegates.
   batch → awaits → all testers → awaits → re-spawns only the services still failing**,
   then a reviewer batch, then a macro QA gate. Each service keeps its **own** fix-loop
   counter (5 each), drops out the moment it's green, and `dependsOnServices` gates which
-  services enter each wave. See `skills/ship-orchestrator` for the full contract.
+  services enter each wave. See `skills/ship` for the full contract.
 
 ### The pipeline bus
 
