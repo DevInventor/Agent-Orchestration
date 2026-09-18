@@ -451,8 +451,10 @@ def svc_dir(root, service, *parts):
 def render_review(data):
     """review.md is rendered FROM review.json, so the prose and the machine-readable
     findings can never disagree about how many blockers there are."""
-    out = ["# Review", "", "## Summary", "", data.get("summary", "").strip() or "_not given_",
-           "", "## Plan fidelity", "", data.get("planFidelity", "").strip() or "_not given_",
+    out = ["# Review", "", "## Summary", "",
+           str(data.get("summary") or "").strip() or "_not given_",
+           "", "## Plan fidelity", "",
+           str(data.get("planFidelity") or "").strip() or "_not given_",
            "", "## Findings", ""]
     for sev in SEVERITIES:
         group = [f for f in data["findings"] if f["severity"] == sev]
@@ -639,8 +641,9 @@ def cmd_finish(root, args):
     run = load_run(root)
     repos = run.get("repos") or []
     if not repos:
-        sys.exit(f"{root} records no repositories - nothing to finish "
-                 "(was this bus created without --slug?)")
+        sys.exit(f"{root} records no repositories - nothing to finish. "
+                 + ("Run `worktree add` first." if run.get("slug")
+                    else "This bus was created without --slug."))
     require_git()
     for e in repos:
         n = git(e["repo"], "rev-list", "--count", f"{e['base']}..{e['branch']}").stdout.strip()
