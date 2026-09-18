@@ -105,6 +105,22 @@ def slugify(text):
     return s[:SLUG_MAX].strip("-")
 
 
+def require_path_segment(value, flag):
+    """A service name is NOT a slug. A slug names the workstream and becomes a git
+    branch, so it has to be ref-safe. A service name is a directory that already
+    exists on disk, named by whoever made the repo: 'GT-Janus', 'GTID-Vault',
+    'MFA_Server', 'oauth_v3.8.0' are 7 of the 15 names in a real registry, and the
+    container path is wt-<slug>/<service>, so the exact name has to survive. The only
+    thing worth refusing is what the name can do as a *path* - escape the container.
+    So: one plain segment, nothing else."""
+    if (not value or value in (".", "..") or "/" in value or "\\" in value
+            or os.path.isabs(value) or re.match(r"^[A-Za-z]:", value)
+            or os.path.basename(value) != value):
+        sys.exit(f"{flag} must be a single path segment - no '/' or '\\', no drive "
+                 f"letter, not '.' or '..'; got {value!r}. It becomes a directory name.")
+    return value
+
+
 def derive_slug(spec_path):
     """The workstream's name, from its spec doc's path. It has to be *derived* rather
     than chosen, because a later wave re-derives it and must land on the same string —
@@ -453,9 +469,17 @@ def cmd_task(root, args):
 
 
 def svc_dir(root, service, *parts):
-    """Artifact dir for a service, or the flat single-service layout when there is none."""
-    return os.path.join(root, "services", service, *parts) if service \
-        else os.path.join(root, *parts)
+    """Artifact dir for a service, or the flat single-service layout when there is none.
+
+    Every path built from a service name funnels through here (review, qa-check), so
+    the traversal guard lives here rather than in each caller."""
+    # `is None` (not falsy): an explicit --service "" is a mistake, and silently
+    # treating it as "no service" would drop a multi-service run's artifacts into the
+    # flat single-service slot the namespace exists to keep them out of.
+    if service is None:
+        return os.path.join(root, *parts)
+    return os.path.join(root, "services",
+                        require_path_segment(service, "--service"), *parts)
 
 
 def render_review(data):
@@ -573,11 +597,10 @@ def cmd_worktree(root, args):
     else. That is what makes "one workstream, one branch name in every repository"
     structural rather than a convention two sessions can drift from (observed in 2 of
     11 real containers, where a merge silently left the fourth repo behind)."""
-    # --service becomes a directory name under the container, so it gets the same guard
-    # --slug got at init: unvalidated, '../../x' walks straight out of the container.
-    if slugify(args.service) != args.service:
-        sys.exit(f"--service must already be a slug; {args.service!r} would have to be "
-                 f"{slugify(args.service)!r}. It becomes a directory name under the container.")
+    # --service becomes a directory name under the container: unvalidated, '../../x'
+    # walks straight out of it. Traversal is the whole threat - the name itself is a
+    # real on-disk directory ('GTID-Vault', 'oauth_v3.8.0') and is used verbatim.
+    require_path_segment(args.service, "--service")
     run = load_run(root)
     branch = run.get("branch")
     if not branch:
