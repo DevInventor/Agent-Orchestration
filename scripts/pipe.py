@@ -686,9 +686,12 @@ def cmd_finish(root, args):
     if args.teardown:
         for e in repos:
             git(e["repo"], "worktree", "remove", "--force", e["worktree"], check=False)
-        container = os.path.dirname(repos[0]["worktree"])
-        shutil.rmtree(container, ignore_errors=True)
-        print(f"removed container {container}")
+        # Services in separate repos put their containers under different repos roots,
+        # so there is one container per root, not one per run. Missing the others leaves
+        # exactly the empty orphan directories teardown exists to prevent.
+        for container in sorted({os.path.dirname(e["worktree"]) for e in repos}):
+            shutil.rmtree(container, ignore_errors=True)
+            print(f"removed container {container}")
     print(f"archived bus -> {archive_bus(root, run)}")
 
 
