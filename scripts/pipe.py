@@ -212,6 +212,14 @@ def cmd_slug(root, args):
 
 
 def cmd_init(root, args):
+    # The branch name is fixed here and nothing later can change it, so an identity git
+    # cannot turn into a ref has to be refused now, not discovered at `worktree add`.
+    # Refuse rather than slugify: main() built the bus directory from the raw argument
+    # and scan_pipelines() keys on that directory name, so a silent rewrite would leave
+    # run["slug"] and the directory disagreeing.
+    if getattr(args, "slug", None) and slugify(args.slug) != args.slug:
+        sys.exit(f"--slug must already be a slug; {args.slug!r} would have to be "
+                 f"{slugify(args.slug)!r}. Run `pipe.py slug --title/--spec ...` and pass its output.")
     os.makedirs(root, exist_ok=True)
     for sub in ("code", "test", "review", "status"):
         os.makedirs(os.path.join(root, sub), exist_ok=True)
