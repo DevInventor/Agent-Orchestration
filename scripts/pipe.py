@@ -18,11 +18,12 @@ Usage examples:
     pipe.py loop --count 2 --max 5
     pipe.py event --agent coder --type handoff --summary "Implemented 4/4 tasks" --ref pipeline/code/changes.json
     pipe.py worktree add --service api --repo /abs/repos/OpenCRM
+    pipe.py finish 009-messaging-hub --apply
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
     pipe.py status
 """
-import argparse, json, os, re, subprocess, sys, tempfile, time
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
@@ -480,6 +481,109 @@ def cmd_worktree(root, args):
     print(json.dumps(entry, indent=2))
 
 
+def require_git(minimum=(2, 38)):
+    """`merge-tree --write-tree` - the only way to test a merge without touching a
+    working tree - landed in git 2.38. Check once and say so, rather than misparse
+    older output and report a clean merge that is not one."""
+    r = subprocess.run(["git", "--version"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    m = re.search(r"(\d+)\.(\d+)", r.stdout if r.returncode == 0 else "")
+    if not m or (int(m.group(1)), int(m.group(2))) < minimum:
+        sys.exit(f"finish needs git >= {minimum[0]}.{minimum[1]}; found "
+                 f"'{(r.stdout or r.stderr).strip() or 'no git on PATH'}'")
+
+
+def merge_conflicts(entry):
+    """Conflicting paths for merging the workstream branch into this repo's base, or []
+    when the merge is clean. Touches no working tree, so it is safe in plan mode."""
+    r = git(entry["repo"], "merge-tree", "--write-tree", "--name-only",
+            entry["base"], entry["branch"], check=False)
+    if r.returncode == 0:
+        return []
+    # line 0 is the resulting tree's oid; the conflicted paths follow, then a blank
+    # line and git's human-readable messages. Any non-zero exit counts as conflicted.
+    files = []
+    for line in r.stdout.splitlines()[1:]:
+        if not line.strip():
+            break
+        files.append(line.strip())
+    return files or ["(git reported a conflict but named no file)"]
+
+
+def cmd_finish(root, args):
+    """Close a run: plan the multi-repo merge, or perform it all-or-nothing.
+
+    Git has no atomic multi-repo merge, so this builds one: every repo is dry-run
+    first and nothing merges unless all of them are clean. Merging until something
+    breaks would leave one feature half-shipped across services.
+
+    A run is not a workstream: --apply keeps the worktrees, because a later wave stands
+    on them. Removing the container is --teardown, a separate explicit act."""
+    if args.teardown and not args.apply:
+        sys.exit("--teardown only applies with --apply; a bare finish changes nothing")
+    if args.slug:
+        match = [p for p in scan_pipelines() if p["slug"] == args.slug]
+        if not match:
+            sys.exit(f"no workstream '{args.slug}' under {pipelines_root()}")
+        root = match[0]["root"]
+    run = load_run(root)
+    repos = run.get("repos") or []
+    if not repos:
+        sys.exit(f"{root} records no repositories - nothing to finish "
+                 "(was this bus created without --slug?)")
+    require_git()
+    for e in repos:
+        n = git(e["repo"], "rev-list", "--count", f"{e['base']}..{e['branch']}").stdout.strip()
+        files = merge_conflicts(e)
+        verdict = "clean" if not files else "CONFLICTS: " + ", ".join(files)
+        # Zero commits is a red flag, not a no-op: it means nothing was ever committed.
+        flag = "  <- NO COMMITS on this branch" if n == "0" else ""
+        print(f"{e['service']}: {e['branch']} -> {e['base']}  {n} commit(s)  {verdict}{flag}")
+    if not args.apply:
+        print(f"plan only - nothing changed. re-run with --apply to merge {len(repos)} repo(s).")
+        return
+    # Re-run every dry run before touching anything: the plan above may have been
+    # printed minutes ago in another invocation and the bases may have moved since.
+    blocked = []
+    for e in repos:
+        files = merge_conflicts(e)
+        if files:
+            blocked.append(f"{e['service']} ({e['repo']}): " + ", ".join(files))
+        if git(e["repo"], "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != e["base"]:
+            blocked.append(f"{e['service']} ({e['repo']}): not on its base branch {e['base']}")
+        if git(e["repo"], "status", "--porcelain").stdout.strip():
+            blocked.append(f"{e['service']} ({e['repo']}): uncommitted changes in the working tree")
+    if blocked:
+        print("merged NOTHING - resolve these first:")
+        for b in blocked:
+            print("  " + b)
+        sys.exit(1)
+    for e in repos:
+        git(e["repo"], "merge", "--no-ff", "-m",
+            f"Merge {e['branch']} into {e['base']}", e["branch"])
+        print(f"merged {e['branch']} -> {e['base']} in {e['repo']}")
+    if args.teardown:
+        for e in repos:
+            git(e["repo"], "worktree", "remove", "--force", e["worktree"], check=False)
+        container = os.path.dirname(repos[0]["worktree"])
+        shutil.rmtree(container, ignore_errors=True)
+        print(f"removed container {container}")
+    print(f"archived bus -> {archive_bus(root, run)}")
+
+
+def archive_bus(root, run):
+    """One archive convention, replacing the four hand-rolled variants seen in real use.
+    The workstream directory (bus and all) moves aside as <slug>.closed-<YYYYmmdd>."""
+    ws = os.path.dirname(os.path.abspath(root))
+    dest = os.path.join(os.path.dirname(ws),
+                        f"{run['slug']}.closed-{datetime.now().strftime('%Y%m%d')}")
+    n, base = 2, dest
+    while os.path.exists(dest):       # a workstream closed twice in one day
+        dest, n = f"{base}-{n}", n + 1
+    shutil.move(ws, dest)
+    return dest
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
@@ -514,6 +618,7 @@ def build_parser():
     s = sub.add_parser("worktree")
     ws = s.add_subparsers(dest="wt_cmd", required=True)
     w = ws.add_parser("add"); w.add_argument("--service", required=True); w.add_argument("--repo", required=True)
+    s = sub.add_parser("finish"); s.add_argument("slug", nargs="?"); s.add_argument("--apply", action="store_true"); s.add_argument("--teardown", action="store_true")
     s = sub.add_parser("task")
     ts = s.add_subparsers(dest="task_cmd", required=True)
     for name in ("add", "update"):
@@ -544,7 +649,7 @@ def main():
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "config": cmd_config, "task": cmd_task,
-        "worktree": cmd_worktree,
+        "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
 
 

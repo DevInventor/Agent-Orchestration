@@ -99,6 +99,54 @@ def workstream_checks():
         run(root, "worktree", "add", "--service", "api", "--repo", api,
             "--branch", "feature/other", expect=2)
 
+        # --- a bare finish plans, changes nothing, and flags an empty branch --------
+        heads = {p: git(p, "rev-parse", "HEAD") for p in (api, web)}
+        out = run(root, "finish")
+        assert "NO COMMITS" in out, f"a branch nobody committed to is a red flag:\n{out}"
+        assert {p: git(p, "rev-parse", "HEAD") for p in (api, web)} == heads, \
+            "a bare finish must not move any HEAD"
+        assert os.path.isfile(os.path.join(root, "run.json")), "a bare finish must not archive the bus"
+
+        # the coder's work: commits on the workstream branch, inside the worktrees
+        wt_api, wt_web = [e["worktree"] for e in read_run(root)["repos"]]
+        write(os.path.join(wt_api, "api.txt"), "api work\n")
+        git(wt_api, "add", "-A"); git(wt_api, "commit", "-qm", "T1: api work")
+        write(os.path.join(wt_web, "README.md"), "web work\n")
+        git(wt_web, "add", "-A"); git(wt_web, "commit", "-qm", "T2: web work")
+
+        # --- one conflicting repo means nothing merges anywhere ---------------------
+        write(os.path.join(web, "README.md"), "meanwhile, on master\n")
+        git(web, "commit", "-qam", "base moved under us")
+        before = git(api, "rev-parse", "HEAD")
+        out = run(root, "finish", "--apply", expect=1)
+        assert "README.md" in out and "NOTHING" in out, out
+        assert git(api, "rev-parse", "HEAD") == before, \
+            "a conflict in one repo must leave every other repo unmerged"
+
+        # --- apply merges every repo, archives the bus, and KEEPS the worktrees -----
+        git(web, "reset", "-q", "--hard", "HEAD~1")
+        run(root, "finish", "--apply")
+        assert git(api, "rev-parse", "HEAD") != before, "apply must merge a clean repo"
+        assert "api.txt" in git(api, "show", "--name-only", "--format=", "HEAD^2")
+        for wt in (wt_api, wt_web):
+            assert os.path.exists(os.path.join(wt, ".git")), \
+                f"closing a run must not remove the worktree a later wave stands on: {wt}"
+        archived = [d for d in os.listdir(tmp) if d.startswith("messaging-hub.closed-")]
+        assert archived and not os.path.exists(root), f"bus should be archived: {archived}"
+
+        # --- tearing the container down is the separate, explicit act ---------------
+        billing = git_repo(os.path.join(repos, "billing"), "main")
+        b_root = os.path.join(tmp, "bus2", "pipeline")
+        run(b_root, "init", "--feature", "Billing fix", "--slug", "billing-fix")
+        run(b_root, "worktree", "add", "--service", "billing", "--repo", billing)
+        b_wt = read_run(b_root)["repos"][0]["worktree"]
+        write(os.path.join(b_wt, "x.txt"), "x\n")
+        git(b_wt, "add", "-A"); git(b_wt, "commit", "-qm", "T1: x")
+        run(b_root, "finish", "--teardown", expect=1)   # refused: it would change disk
+        run(b_root, "finish", "--apply", "--teardown")
+        assert not os.path.exists(b_wt) and not os.path.exists(os.path.dirname(b_wt)), \
+            "--teardown removes the worktree and the container"
+
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
