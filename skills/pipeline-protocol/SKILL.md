@@ -31,7 +31,7 @@ pipeline/
 │   ├── scenarios.json# tester: use-case + dataflow scenarios
 │   └── results.json  # tester: {iteration, passed, failed, failures:[...]}
 ├── review/
-│   ├── review.md     # reviewer analysis (orchestrator persists it — see below)
+│   ├── review.md     # rendered from review.json by `pipe.py review --from`
 │   └── review.json   # reviewer findings: [{severity, file, line, note, planRef}]
 └── status/
     └── summary.md     # QA/orchestrator: completed + current task  -> right panel
@@ -64,6 +64,12 @@ per-service path.
 {
   "runId": "run-YYYYmmdd-HHMMSS",
   "feature": "...",
+  "slug": "009-messaging-hub",
+  "branch": "feature/009-messaging-hub",
+  "repos": [ { "service": "api", "repo": "/abs/OpenCRM",
+               "worktree": "/abs/repos/wt-009-messaging-hub/api",
+               "branch": "feature/009-messaging-hub", "base": "develop" } ],
+  "mode": "worktree",
   "phases": ["spec","plan","implement","test","review","qa","done"],
   "phase": "implement",
   "activeAgent": "coder",
@@ -76,6 +82,11 @@ per-service path.
   }
 }
 ```
+
+`slug`, `branch`, `repos` and `mode` are present only when the bus was created with
+`init --slug` — the workstream half of the record. `branch` is fixed at `init` and is the
+same string in every repository; only `worktree add` writes `repos[]`, and it takes no
+branch argument, so nothing can introduce a second name.
 
 `status: awaiting_approval` is the finalize gate (plan done, waiting for the user).
 `services` is present only in a multi-service run — one entry per service, written by
@@ -119,7 +130,15 @@ $PIPE svc --name oauth_v3.8.0 --phase test --loop-count 2 --loop-max 5 \
           --agent tester --status running --passed 8 --failed 1   # per-service header state
 $PIPE status                               # print run.json
 $PIPE config                               # load+validate optional agent-orchestration.config.json
+$PIPE review --from findings.json [--service oauth_v3.8.0]   # reviewer only: validate + persist
+$PIPE slug --spec docs/specs/009-messaging-hub/design.md     # the workstream's name
+$PIPE worktree add --service api --repo /abs/repos/OpenCRM   # materialise the branch
+$PIPE finish 009-messaging-hub [--apply [--teardown]]        # plan / perform the merge home
 ```
+
+The reviewer writes `review/{review.json,review.md}` **itself** through `review --from`,
+which validates the payload before writing anything and emits the `finding` event. Nobody
+retypes findings on its behalf.
 
 `--service` and `svc` are **optional/additive**: omit them and behavior is identical to
 the original single-service pipeline. Use them only in a multi-service run.

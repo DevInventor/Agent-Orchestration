@@ -114,16 +114,14 @@ deltas.
 
 ### 4. Review  (phase: review)
 1. `$PIPE phase review && $PIPE agent reviewer`.
-2. Spawn the **reviewer** subagent (`agents/reviewer.md`). It is **read-only**: its
-   agent definition grants only Read/Grep/Glob, so it cannot modify the repo. It
-   compares the implementation against `plan.json`, and uses the `ponytail` review
-   skill (`/ponytail.review` or the `ponytail` skill) to strip codebase noise and
-   focus on the real diff. It **returns** its findings to you as structured text.
-3. **You persist the reviewer's output** on its behalf (it can't write): save the
-   markdown analysis to `pipeline/review/review.md` and the structured findings to
-   `pipeline/review/review.json`, then
-   `$PIPE event --agent reviewer --type finding --summary "Review: X blocking, Y notes" --ref pipeline/review/review.md`.
-4. Routing: if there are **blocking** findings, send them back to the coder (this
+2. Spawn the **reviewer** subagent (`agents/reviewer.md`). It cannot modify the repo:
+   its agent definition grants no `Write` and no `Edit`. It compares the implementation
+   against `plan.json`, and uses the `ponytail` review skill (`/ponytail.review` or the
+   `ponytail` skill) to strip codebase noise and focus on the real diff. It **persists
+   its own findings** through `$PIPE review --from <file>` — which writes
+   `pipeline/review/review.{json,md}` and emits the `finding` event — and returns you a
+   one-line summary. Do not retype its findings; read `pipeline/review/review.json`.
+3. Routing: if there are **blocking** findings, send them back to the coder (this
    reuses the same fix budget — do not exceed the total of 5 coder fix iterations
    across test+review combined). Re-test after any code change. If only non-blocking
    notes remain, annotate and proceed.
@@ -188,9 +186,10 @@ budget of 5 is enforced **independently per service**, not as a shared batch cou
 
 ### Review batch
 When all services are `done`/`blocked`: `$PIPE phase review`. **Spawn one reviewer per
-`done` service in a single message.** Each reviewer is read-only and **returns** its
-findings; **you persist** them to `pipeline/services/<svc>/review/{review.md,review.json}`
-and emit a `finding` event tagged `--service <svc>`. Blocking findings route that service
+`done` service in a single message.** Each reviewer persists its own findings with
+`$PIPE review --from <file> --service <svc>`, which writes
+`pipeline/services/<svc>/review/{review.md,review.json}` and emits the `finding` event
+tagged for that service; you get one line back. Blocking findings route that service
 back into a coder batch (counting against its same budget of 5), then re-test and
 re-review that service only.
 
