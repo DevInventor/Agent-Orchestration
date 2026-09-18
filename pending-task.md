@@ -82,3 +82,42 @@ emitted 182 events in one run and 1 in another. A silent agent produces an empty
 dashboard that looks like a stalled one.
 **Fix:** falls out of D3 — once staleness is visible, a non-emitting agent is *visible*
 as stale rather than silently indistinguishable from progress.
+
+---
+
+# GoTrust review findings (18 Sep 2026)
+
+Reviewed 21 buses / 11 worktree containers / 7 service repos at
+`C:/Projects/Tenup/GoTrust`. Layout and branch corrections went into
+`docs/specs/2026-09-18-multi-pipeline-engine.md`. These are the operational leftovers.
+
+## G1 — Six of twelve stalled pipelines were simply never closed  [OPEN]
+Not failures. `wt-vaultcred` (21/21 scenarios passed), `wt-rolecat` (412 unit + 219 IT,
+0 failures), `oauth_v3.8.0/pipeline-superadmin-ui` (14/14, already deployed to AWS) and
+`wt-marketplace/pipeline-archive-run-…` (20/20, deployed) are all green and still read
+`status: running`. Two more sit at `awaiting_approval` for 16 and **25** days
+(`pipeline-materialiser-phase-a`, `pipeline-connector-chain` — the latter 24/27 tasks).
+`finish` plus the hall's stale flag is the fix; until then they need closing by hand.
+
+## G2 — Duplicate bus snapshots  [OPEN]
+`docker/pipeline-backup-run-20260902-115306-20260904-171240` and `…-20260907-171122` are
+byte-identical (126 events each). One can be deleted. `finish`'s single archive convention
+prevents the class.
+
+## G3 — Planner crawls a graph that is already built  [OPEN → spec §11]
+The codebase-memory index for that root is `ready` at 89,192 nodes / 304,535 edges, and
+every planner still crawls with Glob/Grep. The 19 `index.md` files total ~55,600 tokens of
+output, and `codebase/docker/pipeline/index.md` and `wt-stepup/pipeline/index.md` are
+byte-identical — the same 26 KB crawl paid for twice. Specced in §11: query the graph,
+keep a per-pipeline `index.md` as a feature delta.
+
+## G4 — A hand-written knowledge base rotted  [WONTFIX — informs §11]
+`Docs/AI-Agent-Quick-Context.md` is five months stale and its "Fast Commands for Next
+Agent" tell the agent to `cd D:/Tenup/GoTrust/…`, a drive that does not exist. A shared
+generated `knowledge-base.md` was designed and then **rejected** on this evidence: it would
+be a sixth store to drift. The graph is the shared knowledge; each pipeline keeps its own
+`index.md`.
+
+## G5 — Orphaned worktrees from past sessions  [OPEN → spec, `pipe.py prune`]
+Detached-HEAD worktrees left under the temp scratchpad (`vault-baseline`, `oauth-baseline`)
+still registered in `GTID-Vault` and `oauth_v3.8.0`. `git worktree prune` fodder.

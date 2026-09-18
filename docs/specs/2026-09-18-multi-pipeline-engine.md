@@ -45,6 +45,8 @@ them.
 | 12 | Slug derivation | **Smart path rule** (§9). |
 | 13 | Branch model | **One pipeline, one feature branch**, named at `init` before any work starts; same name in every repo. Agents must commit (§3.1–3.2). |
 | 14 | Working directory | **`<reposRoot>/wt-<slug>/<service>/`** — repos-root-shaped container, matching real GoTrust usage. Not `<repo>/.worktrees/`. |
+| 15 | Shared knowledge base | **No file.** The codebase-memory graph *is* the shared knowledge; each pipeline keeps its own `index.md`. See §11. |
+| 16 | Planner discovery | **Query the graph**, don't crawl. Dashboard indexes the registered repos. See §11. |
 
 `/ship-from-spec` is the daily driver (`/grill-me` → spec doc → `/ship-from-spec`).
 `/ship` is the occasional path. Where the two differ, optimise for `ship-from-spec`.
@@ -288,7 +290,47 @@ bottleneck you opened the dashboard to find.
 
 Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`.
 
-## 11. Security boundary
+## 11. Codebase knowledge: the graph, not a file
+
+**A shared `knowledge-base.md` was designed and then rejected**, on evidence from the
+GoTrust repos-root. Recording why, so it is not proposed again.
+
+That project already keeps five overlapping knowledge stores: a hand-written
+`Docs/AI-Agent-Quick-Context.md`, `.claude/memory/`, a MemPalace config, 19 per-pipeline
+`index.md` files, and a codebase-memory graph. The hand-written one is **five months
+stale** and its "Fast Commands for Next Agent" instruct the agent to `cd D:/Tenup/GoTrust/…`
+— a drive that does not exist. A generated sixth file would have been one more artifact
+that drifts out of step with the code.
+
+**The graph is already the shared knowledge and nothing was using it.** That project's
+index is `ready` at **89,192 nodes / 304,535 edges**, while every planner still crawled
+with Glob/Grep. Two of the 19 indexes (`codebase/docker/pipeline/index.md` and
+`wt-stepup/pipeline/index.md`) are **byte-identical** — the same 26 KB crawl paid for
+twice — and the 19 together are ~55,600 tokens of *output*, with the reading behind them
+many times larger.
+
+### What this means for the pipeline
+
+- **Each pipeline keeps its own `index.md`.** It stays the per-run shared context the
+  coder and tester read. What changes is how it is produced.
+- **The planner queries instead of crawling.** `get_architecture` for orientation,
+  `search_graph` to locate the feature's symbols, `trace_path` for callers and callees,
+  `get_code_snippet` for exact source. `index.md` becomes a short description of *what
+  this feature touches*, not a re-description of the codebase.
+- **The dashboard indexes the project's repos.** The service registry already names them;
+  an *Index repos* action runs `index_repository` over that set and reports node counts
+  and coverage per repo. Indexing once serves every pipeline on those repos.
+- **No new file, no new staleness model.** Freshness is the graph's own concern —
+  `index_status` and `detect_changes` already report it, and watched projects refresh in
+  the background.
+
+### Downstream quality, not just tokens
+
+The same queries improve the work rather than only cheapening it: `trace_path(inbound)`
+gives the tester the real caller set instead of a guess at which dataflows matter, and
+`detect_changes()` gives the reviewer a precise blast radius instead of the whole diff.
+
+## 12. Security boundary
 
 `POST /api/gate` is the first path where a browser can trigger git operations.
 
@@ -299,7 +341,7 @@ Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`
 - The gate can only *release a waiter*. It never triggers `finish --apply`; merging stays
   an explicit command.
 
-## 12. Out of scope
+## 13. Out of scope
 
 - **Cross-session juggling** — one session driving multiple pipelines. Deferred by
   decision; it would require abandoning the blocking finalize gate.
@@ -308,14 +350,14 @@ Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`
 - **Spec write-back and doc relocation** — declined.
 - **Per-service detail on the hall** — the board is one click away.
 
-## 13. Backward compatibility
+## 14. Backward compatibility
 
 - `pipe.py --root` keeps working; an existing `./pipeline` bus is still readable.
 - `server.js --pipeline <dir>` keeps working for a single bus.
 - `in-place` mode is today's behaviour exactly, reachable from the finalize gate.
 - Legacy `messages.jsonl` without `runId` already falls back to the raw tail (shipped, D4).
 
-## 14. Risks
+## 15. Risks
 
 | Risk | Handling |
 |---|---|
@@ -329,7 +371,7 @@ Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`
 | A worktree container outlives its bus, or vice versa | Observed twice (`wt-mfa-authority`, `wt-phase2-a2`). `repos[]` binds them in one record and `ls` reports either half missing. |
 | Slug collision across projects | Collision is checked against *active* pipelines and suffixed; `repos[]` stores absolute paths so repos stay unambiguous. |
 
-## 15. Files this touches
+## 16. Files this touches
 
 | File | Change |
 |---|---|
@@ -339,10 +381,13 @@ Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`
 | `skills/ship`, `skills/ship-from-spec` | slug derivation, `--root` baked into `$PIPE` |
 | `skills/pipeline-protocol` | `repos[]`, `gate.json`, per-pipeline root |
 | `ui/server.js` | scan mode, `/`, `/r/<slug>`, `/events?run=`, `POST /api/gate` |
-| `ui/index.html` | hall overview, board panes, gate buttons |
+| `ui/index.html` | hall overview, board panes, gate buttons, **Index repos** action |
+| `agents/planner.md` | **query the graph instead of Glob/Grep crawling**; `index.md` becomes a feature delta (§11) |
+| `agents/tester.md` | `trace_path(inbound)` for the real caller set (§11) |
+| `agents/reviewer.md` | `detect_changes()` for the blast radius (§11) |
 | `scripts/test_pipe.py` | slug rule, `finish` plan/apply, gate round-trip |
 
-## 16. Related tracked work
+## 17. Related tracked work
 
 From `pending-task.md`: **P1** (server-side fix-loop budget) should land before or with
 this — the multi-service escalation logic depends on a counter the engine can trust.
