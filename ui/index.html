@@ -44,6 +44,16 @@
   .status-done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
   .status-blocked,.status-failed{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
   .status-awaiting_approval{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+  /* staleness: a run whose bus has not been written to in a while while still claiming
+     to run. Without this a dead agent renders exactly like a busy one. */
+  .stale-chip{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 10px;border:1px solid var(--bad);color:var(--bad);border-radius:2px;
+    background:color-mix(in srgb,var(--bad) 12%,transparent)}
+  body.is-stale .bar-fill{background:var(--bad)!important;opacity:.75}
+  body.is-stale .station.active .dot{animation:none;opacity:.5}
+  .lane.stale{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));opacity:.72}
+  .lane.stale .m-dot.cur{animation:none;opacity:.55}
+  .lane-stale{font-family:var(--mono);font-size:10px;color:var(--bad);margin-top:7px}
 
   .bar-meta{display:flex;justify-content:space-between;align-items:baseline;margin:2px 0 4px}
   .bar-meta .right{display:flex;gap:14px;align-items:baseline}
@@ -183,6 +193,7 @@
     <span class="feature" id="feature">waiting for a run…</span>
     <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
     <span class="status-chip" id="status">idle</span>
+    <span class="stale-chip" id="stale" style="display:none"></span>
   </div>
   <div class="bar-meta">
     <span class="eyebrow" id="phase-label">phase</span>
@@ -220,6 +231,17 @@ const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt
 const timeOf=iso=>{try{return new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return"";}};
 function since(iso){if(!iso)return"";const s=Math.max(0,(Date.now()-new Date(iso))/1000);const m=Math.floor(s/60);return m?`${m}m ${Math.floor(s%60)}s`:`${Math.floor(s)}s`;}
 
+/* Staleness. pipe.py stamps updatedAt on every run.json/services[] write, so silence
+   there means no agent has touched the bus. Only "running" counts: awaiting_approval is
+   supposed to sit still, and done/blocked are terminal. */
+const STALE_MS=180000; // 3 min
+function staleMs(o){
+  if(!o||o.status!=="running"||!o.updatedAt) return 0;
+  const age=Date.now()-new Date(o.updatedAt);
+  return age>STALE_MS?age:0;
+}
+function agoTxt(ms){const m=Math.floor(ms/60000);return m<60?`${m}m`:`${Math.floor(m/60)}h ${m%60}m`;}
+
 function isMulti(run){return !!(run&&run.services&&Object.keys(run.services).length);}
 
 /* progress that actually moves in a multi-service build */
@@ -255,6 +277,9 @@ function renderHeader(run){
   document.getElementById("pct").textContent=pct+"%";
   document.getElementById("phase-label").textContent=run?`phase · ${run.phase}`:"phase";
   document.getElementById("elapsed").textContent=run?.startedAt&&status!=="done"?"⏱ "+since(run.startedAt):"";
+  const sm=staleMs(run),sc=document.getElementById("stale");
+  if(sm){sc.textContent="⚠ no activity "+agoTxt(sm);sc.style.display="";document.body.classList.add("is-stale");}
+  else{sc.style.display="none";document.body.classList.remove("is-stale");}
   renderTicks(run);
 }
 
@@ -310,7 +335,8 @@ function renderHeroMulti(run,plan){
       const s=svc[n]||{},status=s.status||"pending",sl=s.loop||{count:0,max:5};
       const elig=laneEligible(s,deps[n],svc);
       const waiting=status==="pending"&&!elig;
-      const cls=[waiting?"waiting":"",status==="done"?"done":"",status==="blocked"?"blocked":"",FILTER===n?"sel":""].join(" ");
+      const svcStale=staleMs(s);
+      const cls=[waiting?"waiting":"",status==="done"?"done":"",status==="blocked"?"blocked":"",svcStale?"stale":"",FILTER===n?"sel":""].join(" ");
       const total=(s.passed||0)+(s.failed||0);
       const tests=total?`<span class="${s.failed?"fail":""}">tests <b>${s.passed||0}/${total}</b></span>`:"";
       const stLabel=waiting?"waiting":status;
@@ -323,7 +349,7 @@ function renderHeroMulti(run,plan){
           <span class="lane-state ${status==="running"||(!waiting&&status!=="done"&&status!=="blocked"&&status!=="pending")?"running":esc(waiting?"waiting":status)}">${esc(stLabel)}</span></div>
         <div class="mini">${mini}</div>
         <div class="lane-meta"><span>phase <b>${esc(s.phase||"—")}</b></span><span>loop <b>${sl.count}/${sl.max}</b></span>${tests}</div>
-        ${wait}</div>`;
+        ${wait}${svcStale?`<div class="lane-stale">⚠ no activity ${agoTxt(svcStale)} — agent may have died</div>`:""}</div>`;
     });
     h+=`</div></div>`;
   });
@@ -433,6 +459,10 @@ function connect(){
 }
 setTimeout(()=>{if(!gotLive)startDemo();},1400);
 connect();
+/* Staleness is a function of elapsed time, not of new data — and the SSE stream is
+   silent precisely when a run is stuck. Re-evaluate on a timer or the warning that
+   matters most would never appear. */
+setInterval(()=>{if(gotLive&&LAST&&LAST.run){renderHeader(LAST.run);renderHero(LAST.run,LAST.plan);}},15000);
 if(location.protocol==="file:")startDemo();
 
 /* ------- demo data (only shown when not live) ------- */

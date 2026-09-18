@@ -21,6 +21,16 @@ PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
 ## Load the spec  (phase: spec)
 1. Read the spec doc at the path the user gave.
 2. `$PIPE init --feature "<a short one-line title drawn from the spec>"`.
+2b. **Start the dashboard — do not skip this.** Nothing else in the pipeline ever starts
+   it, and the server is a passive file reader: if it is not running, the entire run is
+   invisible. Launch it as a **background** Bash call so it outlives this turn:
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "$(pwd)/pipeline"
+   ```
+   It is idempotent — if a dashboard already holds the port it prints that and exits 0.
+   Pass the **absolute** bus path as shown; the server resolves `--pipeline` against its
+   own cwd, so a relative path silently watches the wrong directory.
+   Then tell the user once: **http://localhost:4600**.
 3. Write the spec into `pipeline/spec.md` (overwrite). Preserve the user's content;
    only add structure if it lacks crisp, testable acceptance criteria — in that case
    distill a short bullet list of criteria at the top and keep the original below.

@@ -85,12 +85,18 @@ service's granular phase and fix-loop live under its `services` entry.
 ## messages.jsonl (one JSON object per line)
 
 ```json
-{ "ts":"ISO-8601", "agent":"planner|coder|tester|reviewer|orchestrator",
+{ "ts":"ISO-8601", "runId":"run-YYYYmmdd-HHMMSS-xxxx",
+  "agent":"planner|coder|tester|reviewer|orchestrator",
   "type":"status|handoff|finding|question|result|error",
   "phase":"plan", "summary":"one human-readable line",
   "service":"oauth_v3.8.0 (optional; multi-service runs)",
   "detail":"optional longer text", "ref":"pipeline/plan.md" }
 ```
+
+`runId` is stamped by `pipe.py` — never write it yourself. It exists because this log is
+**append-only and never rotated**: one long-lived bus accumulates every run it has ever
+seen, and without the stamp the dashboard cannot tell this run's events from the previous
+feature's. The dashboard filters the feed to the active `runId`.
 
 Keep `summary` to one line — it is what a human skims in the dashboard. Put anything
 long in `detail` or in a referenced file via `ref`.

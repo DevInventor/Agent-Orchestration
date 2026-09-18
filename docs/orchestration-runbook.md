@@ -22,8 +22,21 @@ Before you reach this runbook, the entry skill has run `$PIPE init` and populate
 `pipeline/spec.md` with crisp, testable acceptance criteria. If `pipeline/spec.md`
 is missing or empty, stop and go back to the entry skill's spec step.
 
-Tell the user the dashboard command once (`node ${CLAUDE_PLUGIN_ROOT}/ui/server.js`,
-opens on http://localhost:4600), then begin at the Plan phase.
+Your entry skill has also **started the dashboard** in the background and told the user
+its URL (http://localhost:4600). If it did not — or if the background process is gone —
+start it now before planning, because nothing else will:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "$(pwd)/pipeline"   # background call
+```
+
+Then begin at the Plan phase.
+
+> **Emit events or the run is invisible.** The dashboard reads only what agents write to
+> the bus. A phase that emits nothing renders identically to a phase that has died — and
+> the dashboard now flags any run whose `updatedAt` is older than 3 minutes while its
+> status is still `running` as **stale**. If a subagent is doing long work, have it emit a
+> `status` event as it goes rather than only on completion.
 
 ## Map onto the superpowers workflow
 

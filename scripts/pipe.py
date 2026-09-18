@@ -134,7 +134,9 @@ def cmd_init(root, args):
     for sub in ("code", "test", "review", "status"):
         os.makedirs(os.path.join(root, sub), exist_ok=True)
     run = {
-        "runId": time.strftime("run-%Y%m%d-%H%M%S"),
+        # runId now scopes events in the append-only log, so it must be unique.
+        # Seconds alone collide when two runs start in the same second.
+        "runId": time.strftime("run-%Y%m%d-%H%M%S") + "-" + os.urandom(2).hex(),
         "feature": args.feature,
         "phases": PHASES,
         "phase": "spec",
@@ -150,18 +152,25 @@ def cmd_init(root, args):
     atomic_write(os.path.join(root, "tasks.json"), json.dumps({"tasks": []}, indent=2))
     # touch the append-only log
     open(os.path.join(root, "messages.jsonl"), "a").close()
-    _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}", None, None)
+    _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}",
+           None, None, run_id=run["runId"])
     print(json.dumps(run, indent=2))
 
 
-def _event(root, agent, etype, phase, summary, detail, ref, service=None):
+def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id=None):
+    # runId scopes the event to one run. messages.jsonl is append-only and never
+    # rotated, so a long-lived bus accumulates many runs in one file; without this
+    # the dashboard cannot tell this run's events from the previous feature's.
     rec = {
         "ts": now_iso(),
+        "runId": run_id,
         "agent": agent,
         "type": etype,
         "phase": phase,
         "summary": summary,
     }
+    if run_id is None:
+        del rec["runId"]
     if service:
         rec["service"] = service
     if detail:
@@ -176,7 +185,8 @@ def _event(root, agent, etype, phase, summary, detail, ref, service=None):
 def cmd_event(root, args):
     run = load_run(root)
     phase = args.phase or run.get("phase", "spec")
-    rec = _event(root, args.agent, args.type, phase, args.summary, args.detail, args.ref, args.service)
+    rec = _event(root, args.agent, args.type, phase, args.summary, args.detail, args.ref,
+                 args.service, run.get("runId"))
     print(json.dumps(rec))
 
 
