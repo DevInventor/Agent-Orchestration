@@ -573,6 +573,11 @@ def cmd_worktree(root, args):
     else. That is what makes "one workstream, one branch name in every repository"
     structural rather than a convention two sessions can drift from (observed in 2 of
     11 real containers, where a merge silently left the fourth repo behind)."""
+    # --service becomes a directory name under the container, so it gets the same guard
+    # --slug got at init: unvalidated, '../../x' walks straight out of the container.
+    if slugify(args.service) != args.service:
+        sys.exit(f"--service must already be a slug; {args.service!r} would have to be "
+                 f"{slugify(args.service)!r}. It becomes a directory name under the container.")
     run = load_run(root)
     branch = run.get("branch")
     if not branch:
