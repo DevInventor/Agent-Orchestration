@@ -11,6 +11,7 @@ Phases (drive the header progress bar), in order:
 
 Usage examples:
     pipe.py init --feature "Add SSO logout endpoint"
+    pipe.py slug --spec docs/specs/009-messaging-hub/design.md
     pipe.py phase plan
     pipe.py agent planner
     pipe.py progress 30
@@ -20,12 +21,15 @@ Usage examples:
     pipe.py task update --id T1 --status done
     pipe.py status
 """
-import argparse, json, os, sys, tempfile, time
+import argparse, json, os, re, sys, tempfile, time
 from datetime import datetime, timezone
 
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
 RUN_STATUSES = ["running", "awaiting_approval", "blocked", "done", "failed"]
 CONFIG_NAME = "agent-orchestration.config.json"
+# A spec doc named one of these says nothing about the workstream — its parent dir does.
+GENERIC_SPEC_NAMES = {"design", "spec", "readme", "index", "requirements", "plan"}
+SLUG_MAX = 40
 
 
 def now_iso():
@@ -56,6 +60,60 @@ def find_config(start="."):
         if parent == cur:
             return None
         cur = parent
+
+
+def pipelines_root():
+    """The one place every workstream's bus lives. Separate repos have no shared root
+    to put state in, so it is fixed and absolute. $AGENT_ORCHESTRATION_HOME overrides
+    the ~/.agent-orchestration part (tests, and anyone keeping state off the home drive)."""
+    home = os.environ.get("AGENT_ORCHESTRATION_HOME") or \
+        os.path.join(os.path.expanduser("~"), ".agent-orchestration")
+    return os.path.join(home, "pipelines")
+
+
+def scan_pipelines():
+    """Every bus under the fixed root: [{slug, root, run}]. The directory IS the
+    registry — nothing to register, nothing to keep in sync, self-healing when one is
+    deleted. `slug` collision-checks against it and `finish` resolves a slug through it."""
+    base, out = pipelines_root(), []
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        rp = os.path.join(base, name, "pipeline", "run.json")
+        if os.path.isfile(rp):
+            out.append({"slug": name, "root": os.path.dirname(rp), "run": read_json(rp, {})})
+    return out
+
+
+def slugify(text):
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return s[:SLUG_MAX].strip("-")
+
+
+def derive_slug(spec_path):
+    """The workstream's name, from its spec doc's path. It has to be *derived* rather
+    than chosen, because a later wave re-derives it and must land on the same string —
+    that is what keeps one workstream on one branch. A plain basename yields 'design'
+    for 3 of 7 real spec paths and a plain parent yields 'specs'/'docs' for 4, so the
+    rule uses the basename unless it is generic, then strips date/kind decoration."""
+    p = spec_path.replace("\\", "/").rstrip("/")
+    stem = os.path.splitext(os.path.basename(p))[0]
+    if stem.lower() in GENERIC_SPEC_NAMES:
+        stem = os.path.basename(os.path.dirname(p))
+    stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)
+    stem = re.sub(r"-(design|spec)$", "", stem, flags=re.IGNORECASE)
+    return slugify(stem)
+
+
+def resolve_slug(slug):
+    """Suffix rather than reuse an ACTIVE workstream's slug — two live runs sharing a
+    slug would share a branch, a container and a bus directory. A closed one is free."""
+    active = {p["slug"] for p in scan_pipelines()
+              if p["run"].get("status") not in ("done", "failed")}
+    if slug not in active:
+        return slug
+    n = 2
+    while f"{slug}-{n}" in active:
+        n += 1
+    return f"{slug}-{n}"
 
 
 def atomic_write(path, text):
@@ -127,6 +185,13 @@ def recompute_progress(run):
     idx = PHASES.index(phase) if phase in PHASES else 0
     base = idx / (len(PHASES) - 1)
     run["progressPct"] = round(base * 100)
+
+
+def cmd_slug(root, args):
+    """Print the workstream slug for a spec doc (or a bare feature title), collision
+    -checked against the active workstreams. The entry skills call this instead of
+    applying the rule by eye, so `init`, a later wave and `finish` all agree."""
+    print(resolve_slug(derive_slug(args.spec) if args.spec else slugify(args.title)))
 
 
 def cmd_init(root, args):
@@ -355,6 +420,7 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("slug"); g = s.add_mutually_exclusive_group(required=True); g.add_argument("--spec"); g.add_argument("--title")
     s = sub.add_parser("event")
     s.add_argument("--agent", required=True)
     s.add_argument("--type", required=True, choices=["status", "handoff", "finding", "question", "result", "error"])
@@ -401,7 +467,7 @@ def main():
     else:
         root = args.root or find_pipeline()
     {
-        "init": cmd_init, "event": cmd_event, "phase": cmd_phase,
+        "init": cmd_init, "slug": cmd_slug, "event": cmd_event, "phase": cmd_phase,
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "config": cmd_config, "task": cmd_task,

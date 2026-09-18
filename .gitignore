@@ -8,3 +8,6 @@ agent-orchestration.config.json
 .DS_Store
 Thumbs.db
 *.log
+
+# test_pipe.py imports pipe.py as a module
+__pycache__/

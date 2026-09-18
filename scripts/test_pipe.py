@@ -8,12 +8,32 @@ import json, os, subprocess, sys, tempfile
 
 PIPE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipe.py")
 
+# Section 9's reference table, verbatim: every spec path these buses have ever loaded.
+SECTION_9_SLUGS = [
+    ("crm/docs/superpowers/specs/2026-07-14-calculator-improvements-design.md", "calculator-improvements"),
+    ("crm/specs/008-broadcast-groups/design.md", "008-broadcast-groups"),
+    ("crm/specs/009-messaging-hub/design.md", "009-messaging-hub"),
+    ("crm/specs/010-portfolio-review/design.md", "010-portfolio-review"),
+    ("docs/ipo-mandate-automation-spec.md", "ipo-mandate-automation"),
+    ("docs/superpowers/specs/2026-07-27-client-investment-horizon.md", "client-investment-horizon"),
+    ("docs/superpowers/specs/2026-07-27-google-contacts-sync-design.md", "google-contacts-sync"),
+]
 
-def run(root, *args):
+
+def run(root, *args, env=None, expect=0):
     r = subprocess.run([sys.executable, PIPE, "--root", root, *args],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, f"{' '.join(args)} failed:\n{r.stderr}"
-    return r.stdout
+                       capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, **env} if env else None)
+    assert r.returncode == expect, \
+        f"{' '.join(args)} exited {r.returncode}, expected {expect}:\n{r.stdout}{r.stderr}"
+    return r.stdout + r.stderr
+
+
+def import_pipe():
+    """pipe.py as a module, for the pure helpers and the parser walk."""
+    sys.path.insert(0, os.path.dirname(PIPE))
+    import pipe
+    return pipe
 
 
 def events(root):
@@ -77,6 +97,27 @@ def main():
         with open(os.path.join(root, "tasks.json"), encoding="utf-8") as f:
             tasks = json.load(f)["tasks"]
         assert len(tasks) == 1 and tasks[0]["status"] == "done", tasks
+
+        # --- the slug rule is code, so every wave re-derives the SAME name ----------
+        pipe = import_pipe()
+        for path, expected in SECTION_9_SLUGS:
+            assert pipe.derive_slug(path) == expected, \
+                f"{path} -> {pipe.derive_slug(path)}, expected {expected}"
+        assert pipe.derive_slug("docs\\specs\\009-messaging-hub\\design.md") == "009-messaging-hub", \
+            "a Windows path must derive the same slug as its POSIX spelling"
+        assert len(pipe.derive_slug("docs/" + "x" * 80 + ".md")) <= 40, "slug caps at 40"
+
+        # --- a slug is never silently reused while its workstream is active ---------
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        assert run(root, "slug", "--spec", "docs/widgets-spec.md", env=env).strip() == "widgets"
+        busy = os.path.join(home, "pipelines", "widgets", "pipeline")
+        run(busy, "init", "--feature", "widgets")
+        assert run(root, "slug", "--spec", "docs/widgets-spec.md", env=env).strip() == "widgets-2", \
+            "an active workstream's slug must be suffixed, never reused"
+        run(busy, "set-status", "done")
+        assert run(root, "slug", "--title", "Widgets!", env=env).strip() == "widgets", \
+            "a closed workstream releases its slug"
 
     print("ok - pipe.py self-check passed")
 
