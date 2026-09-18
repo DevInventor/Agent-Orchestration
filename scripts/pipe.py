@@ -699,10 +699,19 @@ def cmd_finish(root, args):
 
 def archive_bus(root, run):
     """One archive convention, replacing the four hand-rolled variants seen in real use.
-    The workstream directory (bus and all) moves aside as <slug>.closed-<YYYYmmdd>."""
-    ws = os.path.dirname(os.path.abspath(root))
-    dest = os.path.join(os.path.dirname(ws),
-                        f"{run['slug']}.closed-{datetime.now().strftime('%Y%m%d')}")
+    The workstream directory (bus and all) moves aside as <slug>.closed-<YYYYmmdd>.
+
+    Only under the canonical pipelines_root()/<slug>/pipeline layout does the bus OWN
+    its parent directory. Under --root the parent is an arbitrary user directory that
+    may hold source beside the bus, so there only the bus itself moves - archiving it
+    would otherwise carry a sibling src/ off with it."""
+    root = os.path.abspath(root)
+    ws = os.path.dirname(root)
+    stamp = datetime.now().strftime("%Y%m%d")
+    if os.path.normcase(os.path.dirname(ws)) == os.path.normcase(pipelines_root()):
+        dest = os.path.join(os.path.dirname(ws), f"{run['slug']}.closed-{stamp}")
+    else:
+        ws, dest = root, f"{root}.closed-{stamp}"
     n, base = 2, dest
     while os.path.exists(dest):       # a workstream closed twice in one day
         dest, n = f"{base}-{n}", n + 1
