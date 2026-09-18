@@ -25,12 +25,13 @@ PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    on a second branch.
    ```bash
    $PIPE slug --spec "<the doc path>"                      # -> e.g. 009-messaging-hub
-   $PIPE init --slug "<slug>" --feature "<one-line title>" # last line printed = the bus path
+   $PIPE init --slug "<slug>" --feature "<one-line title>" # stdout is JSON; .busPath = the bus
    ```
-   `init` prints the resolved **absolute bus path** as its last line. The bus no longer
-   lives at `./pipeline`, so from here on **bake that path in**:
+   `init` prints one JSON document; its **`busPath`** key is the resolved absolute
+   bus path (`... | python3 -c 'import json,sys;print(json.load(sys.stdin)["busPath"])'`).
+   The bus no longer lives at `./pipeline`, so from here on **bake that path in**:
    ```bash
-   PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <the printed bus path>"
+   PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <busPath>"
    ```
    Use that literal path for the rest of the run and hand it to every subagent you
    spawn — a subagent that guesses `./pipeline` writes to a bus nobody is reading.

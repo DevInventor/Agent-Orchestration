@@ -252,10 +252,12 @@ def cmd_init(root, args):
     open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8").close()
     _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}",
            None, None, run_id=run["runId"])
-    print(json.dumps(run, indent=2))
-    # Last line is the resolved bus: --slug moves it off ./pipeline, and the entry skill
-    # is the only thing that knows where it went. It bakes this into $PIPE --root.
-    print(root)
+    # stdout is ONE JSON document - callers json.loads() it to read runId/branch, so a
+    # trailing bare path line would break them. busPath carries the resolved bus instead:
+    # --slug moves it off ./pipeline and the entry skill is the only thing that knows
+    # where it went, so it reads this key and bakes it into $PIPE --root. It is printed
+    # rather than saved, leaving a no-slug run.json byte-for-byte the legacy one.
+    print(json.dumps({**run, "busPath": root}, indent=2))
 
 
 def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id=None):
