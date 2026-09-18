@@ -640,6 +640,186 @@ def init_stdout_is_machine_readable():
                 assert out.get("branch") == "feature/messaging-hub", out
 
 
+def archive_never_moves_what_the_bus_does_not_own():
+    """S26 - archive_bus moved the bus's PARENT. Under `--root <proj>/pipeline` that
+    parent is the user's project directory, so closing a run carried a sibling
+    src/app.py off with it. Every earlier scenario used a dedicated <tmp>/bus/pipeline,
+    whose parent the bus really does own, so the destructive case never arose.
+
+    The owning-parent half stays where it already is: workstream_checks asserts a bus
+    under <tmp>/bus/pipeline archives the whole parent as <slug>.closed-<date>."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        proj = os.path.join(tmp, "proj")
+        os.makedirs(os.path.join(proj, "src"))
+        write(os.path.join(proj, "src", "app.py"), "print('keep me')\n")
+        write(os.path.join(proj, "README.md"), "the user's project\n")
+        root = os.path.join(proj, "pipeline")
+        run(root, "init", "--feature", "Archive safety", "--slug", "archive-safety")
+        repo = git_repo(os.path.join(tmp, "repos", "api"), "main")
+        run(root, "worktree", "add", "--service", "api", "--repo", repo)
+        wt = read_run(root)["repos"][0]["worktree"]
+        write(os.path.join(wt, "a.txt"), "work\n")
+        git(wt, "add", "-A"); git(wt, "commit", "-qm", "T1: work")
+
+        out = run(root, "finish", "--apply")
+        assert os.path.isfile(os.path.join(proj, "src", "app.py")), \
+            "finish --apply moved the bus's PARENT: the sibling src/app.py went with " \
+            f"the archive. Output was:\n{out}"
+        assert os.path.isfile(os.path.join(proj, "README.md")), "sibling file taken too"
+        assert os.path.isdir(proj), "the project directory itself was moved aside"
+        assert not os.path.exists(root), "the bus was not archived at all"
+        closed = [d for d in os.listdir(proj) if d.startswith("pipeline.closed-")]
+        assert len(closed) == 1, f"expected one pipeline.closed-<date> in proj: {os.listdir(proj)}"
+        assert sorted(os.listdir(proj)) == sorted(["README.md", "src", closed[0]]), \
+            f"the project directory gained or lost entries: {os.listdir(proj)}"
+        assert not [d for d in os.listdir(tmp) if ".closed-" in d], \
+            f"something was archived a level above the bus: {os.listdir(tmp)}"
+        assert os.path.isfile(os.path.join(proj, closed[0], "run.json")), \
+            "the archive does not contain the bus it was supposed to move"
+
+
+def qa_check_fails_when_a_review_is_missing():
+    """S27 - a missing review.json read as `{}`: no findings, therefore no blocking
+    findings, therefore green - while a missing results.json two lines below correctly
+    failed. Every earlier qa-check assertion wrote a review first, so a bus the
+    reviewer never reported on passed the gate."""
+    with tempfile.TemporaryDirectory() as tmp:
+        good = os.path.join(tmp, "review.json")
+        write(good, json.dumps({"recommendation": "approve", "findings": []}))
+
+        # results present, review absent -> must fail, naming the file
+        a = os.path.join(tmp, "a", "pipeline")
+        run(a, "init", "--feature", "no review")
+        run(a, "task", "add", "--id", "T1", "--title", "x")
+        run(a, "task", "update", "--id", "T1", "--status", "done")
+        write(os.path.join(a, "test", "results.json"),
+              json.dumps({"iteration": 1, "passed": 3, "failed": 0}))
+        assert not os.path.exists(os.path.join(a, "review", "review.json"))
+        out = run(a, "qa-check", expect=1)
+        assert "review/review.json" in out, \
+            f"the gate passed (or failed anonymously) with no review on the bus:\n{out}"
+
+        # the mirror, which always worked: review present, results absent
+        b = os.path.join(tmp, "b", "pipeline")
+        run(b, "init", "--feature", "no results")
+        run(b, "task", "add", "--id", "T1", "--title", "x")
+        run(b, "task", "update", "--id", "T1", "--status", "done")
+        run(b, "review", "--from", good)
+        out = run(b, "qa-check", expect=1)
+        assert "test/results.json" in out, out
+
+        # and with both, the same bus is green - the gate is not simply always red
+        run(a, "review", "--from", good)
+        assert "green" in run(a, "qa-check")
+
+
+# 7 of the 15 service names in the user's real registry. The m1 fix guarded --service
+# with the SLUG predicate and rejected every one of them: `worktree add` could not
+# build any multi-service workstream this project has ever run. The suite used only
+# lowercase names ('api', 'web', 'billing', 'svc') and stayed green throughout.
+REGISTRY_SERVICES = ["GT-Janus", "GTID-Vault", "MFA_Server", "SAML2_server_v251024",
+                     "oauth_v3.8.0", "service_v3.8.5", "GTID_Radius"]
+
+
+def real_service_names_survive_byte_for_byte():
+    """S28 - a service name is a directory that ALREADY EXISTS, named by whoever made
+    the repo. Capitals, underscores and dots are ordinary there, and wt-<slug>/<service>
+    has to reproduce the exact bytes."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        repos_root = os.path.join(tmp, "repos")
+        root = os.path.join(tmp, "bus", "pipeline")
+        run(root, "init", "--feature", "Step up", "--slug", "stepup")
+        container = os.path.join(repos_root, "wt-stepup")
+        for name in REGISTRY_SERVICES:
+            repo = git_repo(os.path.join(repos_root, name), "main")
+            run(root, "worktree", "add", "--service", name, "--repo", repo)
+            entry = read_run(root)["repos"][-1]
+            assert entry["service"] == name, \
+                f"repos[] rewrote the service name: {entry['service']!r} != {name!r}"
+            assert entry["worktree"] == os.path.join(container, name), entry["worktree"]
+            assert os.path.isdir(entry["worktree"]), f"no worktree at {entry['worktree']}"
+            assert name in os.listdir(container), \
+                f"{name!r} did not land on disk byte-for-byte: {os.listdir(container)}"
+        assert [e["service"] for e in read_run(root)["repos"]] == REGISTRY_SERVICES
+
+
+# Traversal is the whole threat a service name carries, and it reaches disk through
+# two doors: worktree add (wt-<slug>/<service>) and svc_dir (review/qa-check artifacts).
+BAD_SEGMENTS = ["../../x", "..", ".", "a/b", "a\\b", "C:\\tmp", "/etc", ""]
+
+
+def paths_under(top):
+    return sorted(os.path.relpath(os.path.join(d, n), top)
+                  for d, dirs, files in os.walk(top) for n in dirs + files)
+
+
+def a_service_name_cannot_escape_its_container():
+    """S29 - `review --from x --service ../../x` wrote outside the bus: the m1 fix
+    guarded worktree add only. svc_dir is now the single funnel, so both doors are
+    tested, and nothing may appear outside the container either way."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "bus", "pipeline")
+        run(root, "init", "--feature", "Guard", "--slug", "guard")
+        repo = git_repo(os.path.join(tmp, "repos", "api"), "main")
+        good = os.path.join(tmp, "review.json")
+        write(good, json.dumps({"recommendation": "approve", "findings": []}))
+        before = paths_under(tmp)
+        for bad in BAD_SEGMENTS:
+            out = run(root, "worktree", "add", "--service", bad, "--repo", repo, expect=1)
+            assert "--service" in out, f"worktree add accepted or misreported {bad!r}:\n{out}"
+            out = run(root, "review", "--from", good, "--service", bad, expect=1)
+            assert "--service" in out, f"review accepted or misreported {bad!r}:\n{out}"
+        assert paths_under(tmp) == before, \
+            "a refused --service still created something on disk: " \
+            f"{sorted(set(paths_under(tmp)) - set(before))}"
+
+
+def an_explicit_empty_service_is_not_the_flat_layout():
+    """S30 - `if not service` made `--service ""` indistinguishable from omitting it,
+    so a multi-service run's artifacts dropped into the flat slot the namespace exists
+    to keep them out of. `is None` separates the two; omitting it must still work."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Empty service")
+        good = os.path.join(tmp, "review.json")
+        write(good, json.dumps({"recommendation": "approve", "findings": []}))
+        flat = os.path.join(root, "review", "review.json")
+
+        run(root, "review", "--from", good, "--service", "", expect=1)
+        assert not os.path.exists(flat), \
+            'an explicit --service "" collapsed into the flat single-service layout'
+
+        run(root, "review", "--from", good)          # omitted: unchanged, still flat
+        assert os.path.isfile(flat), "omitting --service must still write review/review.json"
+        assert os.path.isfile(os.path.join(root, "review", "review.md"))
+
+
+def a_mid_loop_merge_failure_names_the_half_shipped_repos():
+    """M1 - preflight makes a failure in the merge loop unlikely, not impossible. When
+    repo 2 fails after repo 1 merged, the operator needs the state named and the undo
+    spelled out; git has no multi-repo rollback. Provoked with a pre-merge-commit hook,
+    which is the cheapest real mid-loop failure - no machinery, no monkeypatching."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = workstream(tmp, "halfship", [("api", "main"), ("web", "main")])
+        commit_work(root)
+        repos = read_run(root)["repos"]
+        api, web = repos[0]["repo"], repos[1]["repo"]
+        hook = os.path.join(web, ".git", "hooks", "pre-merge-commit")
+        write(hook, "#!/bin/sh\nexit 1\n")
+        os.chmod(hook, 0o755)
+        before = git(api, "rev-parse", "HEAD").strip()
+
+        out = run(root, "finish", "--apply", expect=1)
+        assert "HALF-SHIPPED: 1 of 2" in out, f"the half-shipped state is not named:\n{out}"
+        assert api in out, f"the merged repo is not named:\n{out}"
+        assert f"git -C {api} reset --hard ORIG_HEAD" in out, \
+            f"the undo for the already-merged repo is not spelled out:\n{out}"
+        assert git(api, "rev-parse", "HEAD").strip() != before, \
+            "the report claims a half-shipped merge that did not happen"
+        assert os.path.isfile(os.path.join(root, "run.json")), \
+            "a failed --apply archived the bus anyway - the operator needs it to retry"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -657,6 +837,12 @@ SCENARIOS = [
     ("S23", command_drift_check),
     ("S24", drift_guard_catches_an_unknown_command),
     ("S25", init_stdout_is_machine_readable),
+    ("S26", archive_never_moves_what_the_bus_does_not_own),
+    ("S27", qa_check_fails_when_a_review_is_missing),
+    ("S28", real_service_names_survive_byte_for_byte),
+    ("S29", a_service_name_cannot_escape_its_container),
+    ("S30", an_explicit_empty_service_is_not_the_flat_layout),
+    ("S31", a_mid_loop_merge_failure_names_the_half_shipped_repos),
 ]
 
 
