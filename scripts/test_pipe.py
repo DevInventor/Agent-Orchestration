@@ -272,6 +272,32 @@ def main():
         assert os.path.isfile(os.path.join(root, "services", "svcA", "review", "review.json")), \
             "--service writes into the per-service namespace"
 
+        # --- the QA gate is an exit code: one failing gate at a time ----------------
+        qa = os.path.join(tmp, "qa", "pipeline")
+        run(qa, "init", "--feature", "gate check")
+        results = os.path.join(qa, "test", "results.json")
+        write(results, json.dumps({"iteration": 1, "passed": 3, "failed": 0}))
+        run(qa, "task", "add", "--id", "T1", "--title", "x")
+        run(qa, "task", "update", "--id", "T1", "--status", "done")
+        clean = os.path.join(tmp, "clean-review.json")
+        write(clean, json.dumps({"recommendation": "approve", "findings": []}))
+        run(qa, "review", "--from", clean)
+        assert "green" in run(qa, "qa-check"), "a green bus must pass the gate"
+
+        run(qa, "review", "--from", good)          # one blocking finding
+        assert "blocking" in run(qa, "qa-check", expect=1)
+        run(qa, "review", "--from", clean)         # re-review clears it, no lifecycle
+
+        run(qa, "task", "update", "--id", "T1", "--status", "todo")
+        assert "T1" in run(qa, "qa-check", expect=1)
+        run(qa, "task", "update", "--id", "T1", "--status", "done")
+
+        write(results, json.dumps({"iteration": 2, "passed": 1, "failed": 2}))
+        assert "failing test" in run(qa, "qa-check", expect=1)
+        os.remove(results)
+        assert "results.json" in run(qa, "qa-check", expect=1), \
+            "absent results are not green - the tester simply never reported"
+
     workstream_checks()
     print("ok - pipe.py self-check passed")
 

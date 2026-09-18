@@ -18,6 +18,7 @@ Usage examples:
     pipe.py loop --count 2 --max 5
     pipe.py event --agent coder --type handoff --summary "Implemented 4/4 tasks" --ref pipeline/code/changes.json
     pipe.py review --from /tmp/findings.json
+    pipe.py qa-check
     pipe.py worktree add --service api --repo /abs/repos/OpenCRM
     pipe.py finish 009-messaging-hub --apply
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
@@ -514,6 +515,39 @@ def cmd_review(root, args):
     print(summary)
 
 
+def cmd_qa_check(root, args):
+    """The QA gate as an exit code rather than three files and a judgement call.
+
+    A finding counts as unresolved iff it is `blocking` in the CURRENT review.json:
+    a re-review overwrites that file, so a fixed finding simply disappears. No finding
+    ids, no resolution lifecycle, no second piece of state to keep in agreement."""
+    run = load_run(root)
+    services = [args.service] if args.service else (sorted(run.get("services", {})) or [None])
+    fails = []
+    for svc in services:
+        where = f"services/{svc}/" if svc else ""
+        review = read_json(svc_dir(root, svc, "review", "review.json"), {})
+        blocking = [f for f in review.get("findings", []) if f.get("severity") == "blocking"]
+        if blocking:
+            fails.append(f"{len(blocking)} blocking finding(s) in {where}review/review.json: "
+                         + "; ".join(str(f.get("note", ""))[:60] for f in blocking))
+        results = read_json(svc_dir(root, svc, "test", "results.json"), None)
+        if results is None:
+            fails.append(f"no test results at {where}test/results.json - the tester never reported")
+        elif results.get("failed"):
+            fails.append(f"{results['failed']} failing test(s) in {where}test/results.json")
+    tasks = read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])
+    todo = [t for t in tasks if t.get("status") != "done"]
+    if todo:
+        fails.append("task(s) not done: "
+                     + ", ".join(f"{t['id']} ({t.get('status')})" for t in todo))
+    for f in fails:
+        print("FAIL " + f)
+    if fails:
+        sys.exit(1)
+    print(f"qa-check: green - {len(tasks)} task(s) done, tests green, no blocking findings")
+
+
 def cmd_worktree(root, args):
     """Materialise one service's checkout of the workstream branch, and record it.
 
@@ -692,6 +726,7 @@ def build_parser():
     s = sub.add_parser("status")
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
     s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
+    s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
     s = sub.add_parser("worktree")
     ws = s.add_subparsers(dest="wt_cmd", required=True)
     w = ws.add_parser("add"); w.add_argument("--service", required=True); w.add_argument("--repo", required=True)
@@ -726,7 +761,8 @@ def main():
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "config": cmd_config, "task": cmd_task,
-        "review": cmd_review, "worktree": cmd_worktree, "finish": cmd_finish,
+        "review": cmd_review, "qa-check": cmd_qa_check,
+        "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
 
 

@@ -200,11 +200,12 @@ Then continue to the QA gate (§5), which aggregates across all services.
 
 ### 5. QA gate  (phase: qa)
 1. `$PIPE phase qa`.
-2. Verify against `pipeline/spec.md` acceptance criteria. **Single-service:** tests
-   green (`test/results.json`), no unresolved blocking findings, all `tasks.json` items
-   `done`. **Multi-service:** aggregate — every service in `run.services` is `done`
-   (none `blocked`), every service's tests green, and all `tasks.json` items `done`
-   across all services.
+2. `$PIPE qa-check` — the mechanical gates are an exit code, not a reading exercise: it
+   fails on any `blocking` finding in the current `review.json`, any task not `done`,
+   and any service whose `test/results.json` is failing or missing, across every service
+   in `run.services`. Non-zero prints one line per failed gate; fix those before
+   continuing. Then judge what it cannot: does the work actually meet
+   `pipeline/spec.md`'s acceptance criteria, and is any service `blocked`?
 3. Write `pipeline/status/summary.md`: what shipped (grouped by service in a
    multi-service run), per-task status, per-service test summary and fix-loop count,
    review disposition, and anything deferred or blocked.
