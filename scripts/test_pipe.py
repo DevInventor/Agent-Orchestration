@@ -70,21 +70,32 @@ def read_run(root):
         return json.load(f)
 
 
-def command_drift_check():
+def read_json(path, default=None):
+    if not os.path.isfile(path):
+        return {} if default is None else default
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def command_drift_check(repo=None):
     """Every `pipe.py <cmd>` an agent is told to run must exist in the parser.
 
     The files below are instructions that get executed - agent definitions, skills and
     the runbook. Spec and ADR docs are deliberately excluded: they name commands that
     are designed but not built yet, which is not drift. This is a superset guard: it
     passes whether one command is named or twelve, so it never constrains what a later
-    per-role cheatsheet says."""
+    per-role cheatsheet says.
+
+    `repo` defaults to this checkout; passing one lets the guard be pointed at a
+    throwaway tree, which is how S24 proves the guard can actually fail."""
     parser = import_pipe().build_parser()
     real = {name for a in parser._actions if isinstance(a, argparse._SubParsersAction)
             for name in a.choices}
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo = repo or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     docs = (glob.glob(os.path.join(repo, "agents", "*.md"))
             + glob.glob(os.path.join(repo, "skills", "**", "SKILL.md"), recursive=True)
-            + [os.path.join(repo, "docs", "orchestration-runbook.md")])
+            + [p for p in [os.path.join(repo, "docs", "orchestration-runbook.md")]
+               if os.path.isfile(p)])
     assert len(docs) > 5, f"found almost no agent files - the guard would pass vacuously: {docs}"
     for path in docs:
         with open(path, encoding="utf-8") as f:
@@ -173,7 +184,7 @@ def workstream_checks():
             "--teardown removes the worktree and the container"
 
 
-def main():
+def core_checks():
     with tempfile.TemporaryDirectory() as tmp:
         root = os.path.join(tmp, "pipeline")
 
@@ -262,7 +273,9 @@ def main():
                             "--slug", "messaging-hub"], cwd=legacy, capture_output=True,
                            text=True, encoding="utf-8", env={**os.environ, **env})
         assert r.returncode == 0, r.stderr
-        bus = r.stdout.strip().splitlines()[-1]
+        # init's stdout is ONE JSON document (S25); the bus path travels in busPath,
+        # not as a trailing bare line. Read the key, never the last line.
+        bus = json.loads(r.stdout)["busPath"]
         assert bus == os.path.join(home, "pipelines", "messaging-hub", "pipeline"), bus
         srun = read_run(bus)
         assert srun["slug"] == "messaging-hub" and srun["branch"] == "feature/messaging-hub" \
@@ -323,8 +336,342 @@ def main():
         assert "results.json" in run(qa, "qa-check", expect=1), \
             "absent results are not green - the tester simply never reported"
 
-    workstream_checks()
-    command_drift_check()
+
+# --------------------------------------------------------------------------------
+# Scenario suite (pipeline/test/scenarios.json). One function per scenario, run
+# through the table at the bottom so one failure never hides the ones after it.
+# --------------------------------------------------------------------------------
+
+def workstream(tmp, slug, services):
+    """A bus plus one real git repo per (service, base) - the shape every git-backed
+    scenario needs: slug -> branch -> repos[]. Returns the bus root."""
+    root = os.path.join(tmp, "bus", "pipeline")
+    run(root, "init", "--feature", slug, "--slug", slug)
+    for svc, base in services:
+        repo = git_repo(os.path.join(tmp, "repos", svc), base)
+        run(root, "worktree", "add", "--service", svc, "--repo", repo)
+    return root
+
+
+def commit_work(root):
+    """The coder's half of the contract: a commit per service on the one branch."""
+    for e in read_run(root)["repos"]:
+        write(os.path.join(e["worktree"], e["service"] + ".txt"), "work\n")
+        git(e["worktree"], "add", "-A")
+        git(e["worktree"], "commit", "-qm", f"T1: {e['service']} work")
+
+
+def heads(entries, ref="HEAD"):
+    return {e["repo"]: git(e["repo"], "rev-parse", ref).strip() for e in entries}
+
+
+def merge_lands_on_each_repos_own_base():
+    """S1 - the whole chain: one slug names one branch, every repo records it, and
+    finish merges THAT branch into THAT repo's own recorded base. A wrong-branch or
+    wrong-base merge here is the most expensive silent failure this feature can have."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = workstream(tmp, "messaging-hub", [("api", "develop"), ("web", "master")])
+        commit_work(root)
+        repos = read_run(root)["repos"]
+        branch = read_run(root)["branch"]
+        assert branch == "feature/messaging-hub", branch
+        before = {e["repo"]: git(e["repo"], "rev-parse", e["base"]).strip() for e in repos}
+        tips = {e["repo"]: git(e["repo"], "rev-parse", e["branch"]).strip() for e in repos}
+        run(root, "finish", "--apply")
+        for e in repos:
+            base_now = git(e["repo"], "rev-parse", e["base"]).strip()
+            assert base_now != before[e["repo"]], \
+                f"{e['service']}: {e['base']} did not advance - nothing was merged home"
+            parents = git(e["repo"], "rev-list", "--parents", "-n", "1", base_now).split()
+            assert len(parents) == 3, \
+                f"{e['service']}: expected a --no-ff merge commit with 2 parents, got {parents}"
+            assert parents[1] == before[e["repo"]], \
+                f"{e['service']}: merge's first parent is not the recorded base's old tip"
+            assert parents[2] == tips[e["repo"]], \
+                f"{e['service']}: merged {parents[2]} instead of {e['branch']} ({tips[e['repo']]})"
+            assert git(e["repo"], "rev-parse", "--abbrev-ref", "HEAD").strip() == e["base"], \
+                f"{e['service']}: HEAD left on a branch other than its recorded base"
+
+
+def wave_two_reattaches_to_the_one_branch():
+    """S3 - a workstream outlives its runs: re-adding a service must attach to the
+    branch wave 1 created, not invent a second name or lose wave 1's commits."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = workstream(tmp, "wave", [("svc", "main")])
+        commit_work(root)
+        e1 = read_run(root)["repos"][0]
+        wave1 = git(e1["repo"], "rev-parse", e1["branch"]).strip()
+        git(e1["repo"], "worktree", "remove", "--force", e1["worktree"])
+        run(root, "worktree", "add", "--service", "svc", "--repo", e1["repo"])
+        e2 = read_run(root)["repos"][0]
+        assert len(read_run(root)["repos"]) == 1, "a re-add must replace the entry, not duplicate it"
+        assert (e2["branch"], e2["base"], e2["worktree"]) == (e1["branch"], e1["base"], e1["worktree"]), \
+            f"wave 2 changed the workstream's identity: {e1} -> {e2}"
+        assert git(e1["repo"], "rev-parse", e2["branch"]).strip() == wave1, \
+            "wave 2 re-pointed the branch and dropped wave 1's commits"
+
+
+def init_refuses_a_non_slug_identity():
+    """S4 - the branch name is fixed at init, so an identity no repo can accept has to
+    be refused there. `feature/Messaging Hub` is not a legal git ref."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "pipeline")
+        r = subprocess.run([sys.executable, PIPE, "--root", root, "init",
+                            "--feature", "Messaging hub", "--slug", "Messaging Hub"],
+                           capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode != 0, (
+            "init accepted --slug 'Messaging Hub' and recorded branch "
+            f"{read_json(os.path.join(root, 'run.json')).get('branch')!r}, which git cannot "
+            "create - the workstream is only discovered to be unusable at `worktree add`")
+
+
+def teardown_removes_every_container():
+    """S7 - services in separate repos (the primary case, spec section 3) put their
+    containers under different repos roots. Teardown must remove all of them."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "bus", "pipeline")
+        run(root, "init", "--feature", "Split", "--slug", "split")
+        for svc, base, where in (("api", "develop", "rootA"), ("web", "master", "rootB")):
+            repo = git_repo(os.path.join(tmp, where, svc), base)
+            run(root, "worktree", "add", "--service", svc, "--repo", repo)
+        commit_work(root)
+        repos = read_run(root)["repos"]
+        containers = sorted({os.path.dirname(e["worktree"]) for e in repos})
+        assert len(containers) == 2, containers
+        run(root, "finish", "--apply", "--teardown")
+        left = [c for c in containers if os.path.exists(c)]
+        assert not left, \
+            f"--teardown left {len(left)} of {len(containers)} containers behind: {left} - " \
+            "it removes only the container of repos[0]"
+
+
+def apply_refuses_a_repo_off_its_base():
+    """S11 - `git merge` merges into whatever HEAD is. A repo parked on another branch
+    must block the whole apply, not silently take the merge onto that branch."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = workstream(tmp, "offbase", [("api", "develop"), ("web", "master")])
+        commit_work(root)
+        repos = read_run(root)["repos"]
+        web = [e for e in repos if e["service"] == "web"][0]
+        git(web["repo"], "switch", "-q", "-c", "hotfix")
+        before = heads(repos)
+        out = run(root, "finish", "--apply", expect=1)
+        assert "web" in out and web["base"] in out, f"the offending repo must be named:\n{out}"
+        assert heads(repos) == before, "a repo off its base must stop every merge, not just its own"
+        assert git(web["repo"], "rev-parse", "--abbrev-ref", "HEAD").strip() == "hotfix", \
+            "apply must not switch branches under the user"
+
+
+def apply_refuses_a_dirty_working_tree():
+    """S12 - an all-or-nothing merge cannot be all-or-nothing if one repo's merge can
+    fail on local edits after another repo has already merged."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = workstream(tmp, "dirty", [("api", "develop"), ("web", "master")])
+        commit_work(root)
+        repos = read_run(root)["repos"]
+        web = [e for e in repos if e["service"] == "web"][0]
+        write(os.path.join(web["repo"], "scratch.txt"), "uncommitted\n")
+        before = heads(repos)
+        out = run(root, "finish", "--apply", expect=1)
+        assert "uncommitted" in out.lower(), out
+        assert heads(repos) == before, "nothing may merge while any repo is dirty"
+
+
+def finish_reports_a_missing_repo_loudly():
+    """S13 - spec section 17: a bus can outlive the repo it points at. The plan must
+    say so rather than merge what is left."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = workstream(tmp, "gone", [("api", "develop"), ("web", "master")])
+        commit_work(root)
+        run_json = os.path.join(root, "run.json")
+        data = read_json(run_json)
+        missing = os.path.join(tmp, "repos", "moved-away")
+        survivor = [e for e in data["repos"] if e["service"] == "api"][0]
+        before = git(survivor["repo"], "rev-parse", survivor["base"]).strip()
+        for e in data["repos"]:
+            if e["service"] == "web":
+                e["repo"] = missing
+        write(run_json, json.dumps(data, indent=2))
+        out = run(root, "finish", expect=1)
+        assert "moved-away" in out, f"the missing repo must be named:\n{out}"
+        assert git(survivor["repo"], "rev-parse", survivor["base"]).strip() == before
+
+
+def slug_rule_edges():
+    """S15 - the rule has to be predictable enough to guess the branch name, on the
+    spellings a Windows session actually produces."""
+    pipe = import_pipe()
+    cases = [
+        ("crm/specs/009-messaging-hub/", "009-messaging-hub"),     # trailing separator
+        ("crm\\specs\\009-messaging-hub\\design.md", "009-messaging-hub"),
+        ("docs/Spec.MD", "docs"),                                   # generic check is case-blind
+        ("docs/specs/2026-07-27-thing/design.md", "thing"),         # date stripped off the parent
+    ]
+    for path, expected in cases:
+        assert pipe.derive_slug(path) == expected, \
+            f"{path!r} -> {pipe.derive_slug(path)!r}, expected {expected!r}"
+    capped = pipe.derive_slug("docs/" + "word-" * 20 + ".md")
+    assert len(capped) <= 40 and not capped.endswith("-"), capped
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "f")
+        env = {"AGENT_ORCHESTRATION_HOME": os.path.join(tmp, "aohome")}
+        assert run(root, "slug", "--title", "Add SSO logout endpoint!", env=env).strip() \
+            == "add-sso-logout-endpoint", "/ship has no doc - it slugifies the title"
+
+
+def review_rejections_never_touch_disk():
+    """S18 - every malformed shape is rejected before anything is opened for writing,
+    and a review that was already good survives the attempt."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "review gate")
+        good = os.path.join(tmp, "good.json")
+        write(good, json.dumps({"recommendation": "approve", "summary": "fine", "findings": []}))
+        run(root, "review", "--from", good)
+        rj = os.path.join(root, "review", "review.json")
+        rm = os.path.join(root, "review", "review.md")
+        before = (open(rj, encoding="utf-8").read(), open(rm, encoding="utf-8").read())
+        bad = {
+            "bad-severity": {"recommendation": "approve",
+                             "findings": [{"severity": "critical", "note": "boom"}]},
+            "bad-recommendation": {"recommendation": "lgtm", "findings": []},
+            "empty-note": {"recommendation": "approve",
+                           "findings": [{"severity": "major", "note": "   "}]},
+            "findings-not-a-list": {"recommendation": "approve", "findings": {"severity": "major"}},
+            "not-an-object": ["nope"],
+        }
+        for name, payload in bad.items():
+            p = os.path.join(tmp, name + ".json")
+            write(p, json.dumps(payload))
+            out = run(root, "review", "--from", p, expect=1)
+            assert "review:" in out, f"{name}: the reviewer needs to know what to fix:\n{out}"
+        trunc = os.path.join(tmp, "truncated.json")
+        write(trunc, '{"recommendation":')
+        run(root, "review", "--from", trunc, expect=1)
+        run(root, "review", "--from", os.path.join(tmp, "absent.json"), expect=1)
+        after = (open(rj, encoding="utf-8").read(), open(rm, encoding="utf-8").read())
+        assert after == before, "a rejected payload must not disturb the review already on the bus"
+
+
+def reviewer_holds_no_write_tool():
+    """S19 - AC7 names the tool grant explicitly; it is the permission boundary."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    text = open(os.path.join(repo, "agents", "reviewer.md"), encoding="utf-8").read()
+    tools = [l for l in text.splitlines() if l.startswith("tools:")]
+    assert len(tools) == 1, tools
+    granted = {t.strip() for t in tools[0].split(":", 1)[1].split(",")}
+    assert "Bash" in granted, f"the reviewer needs Bash to call pipe.py: {granted}"
+    assert not granted & {"Write", "Edit"}, f"the reviewer must hold no Write/Edit: {granted}"
+    assert re.search(r"(pipe\.py|\$PIPE)\s+review\s+--from", text), \
+        "reviewer.md must tell the reviewer how it persists findings"
+
+
+def qa_check_spans_service_namespaces():
+    """S22 - a green service must not hide a blocked one; --service scopes the gate."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "multi")
+        run(root, "task", "add", "--id", "T1", "--title", "x")
+        run(root, "task", "update", "--id", "T1", "--status", "done")
+        clean = os.path.join(tmp, "clean.json")
+        write(clean, json.dumps({"recommendation": "approve", "findings": []}))
+        for svc in ("api", "web"):
+            run(root, "svc", "--name", svc, "--status", "running")
+            os.makedirs(os.path.join(root, "services", svc, "test"), exist_ok=True)
+            write(os.path.join(root, "services", svc, "test", "results.json"),
+                  json.dumps({"iteration": 1, "passed": 2, "failed": 0}))
+            run(root, "review", "--from", clean, "--service", svc)
+        assert "green" in run(root, "qa-check")
+        blocker = os.path.join(tmp, "blocker.json")
+        write(blocker, json.dumps({"recommendation": "changes-required",
+                                   "findings": [{"severity": "blocking", "file": "src/w.py",
+                                                 "note": "unclosed session"}]}))
+        run(root, "review", "--from", blocker, "--service", "web")
+        out = run(root, "qa-check", expect=1)
+        assert "services/web/review/review.json" in out.replace("\\", "/"), \
+            f"the gate must name what and where:\n{out}"
+        assert "green" in run(root, "qa-check", "--service", "api"), \
+            "--service scopes the gate to one lane"
+
+
+def drift_guard_catches_an_unknown_command():
+    """S24 - AC10 is 'a test FAILS if...'. Point the guard at a throwaway doc tree that
+    names a command pipe.py does not have and assert it actually raises."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agents = os.path.join(tmp, "agents")
+        os.makedirs(agents)
+        for i in range(6):
+            write(os.path.join(agents, f"a{i}.md"), "Run `$PIPE status` when done.\n")
+        command_drift_check(tmp)          # a clean tree passes
+        write(os.path.join(agents, "a3.md"),
+              "Cheatsheet\n\n- `$PIPE teleport --to qa` when the tests are green\n")
+        try:
+            command_drift_check(tmp)
+        except AssertionError as e:
+            assert "teleport" in str(e) and "a3.md" in str(e), \
+                f"the failure must name the file and the command: {e}"
+        else:
+            raise AssertionError("the drift guard passed a doc naming `$PIPE teleport` - "
+                                 "it cannot catch the drift it exists to catch")
+
+
+def init_stdout_is_machine_readable():
+    """S25 - init is the first command of every run and the only place a caller learns
+    the runId, the branch and the bus path. Its stdout has to parse."""
+    with tempfile.TemporaryDirectory() as tmp:
+        home = os.path.join(tmp, "aohome")
+        for name, extra in (("legacy", []), ("workstream", ["--slug", "messaging-hub"])):
+            cwd = os.path.join(tmp, name)
+            os.makedirs(cwd)
+            r = subprocess.run([sys.executable, PIPE, "init", "--feature", "Hub", *extra],
+                               cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+                               env={**os.environ, "AGENT_ORCHESTRATION_HOME": home})
+            assert r.returncode == 0, r.stderr
+            try:
+                out = json.loads(r.stdout)
+            except json.JSONDecodeError as e:
+                raise AssertionError(
+                    f"`init{' ' + ' '.join(extra) if extra else ''}` stdout is not JSON ({e}); "
+                    f"tail is {r.stdout.strip().splitlines()[-1]!r}. A caller doing "
+                    "json.loads(stdout) to read runId/branch now breaks.")
+            assert out.get("runId"), out
+            if extra:
+                assert out.get("branch") == "feature/messaging-hub", out
+
+
+SCENARIOS = [
+    ("S1", merge_lands_on_each_repos_own_base),
+    ("S2/S5/S6/S8/S9/S10", workstream_checks),
+    ("S3", wave_two_reattaches_to_the_one_branch),
+    ("S4", init_refuses_a_non_slug_identity),
+    ("S7", teardown_removes_every_container),
+    ("S11", apply_refuses_a_repo_off_its_base),
+    ("S12", apply_refuses_a_dirty_working_tree),
+    ("S13", finish_reports_a_missing_repo_loudly),
+    ("S14/S16/S17/S20/S21", core_checks),
+    ("S15", slug_rule_edges),
+    ("S18", review_rejections_never_touch_disk),
+    ("S19", reviewer_holds_no_write_tool),
+    ("S22", qa_check_spans_service_namespaces),
+    ("S23", command_drift_check),
+    ("S24", drift_guard_catches_an_unknown_command),
+    ("S25", init_stdout_is_machine_readable),
+]
+
+
+def main():
+    failed = []
+    for sid, fn in SCENARIOS:
+        try:
+            fn()
+        except Exception as e:          # one broken scenario must not hide the rest
+            failed.append((sid, fn.__name__, f"{type(e).__name__}: {e}"))
+            print(f"FAIL {sid} {fn.__name__}\n  {e}\n")
+    if failed:
+        print(f"{len(SCENARIOS) - len(failed)}/{len(SCENARIOS)} scenario groups passed; "
+              f"failed: {', '.join(s for s, _, _ in failed)}")
+        sys.exit(1)
     print("ok - pipe.py self-check passed")
 
 
