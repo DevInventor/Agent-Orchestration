@@ -29,6 +29,30 @@ def run(root, *args, env=None, expect=0):
     return r.stdout + r.stderr
 
 
+def git(repo, *args):
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True,
+                       encoding="utf-8")
+    assert r.returncode == 0, f"git {' '.join(args)} in {repo}:\n{r.stderr}"
+    return r.stdout
+
+
+def git_repo(path, base, content="base\n"):
+    """A real one-commit repo - worktree add and finish shell out to git for real."""
+    os.makedirs(path, exist_ok=True)
+    git(path, "init", "-q", "-b", base)
+    git(path, "config", "user.email", "team@example.com")
+    git(path, "config", "user.name", "team")
+    write(os.path.join(path, "README.md"), content)
+    git(path, "add", "-A")
+    git(path, "commit", "-qm", "base commit")
+    return path
+
+
+def write(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
 def import_pipe():
     """pipe.py as a module, for the pure helpers and the parser walk."""
     sys.path.insert(0, os.path.dirname(PIPE))
@@ -44,6 +68,36 @@ def events(root):
 def read_run(root):
     with open(os.path.join(root, "run.json"), encoding="utf-8") as f:
         return json.load(f)
+
+
+def workstream_checks():
+    """The git-backed half: worktree add and finish over real temporary repos.
+
+    Its own temp dir with ignore_cleanup_errors because git marks objects under .git
+    read-only and Windows then refuses to delete them - cleanup noise, not a failure."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        repos = os.path.join(tmp, "repos")
+        api = git_repo(os.path.join(repos, "api"), "develop")
+        web = git_repo(os.path.join(repos, "web"), "master")
+        root = os.path.join(tmp, "bus", "pipeline")
+        run(root, "init", "--feature", "Messaging hub", "--slug", "messaging-hub")
+
+        # --- one workstream, one branch name, in every repository it touches --------
+        run(root, "worktree", "add", "--service", "api", "--repo", api)
+        run(root, "worktree", "add", "--service", "web", "--repo", web)
+        r = read_run(root)
+        assert r["branch"] == "feature/messaging-hub", r["branch"]
+        assert [e["branch"] for e in r["repos"]] == [r["branch"]] * 2, \
+            "every repo must carry the one branch name fixed at init"
+        assert [e["base"] for e in r["repos"]] == ["develop", "master"], \
+            "base is recorded per repo at creation - it is not always master"
+        for e in r["repos"]:
+            assert os.path.isdir(e["worktree"]), e
+            assert os.path.basename(os.path.dirname(e["worktree"])) == "wt-messaging-hub", e
+
+        # --- no later step can even ask for a second branch name -------------------
+        run(root, "worktree", "add", "--service", "api", "--repo", api,
+            "--branch", "feature/other", expect=2)
 
 
 def main():
@@ -141,6 +195,7 @@ def main():
         assert srun["slug"] == "messaging-hub" and srun["branch"] == "feature/messaging-hub" \
             and srun["repos"] == [] and srun["mode"] == "worktree", srun
 
+    workstream_checks()
     print("ok - pipe.py self-check passed")
 
 

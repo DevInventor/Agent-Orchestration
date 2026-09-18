@@ -17,11 +17,12 @@ Usage examples:
     pipe.py progress 30
     pipe.py loop --count 2 --max 5
     pipe.py event --agent coder --type handoff --summary "Implemented 4/4 tasks" --ref pipeline/code/changes.json
+    pipe.py worktree add --service api --repo /abs/repos/OpenCRM
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
     pipe.py status
 """
-import argparse, json, os, re, sys, tempfile, time
+import argparse, json, os, re, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
@@ -81,6 +82,17 @@ def scan_pipelines():
         if os.path.isfile(rp):
             out.append({"slug": name, "root": os.path.dirname(rp), "run": read_json(rp, {})})
     return out
+
+
+def git(repo, *args, check=True):
+    """Every git call goes through here. encoding is pinned: git prints paths in the
+    console codepage on Windows, and decoding them with the locale default mangles any
+    non-ASCII filename in a conflict report - exactly where accuracy matters most."""
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if check and r.returncode != 0:
+        sys.exit(f"git {' '.join(args)} failed in {repo}:\n{(r.stderr or r.stdout).strip()}")
+    return r
 
 
 def slugify(text):
@@ -425,6 +437,49 @@ def cmd_task(root, args):
     print(json.dumps(data, indent=2))
 
 
+def cmd_worktree(root, args):
+    """Materialise one service's checkout of the workstream branch, and record it.
+
+    There is deliberately no --branch: the name comes from run['branch'] and nowhere
+    else. That is what makes "one workstream, one branch name in every repository"
+    structural rather than a convention two sessions can drift from (observed in 2 of
+    11 real containers, where a merge silently left the fourth repo behind)."""
+    run = load_run(root)
+    branch = run.get("branch")
+    if not branch:
+        sys.exit("this bus has no workstream branch - it was created without --slug")
+    repo = os.path.abspath(args.repo)
+    if not os.path.isdir(repo) or git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
+        sys.exit(f"not a git repository: {repo}")
+    repos_root = os.path.dirname(repo)
+    # The container is repos-root-shaped and sits OUTSIDE every repo, so nothing in it
+    # can be committed into one by accident (section 17).
+    if git(repos_root, "rev-parse", "--show-toplevel", check=False).returncode == 0:
+        sys.exit(f"refusing: {repos_root} is itself inside a git working tree; the "
+                 "container must sit beside the repos, not in one")
+    wt = os.path.join(repos_root, "wt-" + run["slug"], args.service)
+    base = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if base == "HEAD":
+        sys.exit(f"{repo} is on a detached HEAD - check out the branch this work merges home to")
+    if os.path.isdir(wt):
+        print(f"worktree already present, reusing: {wt}")   # a later wave re-adding
+    else:
+        # -b only when the branch is new: a second wave attaches to the branch wave 1
+        # created instead of failing or inventing a variant of the name.
+        exists = git(repo, "rev-parse", "--verify", "--quiet",
+                     "refs/heads/" + branch, check=False).returncode == 0
+        git(repo, *(["worktree", "add", wt, branch] if exists
+                    else ["worktree", "add", "-b", branch, wt]))
+    entry = {"service": args.service, "repo": repo, "worktree": wt,
+             "branch": branch, "base": base}
+    with Lock(run_path(root)):
+        run = load_run(root)
+        run["repos"] = [r for r in run.get("repos", [])
+                        if r["service"] != args.service] + [entry]
+        save_run(root, run)
+    print(json.dumps(entry, indent=2))
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
@@ -456,6 +511,9 @@ def build_parser():
     s.add_argument("--failed", type=int, default=None)
     s = sub.add_parser("status")
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
+    s = sub.add_parser("worktree")
+    ws = s.add_subparsers(dest="wt_cmd", required=True)
+    w = ws.add_parser("add"); w.add_argument("--service", required=True); w.add_argument("--repo", required=True)
     s = sub.add_parser("task")
     ts = s.add_subparsers(dest="task_cmd", required=True)
     for name in ("add", "update"):
@@ -486,6 +544,7 @@ def main():
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "config": cmd_config, "task": cmd_task,
+        "worktree": cmd_worktree,
     }[args.cmd](root, args)
 
 
