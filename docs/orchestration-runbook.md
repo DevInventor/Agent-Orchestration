@@ -13,21 +13,27 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
 Read the **pipeline-protocol** skill first if you have not this run. Set:
 
 ```bash
-PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
+PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <the bus path from the entry skill>"
 ```
 
 ## Precondition (your entry skill has already done this)
 
-Before you reach this runbook, the entry skill has run `$PIPE init` and populated
-`pipeline/spec.md` with crisp, testable acceptance criteria. If `pipeline/spec.md`
-is missing or empty, stop and go back to the entry skill's spec step.
+Before you reach this runbook, the entry skill has derived the workstream's **slug**,
+run `$PIPE init --slug`, announced the branch `feature/<slug>`, and populated
+`<bus>/spec.md` with crisp, testable acceptance criteria. If `spec.md` is missing or
+empty, stop and go back to the entry skill's spec step.
+
+**The bus path comes from the entry skill, not from your cwd.** `init --slug` puts it
+under the fixed pipelines root, so `./pipeline` is the wrong answer. Keep `--root <bus>`
+baked into `$PIPE` and **pass the absolute bus path to every subagent you spawn**, with
+the pipeline file paths they need spelled out under it.
 
 Your entry skill has also **started the dashboard** in the background and told the user
 its URL (http://localhost:4600). If it did not — or if the background process is gone —
 start it now before planning, because nothing else will:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "$(pwd)/pipeline"   # background call
+node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "<the bus path>"   # background call
 ```
 
 Then begin at the Plan phase.
@@ -84,9 +90,11 @@ Count distinct `service` values in `plan.json`.
 
 ### 2. Implement  (phase: implement)
 1. `$PIPE phase implement && $PIPE agent coder`.
-2. Spawn the **coder** subagent (`agents/coder.md`) with the plan. It implements the
-   tasks in the actual repo, writes `pipeline/code/changes.json` + `diff.patch`, and
-   marks tasks `done` as it goes.
+2. Spawn the **coder** subagent (`agents/coder.md`) with the plan **and the base branch
+   it merges home to** — `run.json`'s `repos[]` entry for its service if the run has
+   one, else the repo's current branch. It implements the tasks in the actual repo,
+   **commits each completed task** (`T#: ...`), writes `pipeline/code/changes.json` and
+   `diff.patch` as `git diff <base>...HEAD`, and marks tasks `done` as it goes.
 
 ### 3. Test + fix loop  (phase: test)  — max 5 iterations
 This is the test-driven bug-fixing loop. Track it with `$PIPE loop --count K --max 5`.
@@ -114,16 +122,14 @@ deltas.
 
 ### 4. Review  (phase: review)
 1. `$PIPE phase review && $PIPE agent reviewer`.
-2. Spawn the **reviewer** subagent (`agents/reviewer.md`). It is **read-only**: its
-   agent definition grants only Read/Grep/Glob, so it cannot modify the repo. It
-   compares the implementation against `plan.json`, and uses the `ponytail` review
-   skill (`/ponytail.review` or the `ponytail` skill) to strip codebase noise and
-   focus on the real diff. It **returns** its findings to you as structured text.
-3. **You persist the reviewer's output** on its behalf (it can't write): save the
-   markdown analysis to `pipeline/review/review.md` and the structured findings to
-   `pipeline/review/review.json`, then
-   `$PIPE event --agent reviewer --type finding --summary "Review: X blocking, Y notes" --ref pipeline/review/review.md`.
-4. Routing: if there are **blocking** findings, send them back to the coder (this
+2. Spawn the **reviewer** subagent (`agents/reviewer.md`). It cannot modify the repo:
+   its agent definition grants no `Write` and no `Edit`. It compares the implementation
+   against `plan.json`, and uses the `ponytail` review skill (`/ponytail.review` or the
+   `ponytail` skill) to strip codebase noise and focus on the real diff. It **persists
+   its own findings** through `$PIPE review --from <file>` — which writes
+   `pipeline/review/review.{json,md}` and emits the `finding` event — and returns you a
+   one-line summary. Do not retype its findings; read `pipeline/review/review.json`.
+3. Routing: if there are **blocking** findings, send them back to the coder (this
    reuses the same fix budget — do not exceed the total of 5 coder fix iterations
    across test+review combined). Re-test after any code change. If only non-blocking
    notes remain, annotate and proceed.
@@ -162,8 +168,11 @@ Re-check eligibility after every tester batch (services may have just gone `done
    `done`/`blocked`. For each, `$PIPE svc --name <svc> --phase implement --agent coder`.
    **Spawn one coder per ACTIVE service, all in a single message.** First time for a
    service = mode A (implement its task slice); a re-spawn = mode B (fix only that
-   service's failing results). Each coder is scoped to its own service dir, writes under
-   `pipeline/services/<svc>/code/`, and tags tasks/events `--service <svc>`. **Await all.**
+   service's failing results). Each coder is scoped to its own service dir, is handed
+   **that service's base branch** (from `run.json`'s `repos[]` entry, else the repo's
+   current branch) so it can commit each task and write `diff.patch` as
+   `git diff <base>...HEAD`, writes under `pipeline/services/<svc>/code/`, and tags
+   tasks/events `--service <svc>`. **Await all.**
 2. **Tester batch.** For each service just coded:
    `$PIPE svc --name <svc> --phase test --agent tester --loop-count K_svc`, where
    **`K_svc` is that service's own iteration counter** (per service, never a shared batch
@@ -188,9 +197,10 @@ budget of 5 is enforced **independently per service**, not as a shared batch cou
 
 ### Review batch
 When all services are `done`/`blocked`: `$PIPE phase review`. **Spawn one reviewer per
-`done` service in a single message.** Each reviewer is read-only and **returns** its
-findings; **you persist** them to `pipeline/services/<svc>/review/{review.md,review.json}`
-and emit a `finding` event tagged `--service <svc>`. Blocking findings route that service
+`done` service in a single message.** Each reviewer persists its own findings with
+`$PIPE review --from <file> --service <svc>`, which writes
+`pipeline/services/<svc>/review/{review.md,review.json}` and emits the `finding` event
+tagged for that service; you get one line back. Blocking findings route that service
 back into a coder batch (counting against its same budget of 5), then re-test and
 re-review that service only.
 
@@ -201,11 +211,12 @@ Then continue to the QA gate (§5), which aggregates across all services.
 
 ### 5. QA gate  (phase: qa)
 1. `$PIPE phase qa`.
-2. Verify against `pipeline/spec.md` acceptance criteria. **Single-service:** tests
-   green (`test/results.json`), no unresolved blocking findings, all `tasks.json` items
-   `done`. **Multi-service:** aggregate — every service in `run.services` is `done`
-   (none `blocked`), every service's tests green, and all `tasks.json` items `done`
-   across all services.
+2. `$PIPE qa-check` — the mechanical gates are an exit code, not a reading exercise: it
+   fails on any `blocking` finding in the current `review.json`, any task not `done`,
+   and any service whose `test/results.json` is failing or missing, across every service
+   in `run.services`. Non-zero prints one line per failed gate; fix those before
+   continuing. Then judge what it cannot: does the work actually meet
+   `pipeline/spec.md`'s acceptance criteria, and is any service `blocked`?
 3. Write `pipeline/status/summary.md`: what shipped (grouped by service in a
    multi-service run), per-task status, per-service test summary and fix-loop count,
    review disposition, and anything deferred or blocked.

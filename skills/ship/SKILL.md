@@ -18,22 +18,40 @@ PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
 ```
 
 ## Init + author the spec  (phase: spec)
-1. `$PIPE init --feature "<the feature the user gave /ship>"`.
+1. **Name the workstream, then create its bus.** There is no spec doc yet, so the slug
+   comes from the feature title — through `pipe.py`, never by eye, so a later wave
+   derives the same name and lands on the same branch.
+   ```bash
+   $PIPE slug --title "<the feature the user gave /ship>"   # -> e.g. sso-logout-endpoint
+   $PIPE init --slug "<slug>" --feature "<the feature>"     # stdout is JSON; .busPath = the bus
+   ```
+   `init` prints one JSON document; its **`busPath`** key is the resolved absolute
+   bus path (`... | python3 -c 'import json,sys;print(json.load(sys.stdin)["busPath"])'`).
+   The bus no longer lives at `./pipeline`, so from here on **bake that path in**:
+   ```bash
+   PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <busPath>"
+   ```
+   Use that literal path for the rest of the run and hand it to every subagent you
+   spawn — a subagent that guesses `./pipeline` writes to a bus nobody is reading.
+1b. **Announce the branch.** Tell the user, in one line: every repository this
+   workstream touches will use the branch **`feature/<slug>`**, fixed now, and the bus
+   is at the path above. Nothing later can change the name.
 2. **Start the dashboard — do not skip this.** Nothing else in the pipeline ever starts
    it, and the server is a passive file reader: if it is not running, the entire run is
    invisible. Launch it as a **background** Bash call so it outlives this turn:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "$(pwd)/pipeline"
+   node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "<the printed bus path>"
    ```
    It is idempotent — if a dashboard already holds the port it prints that and exits 0.
    Pass the **absolute** bus path as shown; the server resolves `--pipeline` against its
    own cwd, so a relative path silently watches the wrong directory.
    Then tell the user once: **http://localhost:4600**.
-3. Refine the raw request in `pipeline/spec.md` into crisp, testable acceptance
+3. Refine the raw request in `<bus>/spec.md` into crisp, testable acceptance
    criteria (a short bullet list). Overwrite the file.
 4. `$PIPE event --agent orchestrator --type status --summary "Spec normalized: N acceptance criteria"`.
 
 ## Then run the pipeline
 Now follow `${CLAUDE_PLUGIN_ROOT}/docs/orchestration-runbook.md` from the Plan phase
-onward. It owns the rest of the run: plan → finalize gate → implement → test/fix loop
-→ review → QA → done, for both single- and multi-service plans.
+onward, carrying the bus path with you. It owns the rest of the run: plan → finalize
+gate → implement → test/fix loop → review → QA → done, for both single- and
+multi-service plans.

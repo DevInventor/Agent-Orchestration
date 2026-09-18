@@ -11,21 +11,31 @@ Phases (drive the header progress bar), in order:
 
 Usage examples:
     pipe.py init --feature "Add SSO logout endpoint"
+    pipe.py slug --spec docs/specs/009-messaging-hub/design.md
     pipe.py phase plan
     pipe.py agent planner
     pipe.py progress 30
     pipe.py loop --count 2 --max 5
     pipe.py event --agent coder --type handoff --summary "Implemented 4/4 tasks" --ref pipeline/code/changes.json
+    pipe.py review --from /tmp/findings.json
+    pipe.py qa-check
+    pipe.py worktree add --service api --repo /abs/repos/OpenCRM
+    pipe.py finish 009-messaging-hub --apply
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
     pipe.py status
 """
-import argparse, json, os, sys, tempfile, time
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
 RUN_STATUSES = ["running", "awaiting_approval", "blocked", "done", "failed"]
 CONFIG_NAME = "agent-orchestration.config.json"
+# A spec doc named one of these says nothing about the workstream — its parent dir does.
+GENERIC_SPEC_NAMES = {"design", "spec", "readme", "index", "requirements", "plan"}
+SLUG_MAX = 40
+SEVERITIES = ["blocking", "major", "minor", "nit"]
+RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
 
 
 def now_iso():
@@ -56,6 +66,87 @@ def find_config(start="."):
         if parent == cur:
             return None
         cur = parent
+
+
+def pipelines_root():
+    """The one place every workstream's bus lives. Separate repos have no shared root
+    to put state in, so it is fixed and absolute. $AGENT_ORCHESTRATION_HOME overrides
+    the ~/.agent-orchestration part (tests, and anyone keeping state off the home drive)."""
+    home = os.environ.get("AGENT_ORCHESTRATION_HOME") or \
+        os.path.join(os.path.expanduser("~"), ".agent-orchestration")
+    return os.path.join(home, "pipelines")
+
+
+def scan_pipelines():
+    """Every bus under the fixed root: [{slug, root, run}]. The directory IS the
+    registry — nothing to register, nothing to keep in sync, self-healing when one is
+    deleted. `slug` collision-checks against it and `finish` resolves a slug through it."""
+    base, out = pipelines_root(), []
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        rp = os.path.join(base, name, "pipeline", "run.json")
+        if os.path.isfile(rp):
+            out.append({"slug": name, "root": os.path.dirname(rp), "run": read_json(rp, {})})
+    return out
+
+
+def git(repo, *args, check=True):
+    """Every git call goes through here. encoding is pinned: git prints paths in the
+    console codepage on Windows, and decoding them with the locale default mangles any
+    non-ASCII filename in a conflict report - exactly where accuracy matters most."""
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if check and r.returncode != 0:
+        sys.exit(f"git {' '.join(args)} failed in {repo}:\n{(r.stderr or r.stdout).strip()}")
+    return r
+
+
+def slugify(text):
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return s[:SLUG_MAX].strip("-")
+
+
+def require_path_segment(value, flag):
+    """A service name is NOT a slug. A slug names the workstream and becomes a git
+    branch, so it has to be ref-safe. A service name is a directory that already
+    exists on disk, named by whoever made the repo: 'GT-Janus', 'GTID-Vault',
+    'MFA_Server', 'oauth_v3.8.0' are 7 of the 15 names in a real registry, and the
+    container path is wt-<slug>/<service>, so the exact name has to survive. The only
+    thing worth refusing is what the name can do as a *path* - escape the container.
+    So: one plain segment, nothing else."""
+    if (not value or value in (".", "..") or "/" in value or "\\" in value
+            or os.path.isabs(value) or re.match(r"^[A-Za-z]:", value)
+            or os.path.basename(value) != value):
+        sys.exit(f"{flag} must be a single path segment - no '/' or '\\', no drive "
+                 f"letter, not '.' or '..'; got {value!r}. It becomes a directory name.")
+    return value
+
+
+def derive_slug(spec_path):
+    """The workstream's name, from its spec doc's path. It has to be *derived* rather
+    than chosen, because a later wave re-derives it and must land on the same string —
+    that is what keeps one workstream on one branch. A plain basename yields 'design'
+    for 3 of 7 real spec paths and a plain parent yields 'specs'/'docs' for 4, so the
+    rule uses the basename unless it is generic, then strips date/kind decoration."""
+    p = spec_path.replace("\\", "/").rstrip("/")
+    stem = os.path.splitext(os.path.basename(p))[0]
+    if stem.lower() in GENERIC_SPEC_NAMES:
+        stem = os.path.basename(os.path.dirname(p))
+    stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)
+    stem = re.sub(r"-(design|spec)$", "", stem, flags=re.IGNORECASE)
+    return slugify(stem)
+
+
+def resolve_slug(slug):
+    """Suffix rather than reuse an ACTIVE workstream's slug — two live runs sharing a
+    slug would share a branch, a container and a bus directory. A closed one is free."""
+    active = {p["slug"] for p in scan_pipelines()
+              if p["run"].get("status") not in ("done", "failed")}
+    if slug not in active:
+        return slug
+    n = 2
+    while f"{slug}-{n}" in active:
+        n += 1
+    return f"{slug}-{n}"
 
 
 def atomic_write(path, text):
@@ -129,7 +220,22 @@ def recompute_progress(run):
     run["progressPct"] = round(base * 100)
 
 
+def cmd_slug(root, args):
+    """Print the workstream slug for a spec doc (or a bare feature title), collision
+    -checked against the active workstreams. The entry skills call this instead of
+    applying the rule by eye, so `init`, a later wave and `finish` all agree."""
+    print(resolve_slug(derive_slug(args.spec) if args.spec else slugify(args.title)))
+
+
 def cmd_init(root, args):
+    # The branch name is fixed here and nothing later can change it, so an identity git
+    # cannot turn into a ref has to be refused now, not discovered at `worktree add`.
+    # Refuse rather than slugify: main() built the bus directory from the raw argument
+    # and scan_pipelines() keys on that directory name, so a silent rewrite would leave
+    # run["slug"] and the directory disagreeing.
+    if getattr(args, "slug", None) and slugify(args.slug) != args.slug:
+        sys.exit(f"--slug must already be a slug; {args.slug!r} would have to be "
+                 f"{slugify(args.slug)!r}. Run `pipe.py slug --title/--spec ...` and pass its output.")
     os.makedirs(root, exist_ok=True)
     for sub in ("code", "test", "review", "status"):
         os.makedirs(os.path.join(root, sub), exist_ok=True)
@@ -146,6 +252,14 @@ def cmd_init(root, args):
         "progressPct": 0,
         "startedAt": now_iso(),
     }
+    if getattr(args, "slug", None):
+        # The one moment the branch name comes into existence. Every later step reads
+        # it; none may choose one. Waves of the same workstream re-init onto the same
+        # slug and so onto the same branch. Omit --slug and this is a legacy bus.
+        run["slug"] = args.slug
+        run["branch"] = "feature/" + args.slug
+        run["repos"] = []
+        run["mode"] = "worktree"
     save_run(root, run)
     atomic_write(os.path.join(root, "spec.md"),
                  f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
@@ -154,7 +268,12 @@ def cmd_init(root, args):
     open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8").close()
     _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}",
            None, None, run_id=run["runId"])
-    print(json.dumps(run, indent=2))
+    # stdout is ONE JSON document - callers json.loads() it to read runId/branch, so a
+    # trailing bare path line would break them. busPath carries the resolved bus instead:
+    # --slug moves it off ./pipeline and the entry skill is the only thing that knows
+    # where it went, so it reads this key and bakes it into $PIPE --root. It is printed
+    # rather than saved, leaving a no-slug run.json byte-for-byte the legacy one.
+    print(json.dumps({**run, "busPath": root}, indent=2))
 
 
 def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id=None):
@@ -349,12 +468,314 @@ def cmd_task(root, args):
     print(json.dumps(data, indent=2))
 
 
+def svc_dir(root, service, *parts):
+    """Artifact dir for a service, or the flat single-service layout when there is none.
+
+    Every path built from a service name funnels through here (review, qa-check), so
+    the traversal guard lives here rather than in each caller."""
+    # `is None` (not falsy): an explicit --service "" is a mistake, and silently
+    # treating it as "no service" would drop a multi-service run's artifacts into the
+    # flat single-service slot the namespace exists to keep them out of.
+    if service is None:
+        return os.path.join(root, *parts)
+    return os.path.join(root, "services",
+                        require_path_segment(service, "--service"), *parts)
+
+
+def render_review(data):
+    """review.md is rendered FROM review.json, so the prose and the machine-readable
+    findings can never disagree about how many blockers there are."""
+    out = ["# Review", "", "## Summary", "",
+           str(data.get("summary") or "").strip() or "_not given_",
+           "", "## Plan fidelity", "",
+           str(data.get("planFidelity") or "").strip() or "_not given_",
+           "", "## Findings", ""]
+    for sev in SEVERITIES:
+        group = [f for f in data["findings"] if f["severity"] == sev]
+        if not group:
+            continue
+        out += [f"### {sev} ({len(group)})", ""]
+        for f in group:
+            loc = str(f.get("file") or "")
+            if f.get("line"):
+                loc += f":{f['line']}"
+            ref = f" [{f['planRef']}]" if f.get("planRef") else ""
+            out.append(f"- **{loc or 'general'}**{ref} - {str(f['note']).strip()}")
+        out.append("")
+    if not data["findings"]:
+        out += ["_no findings_", ""]
+    return "\n".join(out + ["## Recommendation", "", data["recommendation"], ""])
+
+
+def cmd_review(root, args):
+    """Persist the reviewer's own findings: validate the whole payload, then write.
+
+    The reviewer calls this instead of returning its analysis for the orchestrator to
+    retype - an LLM copy step inside the audit trail can silently drop a finding, merge
+    two, or soften a severity, and `qa-check` is only trustworthy because these landed
+    schema-checked. Nothing is opened for writing until every finding has passed, so a
+    malformed payload is rejected rather than half-written."""
+    try:
+        with open(args.source, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        sys.exit(f"review: no such file: {args.source}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"review: invalid JSON in {args.source}: {e}")
+    if not isinstance(data, dict):
+        sys.exit("review: expected a JSON object {recommendation, findings:[...]}")
+    if data.get("recommendation") not in RECOMMENDATIONS:
+        sys.exit(f"review: recommendation must be one of {', '.join(RECOMMENDATIONS)}, "
+                 f"got {data.get('recommendation')!r}")
+    findings = data.get("findings", [])
+    if not isinstance(findings, list):
+        sys.exit("review: 'findings' must be a list")
+    for i, f in enumerate(findings):
+        if not isinstance(f, dict):
+            sys.exit(f"review: finding #{i} must be an object")
+        if f.get("severity") not in SEVERITIES:
+            sys.exit(f"review: finding #{i} severity must be one of "
+                     f"{', '.join(SEVERITIES)}, got {f.get('severity')!r}")
+        if not str(f.get("note", "")).strip():
+            sys.exit(f"review: finding #{i} has an empty note - a finding nobody can act on")
+    data["findings"] = findings
+    out = svc_dir(root, args.service, "review")
+    atomic_write(os.path.join(out, "review.json"), json.dumps(data, indent=2))
+    atomic_write(os.path.join(out, "review.md"), render_review(data))
+    blocking = len([f for f in findings if f["severity"] == "blocking"])
+    summary = (f"Review: {blocking} blocking, {len(findings) - blocking} notes "
+               f"({data['recommendation']})")
+    run = load_run(root)
+    _event(root, "reviewer", "finding", run.get("phase", "review"), summary, None,
+           os.path.join(out, "review.md"), args.service, run.get("runId"))
+    print(summary)
+
+
+def cmd_qa_check(root, args):
+    """The QA gate as an exit code rather than three files and a judgement call.
+
+    A finding counts as unresolved iff it is `blocking` in the CURRENT review.json:
+    a re-review overwrites that file, so a fixed finding simply disappears. No finding
+    ids, no resolution lifecycle, no second piece of state to keep in agreement."""
+    run = load_run(root)
+    services = [args.service] if args.service else (sorted(run.get("services", {})) or [None])
+    fails = []
+    for svc in services:
+        where = f"services/{svc}/" if svc else ""
+        # None, not {}: `review --from` writes nothing when the payload is malformed,
+        # so a MISSING review is the exact failure this gate exists to catch - it must
+        # not read as a clean one. Same treatment as results.json below.
+        review = read_json(svc_dir(root, svc, "review", "review.json"), None)
+        if review is None:
+            fails.append(f"no review at {where}review/review.json - the reviewer never reported")
+        else:
+            blocking = [f for f in review.get("findings", []) if f.get("severity") == "blocking"]
+            if blocking:
+                fails.append(f"{len(blocking)} blocking finding(s) in {where}review/review.json: "
+                             + "; ".join(str(f.get("note", ""))[:60] for f in blocking))
+        results = read_json(svc_dir(root, svc, "test", "results.json"), None)
+        if results is None:
+            fails.append(f"no test results at {where}test/results.json - the tester never reported")
+        elif results.get("failed"):
+            fails.append(f"{results['failed']} failing test(s) in {where}test/results.json")
+    tasks = read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])
+    todo = [t for t in tasks if t.get("status") != "done"]
+    if todo:
+        fails.append("task(s) not done: "
+                     + ", ".join(f"{t['id']} ({t.get('status')})" for t in todo))
+    for f in fails:
+        print("FAIL " + f)
+    if fails:
+        sys.exit(1)
+    print(f"qa-check: green - {len(tasks)} task(s) done, tests green, no blocking findings")
+
+
+def cmd_worktree(root, args):
+    """Materialise one service's checkout of the workstream branch, and record it.
+
+    There is deliberately no --branch: the name comes from run['branch'] and nowhere
+    else. That is what makes "one workstream, one branch name in every repository"
+    structural rather than a convention two sessions can drift from (observed in 2 of
+    11 real containers, where a merge silently left the fourth repo behind)."""
+    # --service becomes a directory name under the container: unvalidated, '../../x'
+    # walks straight out of it. Traversal is the whole threat - the name itself is a
+    # real on-disk directory ('GTID-Vault', 'oauth_v3.8.0') and is used verbatim.
+    require_path_segment(args.service, "--service")
+    run = load_run(root)
+    branch = run.get("branch")
+    if not branch:
+        sys.exit("this bus has no workstream branch - it was created without --slug")
+    repo = os.path.abspath(args.repo)
+    if not os.path.isdir(repo) or git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
+        sys.exit(f"not a git repository: {repo}")
+    repos_root = os.path.dirname(repo)
+    # The container is repos-root-shaped and sits OUTSIDE every repo, so nothing in it
+    # can be committed into one by accident (section 17).
+    if git(repos_root, "rev-parse", "--show-toplevel", check=False).returncode == 0:
+        sys.exit(f"refusing: {repos_root} is itself inside a git working tree; the "
+                 "container must sit beside the repos, not in one")
+    wt = os.path.join(repos_root, "wt-" + run["slug"], args.service)
+    base = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if base == "HEAD":
+        sys.exit(f"{repo} is on a detached HEAD - check out the branch this work merges home to")
+    if os.path.isdir(wt):
+        print(f"worktree already present, reusing: {wt}")   # a later wave re-adding
+    else:
+        # -b only when the branch is new: a second wave attaches to the branch wave 1
+        # created instead of failing or inventing a variant of the name.
+        exists = git(repo, "rev-parse", "--verify", "--quiet",
+                     "refs/heads/" + branch, check=False).returncode == 0
+        git(repo, *(["worktree", "add", wt, branch] if exists
+                    else ["worktree", "add", "-b", branch, wt]))
+    entry = {"service": args.service, "repo": repo, "worktree": wt,
+             "branch": branch, "base": base}
+    with Lock(run_path(root)):
+        run = load_run(root)
+        run["repos"] = [r for r in run.get("repos", [])
+                        if r["service"] != args.service] + [entry]
+        save_run(root, run)
+    print(json.dumps(entry, indent=2))
+
+
+def require_git(minimum=(2, 38)):
+    """`merge-tree --write-tree` - the only way to test a merge without touching a
+    working tree - landed in git 2.38. Check once and say so, rather than misparse
+    older output and report a clean merge that is not one."""
+    r = subprocess.run(["git", "--version"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    m = re.search(r"(\d+)\.(\d+)", r.stdout if r.returncode == 0 else "")
+    if not m or (int(m.group(1)), int(m.group(2))) < minimum:
+        sys.exit(f"finish needs git >= {minimum[0]}.{minimum[1]}; found "
+                 f"'{(r.stdout or r.stderr).strip() or 'no git on PATH'}'")
+
+
+def merge_conflicts(entry):
+    """Conflicting paths for merging the workstream branch into this repo's base, or []
+    when the merge is clean. Touches no working tree, so it is safe in plan mode."""
+    r = git(entry["repo"], "merge-tree", "--write-tree", "--name-only",
+            entry["base"], entry["branch"], check=False)
+    if r.returncode == 0:
+        return []
+    # line 0 is the resulting tree's oid; the conflicted paths follow, then a blank
+    # line and git's human-readable messages. Any non-zero exit counts as conflicted.
+    files = []
+    for line in r.stdout.splitlines()[1:]:
+        if not line.strip():
+            break
+        files.append(line.strip())
+    return files or ["(git reported a conflict but named no file)"]
+
+
+def cmd_finish(root, args):
+    """Close a run: plan the multi-repo merge, or perform it all-or-nothing.
+
+    Git has no atomic multi-repo merge, so this builds one: every repo is dry-run
+    first and nothing merges unless all of them are clean. Merging until something
+    breaks would leave one feature half-shipped across services.
+
+    A run is not a workstream: --apply keeps the worktrees, because a later wave stands
+    on them. Removing the container is --teardown, a separate explicit act."""
+    if args.teardown and not args.apply:
+        sys.exit("--teardown only applies with --apply; a bare finish changes nothing")
+    if args.slug:
+        match = [p for p in scan_pipelines() if p["slug"] == args.slug]
+        if not match:
+            sys.exit(f"no workstream '{args.slug}' under {pipelines_root()}")
+        root = match[0]["root"]
+    run = load_run(root)
+    repos = run.get("repos") or []
+    if not repos:
+        sys.exit(f"{root} records no repositories - nothing to finish. "
+                 + ("Run `worktree add` first." if run.get("slug")
+                    else "This bus was created without --slug."))
+    require_git()
+    for e in repos:
+        n = git(e["repo"], "rev-list", "--count", f"{e['base']}..{e['branch']}").stdout.strip()
+        files = merge_conflicts(e)
+        verdict = "clean" if not files else "CONFLICTS: " + ", ".join(files)
+        # Zero commits is a red flag, not a no-op: it means nothing was ever committed.
+        flag = "  <- NO COMMITS on this branch" if n == "0" else ""
+        print(f"{e['service']}: {e['branch']} -> {e['base']}  {n} commit(s)  {verdict}{flag}")
+    if not args.apply:
+        print(f"plan only - nothing changed. re-run with --apply to merge {len(repos)} repo(s).")
+        return
+    # Re-run every dry run before touching anything: the plan above may have been
+    # printed minutes ago in another invocation and the bases may have moved since.
+    blocked = []
+    for e in repos:
+        files = merge_conflicts(e)
+        if files:
+            blocked.append(f"{e['service']} ({e['repo']}): " + ", ".join(files))
+        if git(e["repo"], "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != e["base"]:
+            blocked.append(f"{e['service']} ({e['repo']}): not on its base branch {e['base']}")
+        if git(e["repo"], "status", "--porcelain").stdout.strip():
+            blocked.append(f"{e['service']} ({e['repo']}): uncommitted changes in the working tree")
+    if blocked:
+        print("merged NOTHING - resolve these first:")
+        for b in blocked:
+            print("  " + b)
+        sys.exit(1)
+    # Preflight makes a failure here unlikely, not impossible (hooks, signing, a ref
+    # that moved since). Git has no multi-repo rollback, so name the half-shipped state
+    # and the undo rather than exit on a bare git error the operator has to reconstruct.
+    merged = []
+    for e in repos:
+        r = git(e["repo"], "merge", "--no-ff", "-m",
+                f"Merge {e['branch']} into {e['base']}", e["branch"], check=False)
+        if r.returncode != 0:
+            print(f"merge FAILED in {e['repo']} ({e['service']}):\n"
+                  f"{(r.stderr or r.stdout).strip()}")
+            print(f"HALF-SHIPPED: {len(merged)} of {len(repos)} repo(s) already merged"
+                  + (":" if merged else " - nothing to undo."))
+            for m in merged:
+                print(f"  {m['service']}: {m['branch']} -> {m['base']} in {m['repo']}")
+                print(f"    undo: git -C {m['repo']} reset --hard ORIG_HEAD")
+            sys.exit(1)
+        merged.append(e)
+        print(f"merged {e['branch']} -> {e['base']} in {e['repo']}")
+    if args.teardown:
+        for e in repos:
+            git(e["repo"], "worktree", "remove", "--force", e["worktree"], check=False)
+        # Services in separate repos put their containers under different repos roots,
+        # so there is one container per root, not one per run. Missing the others leaves
+        # exactly the empty orphan directories teardown exists to prevent.
+        for container in sorted({os.path.dirname(e["worktree"]) for e in repos}):
+            shutil.rmtree(container, ignore_errors=True)
+            print(f"removed container {container}")
+    print(f"archived bus -> {archive_bus(root, run)}")
+
+
+def archive_bus(root, run):
+    """One archive convention, replacing the four hand-rolled variants seen in real use.
+    The workstream directory (bus and all) moves aside as <slug>.closed-<YYYYmmdd>.
+
+    The bus only OWNS its parent under the canonical pipelines_root()/<slug>/pipeline
+    layout (or when that parent holds nothing but the bus). Under --root the parent is
+    an arbitrary user directory that may hold source beside the bus, and moving it
+    carried a sibling src/ off with it - data loss. There, only the bus itself moves,
+    to <root>.closed-<YYYYmmdd>, and everything around it stays put."""
+    root = os.path.abspath(root)
+    ws = os.path.dirname(root)
+    stamp = datetime.now().strftime("%Y%m%d")
+    if os.path.normcase(os.path.dirname(ws)) == os.path.normcase(pipelines_root()) \
+            or os.listdir(ws) == [os.path.basename(root)]:
+        dest = os.path.join(os.path.dirname(ws), f"{run['slug']}.closed-{stamp}")
+    else:
+        ws, dest = root, f"{root}.closed-{stamp}"
+    n, base = 2, dest
+    while os.path.exists(dest):       # a workstream closed twice in one day
+        dest, n = f"{base}-{n}", n + 1
+    shutil.move(ws, dest)
+    return dest
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--slug", default=None); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("slug"); g = s.add_mutually_exclusive_group(required=True); g.add_argument("--spec"); g.add_argument("--title")
     s = sub.add_parser("event")
     s.add_argument("--agent", required=True)
     s.add_argument("--type", required=True, choices=["status", "handoff", "finding", "question", "result", "error"])
@@ -379,6 +800,12 @@ def build_parser():
     s.add_argument("--failed", type=int, default=None)
     s = sub.add_parser("status")
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
+    s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
+    s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
+    s = sub.add_parser("worktree")
+    ws = s.add_subparsers(dest="wt_cmd", required=True)
+    w = ws.add_parser("add"); w.add_argument("--service", required=True); w.add_argument("--repo", required=True)
+    s = sub.add_parser("finish"); s.add_argument("slug", nargs="?"); s.add_argument("--apply", action="store_true"); s.add_argument("--teardown", action="store_true")
     s = sub.add_parser("task")
     ts = s.add_subparsers(dest="task_cmd", required=True)
     for name in ("add", "update"):
@@ -397,14 +824,20 @@ def main():
     # started in a subdir would hijack/overwrite a parent's existing pipeline (data
     # loss). Every other command walks up to locate the active bus.
     if args.cmd == "init":
-        root = args.root or os.path.abspath("pipeline")
+        # --slug puts the bus under the fixed pipelines root, where it outlives the cwd
+        # it was started from; --root still wins, so an existing ./pipeline run is
+        # untouched (backward compatibility, spec sections 7 and 16).
+        root = args.root or (os.path.join(pipelines_root(), args.slug, "pipeline")
+                             if args.slug else os.path.abspath("pipeline"))
     else:
         root = args.root or find_pipeline()
     {
-        "init": cmd_init, "event": cmd_event, "phase": cmd_phase,
+        "init": cmd_init, "slug": cmd_slug, "event": cmd_event, "phase": cmd_phase,
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "config": cmd_config, "task": cmd_task,
+        "review": cmd_review, "qa-check": cmd_qa_check,
+        "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
 
 
