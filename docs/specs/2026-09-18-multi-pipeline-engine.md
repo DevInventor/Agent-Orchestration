@@ -47,6 +47,10 @@ them.
 | 14 | Working directory | **`<reposRoot>/wt-<slug>/<service>/`** — repos-root-shaped container, matching real GoTrust usage. Not `<repo>/.worktrees/`. |
 | 15 | Shared knowledge base | **No file.** The codebase-memory graph *is* the shared knowledge; each pipeline keeps its own `index.md`. See §11. |
 | 16 | Planner discovery | **Query the graph**, don't crawl. Dashboard indexes the registered repos. See §11. |
+| 17 | Unit of work | **Workstream : run is 1 : N.** One branch and container outlive several runs. See §3.3. |
+| 18 | Reviewer persistence | **Reviewer writes through `pipe.py`** (`Bash`, no `Write`/`Edit`). See ADR-0001. |
+| 19 | Operational work | **An optional `operator` agent** runs things and reports evidence; the orchestrator assesses. See §12. |
+| 20 | Agent preamble | **Role cheatsheets**, not the full protocol, for coder/tester/reviewer. See §13. |
 
 `/ship-from-spec` is the daily driver (`/grill-me` → spec doc → `/ship-from-spec`).
 `/ship` is the occasional path. Where the two differ, optimise for `ship-from-spec`.
@@ -140,6 +144,32 @@ branch.
 - The commit is the coder's last act on a task, after `task update --status done`. A task
   marked done with no commit is a defect the `finish` plan will surface as a zero-commit
   repo.
+
+### 3.3 A workstream outlives its runs
+
+**This corrects a 1:1 assumption in the first draft.** Observed usage: `wt-method23` is one
+branch, `feature/method2-passkey-enrolment`, hosting **three** runs — Wave 1, an MFA
+provisioning run, then Wave 2. `wt-stepup` and `wt-marketplace` host two each. Work arrives
+in waves; the branch persists across them.
+
+| term | lifetime | identified by |
+|---|---|---|
+| **Workstream** | one feature, start to merge | `slug` — names the branch, container and route |
+| **Run** | one pass of spec → done over it | `runId` — a workstream has many |
+
+Consequences the first draft got wrong:
+
+- **`finish` closes a run, not the workstream.** Closing Wave 1 must not remove the
+  worktrees Wave 2 stands on. Merging and tearing down the container is a separate,
+  explicit act.
+- **The branch is named once, when the workstream is created** — never per run. This
+  removes the split-branch class of bug by construction: in `wt-stepup`, oauth's worktree
+  was branched during run 1 and never re-branched for run 2, so a merge of run 2 takes
+  three repos and silently leaves the fourth behind. Observed in 2 of 11 real containers.
+- **The hall shows one row per workstream**, with its run history — not three unrelated
+  rows for three waves of one feature.
+- Each run still gets its own bus. Runs are the thing that archive; workstreams are the
+  thing that merge.
 
 ## 4. Concurrency model
 
@@ -330,7 +360,62 @@ The same queries improve the work rather than only cheapening it: `trace_path(in
 gives the tester the real caller set instead of a guess at which dataflows matter, and
 `detect_changes()` gives the reviewer a precise blast radius instead of the whole diff.
 
-## 12. Security boundary
+## 12. The operator, and who assesses
+
+Measured across 22 buses, **16% of orchestrator events are it doing the work itself** —
+*"DEPLOYED to AWS: sso 3e15f07"*, *"REBUILD DONE (autonomous): oauth image…"*,
+*"JANUS CANNOT START — startup requires a live mTLS Vault"*. Its event `detail` payload
+(93,847 bytes) essentially ties the coder's (94,168).
+
+This is a **missing role**, not indiscipline. No agent owns deploying, rebuilding,
+restarting or diagnosing an environment, so it falls to the orchestrator by default — in
+the longest-lived, most expensive context in the run, where the logs it reads stay resident
+for everything that follows. It also makes the orchestrator player and referee: it ran the
+QA gate on work it had performed.
+
+**The operator does; the orchestrator assesses.**
+
+- The **operator** runs the thing and absorbs the logs, retries and noise in its own
+  disposable context. It reports through `pipe.py` in a fixed shape — command, exit code,
+  what changed, what to verify — and is **forbidden from concluding success**. It reports
+  evidence, never a verdict. It never writes feature code.
+- The **orchestrator** reads that compact report and makes the call, so the judgement stays
+  visible in the run's narrative rather than buried in a subagent's scrollback.
+- It is **optional**: spawned only when the plan names an operational task. Most runs never
+  use it, so projects that never deploy are unaffected.
+
+**Anything touching a shared environment waits at a gate.** Deployment is outward-facing
+and hard to reverse, and everywhere else in this design an irreversible step is gated — the
+plan is, `finish --apply` is. Deployment is not the exception. The operator may diagnose and
+rebuild freely; pushing to a shared stack uses the same `gate.json` mechanism as the
+finalize gate. Assess, then deploy — not deploy, then assess.
+
+## 13. The spawn preamble is the largest token line item
+
+Every agent spawn reads `team-rules.md`, the full `pipeline-protocol` skill, and its own
+definition before doing anything:
+
+| document | bytes | who needs all of it |
+|---|---|---|
+| `pipeline-protocol/SKILL.md` | 7,662 | the orchestrator |
+| `agents/team-rules.md` | 2,248 | everyone |
+| the agent's own file | 2,310–4,693 | itself |
+
+A 3-service run with one fix round is **19 spawns ≈ 58,000 tokens of preamble before any
+work**, and **62% of that (~36,400 tokens) is the protocol document alone**. It carries the
+multi-service namespace rules, the `run.json` schema, the full 12-command CLI and the
+config-registry contract. **A coder uses four commands.**
+
+**Each role's agent file carries its own ~400-byte command cheatsheet**; only the
+orchestrator reads the full protocol, which stays in the repo as the reference an agent
+*may* consult for anything unusual.
+
+The obvious risk is drift between the cheatsheets and `pipe.py`, and it is closed
+mechanically rather than by discipline: `test_pipe.py` asserts that **every command named in
+any agent file exists in `pipe.py`'s parser**. Duplication is dangerous when nothing catches
+it; this catches it.
+
+## 14. Security boundary
 
 `POST /api/gate` is the first path where a browser can trigger git operations.
 
@@ -341,7 +426,7 @@ gives the tester the real caller set instead of a guess at which dataflows matte
 - The gate can only *release a waiter*. It never triggers `finish --apply`; merging stays
   an explicit command.
 
-## 13. Out of scope
+## 15. Out of scope
 
 - **Cross-session juggling** — one session driving multiple pipelines. Deferred by
   decision; it would require abandoning the blocking finalize gate.
@@ -350,14 +435,14 @@ gives the tester the real caller set instead of a guess at which dataflows matte
 - **Spec write-back and doc relocation** — declined.
 - **Per-service detail on the hall** — the board is one click away.
 
-## 14. Backward compatibility
+## 16. Backward compatibility
 
 - `pipe.py --root` keeps working; an existing `./pipeline` bus is still readable.
 - `server.js --pipeline <dir>` keeps working for a single bus.
 - `in-place` mode is today's behaviour exactly, reachable from the finalize gate.
 - Legacy `messages.jsonl` without `runId` already falls back to the raw tail (shipped, D4).
 
-## 15. Risks
+## 17. Risks
 
 | Risk | Handling |
 |---|---|
@@ -371,7 +456,7 @@ gives the tester the real caller set instead of a guess at which dataflows matte
 | A worktree container outlives its bus, or vice versa | Observed twice (`wt-mfa-authority`, `wt-phase2-a2`). `repos[]` binds them in one record and `ls` reports either half missing. |
 | Slug collision across projects | Collision is checked against *active* pipelines and suffixed; `repos[]` stores absolute paths so repos stay unambiguous. |
 
-## 16. Files this touches
+## 18. Files this touches
 
 | File | Change |
 |---|---|
@@ -384,10 +469,14 @@ gives the tester the real caller set instead of a guess at which dataflows matte
 | `ui/index.html` | hall overview, board panes, gate buttons, **Index repos** action |
 | `agents/planner.md` | **query the graph instead of Glob/Grep crawling**; `index.md` becomes a feature delta (§11) |
 | `agents/tester.md` | `trace_path(inbound)` for the real caller set (§11) |
-| `agents/reviewer.md` | `detect_changes()` for the blast radius (§11) |
-| `scripts/test_pipe.py` | slug rule, `finish` plan/apply, gate round-trip |
+| `agents/reviewer.md` | `detect_changes()` for the blast radius (§11); **persists via `pipe.py`, gains `Bash`, keeps no `Write`/`Edit`** (ADR-0001) |
+| `agents/operator.md` | **new** — runs things, reports evidence, never concludes (§12) |
+| `agents/*.md` | each gains a ~400 B command cheatsheet; the full protocol stops being mandatory (§13) |
+| `CONTEXT.md` | **new** — the glossary these agents read |
+| `docs/adr/0001-…` | **new** — why the reviewer writes through `pipe.py` |
+| `scripts/test_pipe.py` | slug rule, `finish` plan/apply, gate round-trip, **agent-cheatsheet drift check** (§13) |
 
-## 17. Related tracked work
+## 19. Related tracked work
 
 From `pending-task.md`: **P1** (server-side fix-loop budget) should land before or with
 this — the multi-service escalation logic depends on a counter the engine can trust.
