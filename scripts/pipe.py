@@ -17,6 +17,7 @@ Usage examples:
     pipe.py progress 30
     pipe.py loop --count 2 --max 5
     pipe.py event --agent coder --type handoff --summary "Implemented 4/4 tasks" --ref pipeline/code/changes.json
+    pipe.py review --from /tmp/findings.json
     pipe.py worktree add --service api --repo /abs/repos/OpenCRM
     pipe.py finish 009-messaging-hub --apply
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
@@ -32,6 +33,8 @@ CONFIG_NAME = "agent-orchestration.config.json"
 # A spec doc named one of these says nothing about the workstream — its parent dir does.
 GENERIC_SPEC_NAMES = {"design", "spec", "readme", "index", "requirements", "plan"}
 SLUG_MAX = 40
+SEVERITIES = ["blocking", "major", "minor", "nit"]
+RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
 
 
 def now_iso():
@@ -438,6 +441,79 @@ def cmd_task(root, args):
     print(json.dumps(data, indent=2))
 
 
+def svc_dir(root, service, *parts):
+    """Artifact dir for a service, or the flat single-service layout when there is none."""
+    return os.path.join(root, "services", service, *parts) if service \
+        else os.path.join(root, *parts)
+
+
+def render_review(data):
+    """review.md is rendered FROM review.json, so the prose and the machine-readable
+    findings can never disagree about how many blockers there are."""
+    out = ["# Review", "", "## Summary", "", data.get("summary", "").strip() or "_not given_",
+           "", "## Plan fidelity", "", data.get("planFidelity", "").strip() or "_not given_",
+           "", "## Findings", ""]
+    for sev in SEVERITIES:
+        group = [f for f in data["findings"] if f["severity"] == sev]
+        if not group:
+            continue
+        out += [f"### {sev} ({len(group)})", ""]
+        for f in group:
+            loc = str(f.get("file") or "")
+            if f.get("line"):
+                loc += f":{f['line']}"
+            ref = f" [{f['planRef']}]" if f.get("planRef") else ""
+            out.append(f"- **{loc or 'general'}**{ref} - {str(f['note']).strip()}")
+        out.append("")
+    if not data["findings"]:
+        out += ["_no findings_", ""]
+    return "\n".join(out + ["## Recommendation", "", data["recommendation"], ""])
+
+
+def cmd_review(root, args):
+    """Persist the reviewer's own findings: validate the whole payload, then write.
+
+    The reviewer calls this instead of returning its analysis for the orchestrator to
+    retype - an LLM copy step inside the audit trail can silently drop a finding, merge
+    two, or soften a severity, and `qa-check` is only trustworthy because these landed
+    schema-checked. Nothing is opened for writing until every finding has passed, so a
+    malformed payload is rejected rather than half-written."""
+    try:
+        with open(args.source, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        sys.exit(f"review: no such file: {args.source}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"review: invalid JSON in {args.source}: {e}")
+    if not isinstance(data, dict):
+        sys.exit("review: expected a JSON object {recommendation, findings:[...]}")
+    if data.get("recommendation") not in RECOMMENDATIONS:
+        sys.exit(f"review: recommendation must be one of {', '.join(RECOMMENDATIONS)}, "
+                 f"got {data.get('recommendation')!r}")
+    findings = data.get("findings", [])
+    if not isinstance(findings, list):
+        sys.exit("review: 'findings' must be a list")
+    for i, f in enumerate(findings):
+        if not isinstance(f, dict):
+            sys.exit(f"review: finding #{i} must be an object")
+        if f.get("severity") not in SEVERITIES:
+            sys.exit(f"review: finding #{i} severity must be one of "
+                     f"{', '.join(SEVERITIES)}, got {f.get('severity')!r}")
+        if not str(f.get("note", "")).strip():
+            sys.exit(f"review: finding #{i} has an empty note - a finding nobody can act on")
+    data["findings"] = findings
+    out = svc_dir(root, args.service, "review")
+    atomic_write(os.path.join(out, "review.json"), json.dumps(data, indent=2))
+    atomic_write(os.path.join(out, "review.md"), render_review(data))
+    blocking = len([f for f in findings if f["severity"] == "blocking"])
+    summary = (f"Review: {blocking} blocking, {len(findings) - blocking} notes "
+               f"({data['recommendation']})")
+    run = load_run(root)
+    _event(root, "reviewer", "finding", run.get("phase", "review"), summary, None,
+           os.path.join(out, "review.md"), args.service, run.get("runId"))
+    print(summary)
+
+
 def cmd_worktree(root, args):
     """Materialise one service's checkout of the workstream branch, and record it.
 
@@ -615,6 +691,7 @@ def build_parser():
     s.add_argument("--failed", type=int, default=None)
     s = sub.add_parser("status")
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
+    s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("worktree")
     ws = s.add_subparsers(dest="wt_cmd", required=True)
     w = ws.add_parser("add"); w.add_argument("--service", required=True); w.add_argument("--repo", required=True)
@@ -649,7 +726,7 @@ def main():
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "config": cmd_config, "task": cmd_task,
-        "worktree": cmd_worktree, "finish": cmd_finish,
+        "review": cmd_review, "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
 
 

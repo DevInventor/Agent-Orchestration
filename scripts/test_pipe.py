@@ -243,6 +243,35 @@ def main():
         assert srun["slug"] == "messaging-hub" and srun["branch"] == "feature/messaging-hub" \
             and srun["repos"] == [] and srun["mode"] == "worktree", srun
 
+        # --- a malformed review is rejected, not half-written -----------------------
+        bad = os.path.join(tmp, "bad.json")
+        write(bad, json.dumps({"recommendation": "approve",
+                               "findings": [{"severity": "critical", "note": "boom"}]}))
+        run(root, "review", "--from", bad, expect=1)
+        for f in ("review.json", "review.md"):
+            assert not os.path.exists(os.path.join(root, "review", f)), \
+                f"{f} must not exist - validation runs before anything is opened"
+
+        # --- a valid review lands as both artifacts and emits its own finding -------
+        good = os.path.join(tmp, "good.json")
+        write(good, json.dumps({
+            "recommendation": "changes-required", "summary": "one blocker",
+            "findings": [{"severity": "blocking", "file": "src/a.py", "line": 4,
+                          "note": "unguarded write", "planRef": "T2"},
+                         {"severity": "nit", "note": "typo"}]}))
+        assert "1 blocking" in run(root, "review", "--from", good)
+        with open(os.path.join(root, "review", "review.md"), encoding="utf-8") as f:
+            md = f.read()
+        assert "### blocking (1)" in md and "unguarded write" in md \
+            and "## Recommendation" in md, md
+        with open(os.path.join(root, "review", "review.json"), encoding="utf-8") as f:
+            assert json.load(f)["findings"][0]["planRef"] == "T2"
+        last = events(root)[-1]
+        assert last["agent"] == "reviewer" and last["type"] == "finding", last
+        run(root, "review", "--from", good, "--service", "svcA")
+        assert os.path.isfile(os.path.join(root, "services", "svcA", "review", "review.json")), \
+            "--service writes into the per-service namespace"
+
     workstream_checks()
     print("ok - pipe.py self-check passed")
 
