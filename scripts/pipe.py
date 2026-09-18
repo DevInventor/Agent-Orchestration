@@ -62,7 +62,7 @@ def atomic_write(path, text):
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=d)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
     os.replace(tmp, path)
 
@@ -102,7 +102,7 @@ class Lock:
 
 def read_json(path, default):
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return default
@@ -151,7 +151,7 @@ def cmd_init(root, args):
                  f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
     atomic_write(os.path.join(root, "tasks.json"), json.dumps({"tasks": []}, indent=2))
     # touch the append-only log
-    open(os.path.join(root, "messages.jsonl"), "a").close()
+    open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8").close()
     _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}",
            None, None, run_id=run["runId"])
     print(json.dumps(run, indent=2))
@@ -177,7 +177,7 @@ def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id
         rec["detail"] = detail
     if ref:
         rec["ref"] = ref
-    with open(os.path.join(root, "messages.jsonl"), "a") as f:
+    with open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
     return rec
 
@@ -286,7 +286,7 @@ def cmd_config(root, args):
         print(json.dumps({"configured": False, "services": []}))
         return
     try:
-        cfg = json.loads(open(path).read())
+        cfg = json.loads(open(path, encoding="utf-8").read())
     except json.JSONDecodeError as e:
         sys.exit(f"config: invalid JSON in {path}: {e}")
     base = os.path.dirname(os.path.abspath(path))

@@ -44,6 +44,7 @@ them.
 | 11 | `finish` safety model | **Two-step plan / apply.** |
 | 12 | Slug derivation | **Smart path rule** (§9). |
 | 13 | Branch model | **One pipeline, one feature branch**, named at `init` before any work starts; same name in every repo. Agents must commit (§3.1–3.2). |
+| 14 | Working directory | **`<reposRoot>/wt-<slug>/<service>/`** — repos-root-shaped container, matching real GoTrust usage. Not `<repo>/.worktrees/`. |
 
 `/ship-from-spec` is the daily driver (`/grill-me` → spec doc → `/ship-from-spec`).
 `/ship` is the occasional path. Where the two differ, optimise for `ship-from-spec`.
@@ -60,8 +61,23 @@ repos have no natural shared root to put state in.
 │                        spec.md, index.md, code/, test/, review/, status/, services/
 └── gate.json            written by terminal OR browser; releases the waiter
 
-<each-repo>/.worktrees/<slug>/     one per service the plan named, branch feat/<slug>
+<reposRoot>/wt-<slug>/                  the pipeline's working directory
+├── <serviceA>/          git worktree of <reposRoot>/<serviceA>, branch feature/<slug>
+├── <serviceB>/          git worktree of <reposRoot>/<serviceB>, same branch name
+└── agent-orchestration.config.json     the root registry, trimmed to these services
 ```
+
+**The working directory is repos-root-shaped, not repo-internal.** An earlier draft put
+worktrees at `<repo>/.worktrees/<slug>/`. That is wrong for this topology and was corrected
+against real usage (GoTrust, 2026-09-18): the repos root is **not itself a git repo** — it
+is a plain container whose children are the service repos. A pipeline therefore needs a
+container that *looks like* the repos root, so `reposRoot: "."` and every relative service
+path resolve identically to the main checkout. Scattering one feature across three repos'
+internal `.worktrees/` would break that and split one feature across three places.
+
+`wt-<slug>/` is the layout arrived at by hand across 11 real features; the engine automates
+it rather than replacing it. The trimmed config is generated from the root registry ∩ the
+services `plan.json` names — no hand-editing.
 
 **There is no registry file.** The directory *is* the registry: `server.js` scans
 `pipelines/*/pipeline/run.json`. Nothing to corrupt, nothing to keep in sync, self-healing
@@ -76,8 +92,8 @@ config, no restart.
   "slug": "009-messaging-hub",
   "repos": [
     { "service": "api",  "repo": "/abs/OpenCRM",
-      "worktree": "/abs/OpenCRM/.worktrees/009-messaging-hub",
-      "branch": "feat/009-messaging-hub", "base": "develop" }
+      "worktree": "/abs/repos/wt-009-messaging-hub/OpenCRM",
+      "branch": "feature/009-messaging-hub", "base": "develop" }
   ],
   "mode": "worktree | in-place"
 }
@@ -90,7 +106,7 @@ microservice run.
 ### 3.1 One pipeline, one feature branch — decided up front
 
 The branch name is derived at **`init`, before any work starts**, and announced at the
-spec gate. You know `feat/<slug>` before the planner even runs, and nothing later can
+spec gate. You know `feature/<slug>` before the planner even runs, and nothing later can
 change it. Only its *materialisation* (the worktree) waits for the finalize gate, because
 that is when the services are known.
 
@@ -100,7 +116,7 @@ pipeline's work across every service lands on it, and `finish` merges that singl
 home in each repo.
 
 This holds in `in-place` mode too — the constraint is about the branch, not the worktree.
-In-place runs `git switch -c feat/<slug>` in each touched repo, and **refuses to start if
+In-place runs `git switch -c feature/<slug>` in each touched repo, and **refuses to start if
 a working tree is dirty** rather than mixing your uncommitted work into the feature.
 
 ### 3.2 Work must be committed, or there is nothing to merge
@@ -113,7 +129,7 @@ branch.
 
 - The **coder commits after each task completes**, and after each fix iteration, with the
   task id in the subject (`T3: shared session contract types`). Commits accumulate on
-  `feat/<slug>`.
+  `feature/<slug>`.
 - **`diff.patch` changes meaning**: it becomes `git diff <base>...HEAD` — the cumulative
   feature diff. Plain `git diff` is **empty once the work is committed**, so leaving
   `agents/coder.md` as it is would hand the reviewer a blank diff. This edit is required,
@@ -137,7 +153,7 @@ safe without one.
 ## 5. Lifecycle
 
 1. **`/ship-from-spec <doc>`** — read the doc, derive the slug (§9), `pipe.py init --slug`
-   creates the bus at the fixed path and **fixes the branch name `feat/<slug>` now**.
+   creates the bus at the fixed path and **fixes the branch name `feature/<slug>` now**.
    Dashboard is started (already shipped, D1).
 2. **Spec gate** *(new — runbook precondition, both entry skills)* — show the acceptance
    criteria that were read or distilled **and the branch this pipeline will use**, then
@@ -153,11 +169,11 @@ safe without one.
    Arm the watcher (§6), then end the turn. A service directory that is not a git repo is
    reported and forced in-place.
 5. **On finalize** — create one worktree per service named in `plan.json`, branch
-   `feat/<slug>` from each repo's current HEAD, record `repos[]`. A **rejected plan leaves
+   `feature/<slug>` from each repo's current HEAD, record `repos[]`. A **rejected plan leaves
    zero git residue.**
 6. **Build** — coders/testers/reviewers work in the worktree, not the checkout. Per-service
    fix budget of 5 and dependency waves as today. **The coder commits each completed task
-   to `feat/<slug>`** (§3.2); every service's commits land on that one branch name.
+   to `feature/<slug>`** (§3.2); every service's commits land on that one branch name.
 7. **`pipe.py finish <slug>`** — §8.
 
 ## 6. The gate mechanism
@@ -187,7 +203,8 @@ a flag or a file.
 | Command | Behaviour |
 |---|---|
 | `init --slug <s>` | Creates the bus under the fixed root. Existing `--root` still wins, so single-repo in-place runs are unaffected. |
-| `ls` | Lists pipelines by scanning the root: slug, feature, phase, status, repo count, age. |
+| `ls` | Lists pipelines by scanning the root: slug, feature, phase, status, repo count, age. Flags three drift states seen in real use: **stale** (`running`/`awaiting_approval` untouched > 3 days), **orphan** (a `wt-<slug>/` with no bus, or a bus with no worktrees), and **branch drift** (services in one pipeline on different branch names). |
+| `prune` | `git worktree prune` across every registered repo, plus removal of `wt-<slug>/` containers whose pipeline is archived. Clears the detached-HEAD leftovers past sessions leave behind. |
 | `gate --decision finalize\|in-place\|reject` | Writes `gate.json`. Releases the watcher. |
 | `wait --for gate [--timeout N]` | Blocks until `gate.json` exists. Run via background Bash. |
 | `worktree add --service <n> --repo <path>` | Creates the worktree, records `repos[]` incl. `base`. Verifies `.worktrees/` is git-ignored first. |
@@ -199,7 +216,7 @@ a flag or a file.
 Git has no atomic multi-repo merge, so `finish` builds one.
 
 **Plan (default).** For each repo in `repos[]`, run `git merge-tree --write-tree <base>
-feat/<slug>` — this tests the merge **without touching any working tree** (git ≥ 2.38;
+feature/<slug>` — this tests the merge **without touching any working tree** (git ≥ 2.38;
 verified on 2.55). Print every repo with its verdict, commit count, and target base.
 Change nothing. **A repo showing zero commits is a red flag, not a no-op** — it means the
 coder never committed, and the plan says so rather than merging nothing silently.
@@ -213,11 +230,14 @@ worst state to debug. The re-run before applying is deliberate: the plan may be 
 old and the bases may have moved.
 
 **Worktrees are removed; branches are kept.** Worktrees regenerate; branches are the only
-record that the work happened.
+record that the work happened. The bus is archived under **one** convention —
+`pipelines/<slug>.closed-<YYYYmmdd>/` — replacing the four hand-rolled variants seen in
+real use (`pipeline-closed-run-…`, `pipeline-closed-…`, `pipeline-archive-run-…`,
+`pipeline-backup-run-…`).
 
 ## 9. Slug derivation
 
-The slug names the bus directory, the branch `feat/<slug>`, the worktree directory, the
+The slug names the bus directory, the branch `feature/<slug>`, the worktree directory, the
 hall row and the `/r/<slug>` route. It must be predictable enough to guess the branch name
 without looking it up.
 
@@ -305,6 +325,8 @@ Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`
 | Background watcher dies, gate never releases | The gate file is durable — re-arming the watcher picks up an approval that already landed. |
 | Coder marks a task done without committing | The `finish` plan reports that repo's commit count as 0 before anything merges, so an empty feature cannot ship unnoticed. |
 | Dirty working tree when starting `in-place` | Refused up front; the run never mixes pre-existing uncommitted work into the feature branch. |
+| Services in one pipeline drift onto different branch names | Observed in **2 of 11** real containers, where `finish` would have merged 3 repos and silently missed the 4th. The branch name is fixed at `init`, `worktree add` uses only that name, and `ls` reports drift on pre-existing containers. |
+| A worktree container outlives its bus, or vice versa | Observed twice (`wt-mfa-authority`, `wt-phase2-a2`). `repos[]` binds them in one record and `ls` reports either half missing. |
 | Slug collision across projects | Collision is checked against *active* pipelines and suffixed; `repos[]` stores absolute paths so repos stay unambiguous. |
 
 ## 15. Files this touches
