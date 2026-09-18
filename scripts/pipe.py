@@ -687,9 +687,23 @@ def cmd_finish(root, args):
         for b in blocked:
             print("  " + b)
         sys.exit(1)
+    # Preflight makes a failure here unlikely, not impossible (hooks, signing, a ref
+    # that moved since). Git has no multi-repo rollback, so name the half-shipped state
+    # and the undo rather than exit on a bare git error the operator has to reconstruct.
+    merged = []
     for e in repos:
-        git(e["repo"], "merge", "--no-ff", "-m",
-            f"Merge {e['branch']} into {e['base']}", e["branch"])
+        r = git(e["repo"], "merge", "--no-ff", "-m",
+                f"Merge {e['branch']} into {e['base']}", e["branch"], check=False)
+        if r.returncode != 0:
+            print(f"merge FAILED in {e['repo']} ({e['service']}):\n"
+                  f"{(r.stderr or r.stdout).strip()}")
+            print(f"HALF-SHIPPED: {len(merged)} of {len(repos)} repo(s) already merged"
+                  + (":" if merged else " - nothing to undo."))
+            for m in merged:
+                print(f"  {m['service']}: {m['branch']} -> {m['base']} in {m['repo']}")
+                print(f"    undo: git -C {m['repo']} reset --hard ORIG_HEAD")
+            sys.exit(1)
+        merged.append(e)
         print(f"merged {e['branch']} -> {e['base']} in {e['repo']}")
     if args.teardown:
         for e in repos:
