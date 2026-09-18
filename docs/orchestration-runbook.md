@@ -90,9 +90,11 @@ Count distinct `service` values in `plan.json`.
 
 ### 2. Implement  (phase: implement)
 1. `$PIPE phase implement && $PIPE agent coder`.
-2. Spawn the **coder** subagent (`agents/coder.md`) with the plan. It implements the
-   tasks in the actual repo, writes `pipeline/code/changes.json` + `diff.patch`, and
-   marks tasks `done` as it goes.
+2. Spawn the **coder** subagent (`agents/coder.md`) with the plan **and the base branch
+   it merges home to** — `run.json`'s `repos[]` entry for its service if the run has
+   one, else the repo's current branch. It implements the tasks in the actual repo,
+   **commits each completed task** (`T#: ...`), writes `pipeline/code/changes.json` and
+   `diff.patch` as `git diff <base>...HEAD`, and marks tasks `done` as it goes.
 
 ### 3. Test + fix loop  (phase: test)  — max 5 iterations
 This is the test-driven bug-fixing loop. Track it with `$PIPE loop --count K --max 5`.
@@ -166,8 +168,11 @@ Re-check eligibility after every tester batch (services may have just gone `done
    `done`/`blocked`. For each, `$PIPE svc --name <svc> --phase implement --agent coder`.
    **Spawn one coder per ACTIVE service, all in a single message.** First time for a
    service = mode A (implement its task slice); a re-spawn = mode B (fix only that
-   service's failing results). Each coder is scoped to its own service dir, writes under
-   `pipeline/services/<svc>/code/`, and tags tasks/events `--service <svc>`. **Await all.**
+   service's failing results). Each coder is scoped to its own service dir, is handed
+   **that service's base branch** (from `run.json`'s `repos[]` entry, else the repo's
+   current branch) so it can commit each task and write `diff.patch` as
+   `git diff <base>...HEAD`, writes under `pipeline/services/<svc>/code/`, and tags
+   tasks/events `--service <svc>`. **Await all.**
 2. **Tester batch.** For each service just coded:
    `$PIPE svc --name <svc> --phase test --agent tester --loop-count K_svc`, where
    **`K_svc` is that service's own iteration counter** (per service, never a shared batch

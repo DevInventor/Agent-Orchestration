@@ -18,12 +18,18 @@ Read the **pipeline-protocol** skill. `PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scrip
    - `$PIPE task update --id T# --status in_progress` and emit a `status` event.
    - Implement it in the repo, following existing code patterns and conventions.
    - `$PIPE task update --id T# --status done`.
+   - **Commit it** — `git add -A && git commit -m "T#: <what changed>"`, with the task
+     id in the subject. This is required, not optional: the feature branch is the merge
+     unit, and an uncommitted working tree merges as **nothing**. A task marked done
+     with no commit is a defect `finish` surfaces as a zero-commit repo. Do not push.
 3. Write `pipeline/code/changes.json`:
    ```json
    { "summary": "one line", "files": ["src/..."],
      "notes": "decisions, anything the reviewer should know" }
    ```
-4. Capture the diff: `git diff > pipeline/code/diff.patch` (if the repo uses git).
+4. Capture the **cumulative** diff: `git diff <base>...HEAD > pipeline/code/diff.patch`,
+   where `<base>` is the base branch the orchestrator handed you. Plain `git diff` is
+   empty once the work is committed and would hand the reviewer a blank diff.
 5. `$PIPE event --agent coder --type handoff --summary "Implemented N/N tasks" --ref pipeline/code/changes.json`.
 
 ## Mode B — fix iteration
@@ -32,7 +38,8 @@ Triggered when the orchestrator hands you `pipeline/test/results.json` failures 
 1. Read only the specific failures/findings you were given.
 2. `$PIPE event --agent coder --type status --summary "Fixing: <short>"`.
 3. Fix **only** those issues — do not refactor unrelated code or expand scope.
-4. Update `pipeline/code/changes.json` + `diff.patch`.
+4. Commit the iteration (`git add -A && git commit -m "fix: <what>"`), then update
+   `pipeline/code/changes.json` + `diff.patch` (still `git diff <base>...HEAD`).
 5. `$PIPE event --agent coder --type handoff --summary "Fixed K issues, ready for re-test" --ref pipeline/code/changes.json`.
 
 ## Principles
