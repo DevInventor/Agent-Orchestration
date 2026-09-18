@@ -726,14 +726,16 @@ def archive_bus(root, run):
     """One archive convention, replacing the four hand-rolled variants seen in real use.
     The workstream directory (bus and all) moves aside as <slug>.closed-<YYYYmmdd>.
 
-    Only under the canonical pipelines_root()/<slug>/pipeline layout does the bus OWN
-    its parent directory. Under --root the parent is an arbitrary user directory that
-    may hold source beside the bus, so there only the bus itself moves - archiving it
-    would otherwise carry a sibling src/ off with it."""
+    The bus only OWNS its parent under the canonical pipelines_root()/<slug>/pipeline
+    layout (or when that parent holds nothing but the bus). Under --root the parent is
+    an arbitrary user directory that may hold source beside the bus, and moving it
+    carried a sibling src/ off with it - data loss. There, only the bus itself moves,
+    to <root>.closed-<YYYYmmdd>, and everything around it stays put."""
     root = os.path.abspath(root)
     ws = os.path.dirname(root)
     stamp = datetime.now().strftime("%Y%m%d")
-    if os.path.normcase(os.path.dirname(ws)) == os.path.normcase(pipelines_root()):
+    if os.path.normcase(os.path.dirname(ws)) == os.path.normcase(pipelines_root()) \
+            or os.listdir(ws) == [os.path.basename(root)]:
         dest = os.path.join(os.path.dirname(ws), f"{run['slug']}.closed-{stamp}")
     else:
         ws, dest = root, f"{root}.closed-{stamp}"
