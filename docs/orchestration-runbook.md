@@ -13,21 +13,27 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
 Read the **pipeline-protocol** skill first if you have not this run. Set:
 
 ```bash
-PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
+PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <the bus path from the entry skill>"
 ```
 
 ## Precondition (your entry skill has already done this)
 
-Before you reach this runbook, the entry skill has run `$PIPE init` and populated
-`pipeline/spec.md` with crisp, testable acceptance criteria. If `pipeline/spec.md`
-is missing or empty, stop and go back to the entry skill's spec step.
+Before you reach this runbook, the entry skill has derived the workstream's **slug**,
+run `$PIPE init --slug`, announced the branch `feature/<slug>`, and populated
+`<bus>/spec.md` with crisp, testable acceptance criteria. If `spec.md` is missing or
+empty, stop and go back to the entry skill's spec step.
+
+**The bus path comes from the entry skill, not from your cwd.** `init --slug` puts it
+under the fixed pipelines root, so `./pipeline` is the wrong answer. Keep `--root <bus>`
+baked into `$PIPE` and **pass the absolute bus path to every subagent you spawn**, with
+the pipeline file paths they need spelled out under it.
 
 Your entry skill has also **started the dashboard** in the background and told the user
 its URL (http://localhost:4600). If it did not — or if the background process is gone —
 start it now before planning, because nothing else will:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "$(pwd)/pipeline"   # background call
+node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "<the bus path>"   # background call
 ```
 
 Then begin at the Plan phase.
