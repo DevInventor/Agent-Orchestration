@@ -62,7 +62,7 @@ def atomic_write(path, text):
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=d)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
     os.replace(tmp, path)
 
@@ -102,7 +102,7 @@ class Lock:
 
 def read_json(path, default):
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return default
@@ -134,7 +134,9 @@ def cmd_init(root, args):
     for sub in ("code", "test", "review", "status"):
         os.makedirs(os.path.join(root, sub), exist_ok=True)
     run = {
-        "runId": time.strftime("run-%Y%m%d-%H%M%S"),
+        # runId now scopes events in the append-only log, so it must be unique.
+        # Seconds alone collide when two runs start in the same second.
+        "runId": time.strftime("run-%Y%m%d-%H%M%S") + "-" + os.urandom(2).hex(),
         "feature": args.feature,
         "phases": PHASES,
         "phase": "spec",
@@ -149,26 +151,33 @@ def cmd_init(root, args):
                  f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
     atomic_write(os.path.join(root, "tasks.json"), json.dumps({"tasks": []}, indent=2))
     # touch the append-only log
-    open(os.path.join(root, "messages.jsonl"), "a").close()
-    _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}", None, None)
+    open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8").close()
+    _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}",
+           None, None, run_id=run["runId"])
     print(json.dumps(run, indent=2))
 
 
-def _event(root, agent, etype, phase, summary, detail, ref, service=None):
+def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id=None):
+    # runId scopes the event to one run. messages.jsonl is append-only and never
+    # rotated, so a long-lived bus accumulates many runs in one file; without this
+    # the dashboard cannot tell this run's events from the previous feature's.
     rec = {
         "ts": now_iso(),
+        "runId": run_id,
         "agent": agent,
         "type": etype,
         "phase": phase,
         "summary": summary,
     }
+    if run_id is None:
+        del rec["runId"]
     if service:
         rec["service"] = service
     if detail:
         rec["detail"] = detail
     if ref:
         rec["ref"] = ref
-    with open(os.path.join(root, "messages.jsonl"), "a") as f:
+    with open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
     return rec
 
@@ -176,7 +185,8 @@ def _event(root, agent, etype, phase, summary, detail, ref, service=None):
 def cmd_event(root, args):
     run = load_run(root)
     phase = args.phase or run.get("phase", "spec")
-    rec = _event(root, args.agent, args.type, phase, args.summary, args.detail, args.ref, args.service)
+    rec = _event(root, args.agent, args.type, phase, args.summary, args.detail, args.ref,
+                 args.service, run.get("runId"))
     print(json.dumps(rec))
 
 
@@ -276,7 +286,7 @@ def cmd_config(root, args):
         print(json.dumps({"configured": False, "services": []}))
         return
     try:
-        cfg = json.loads(open(path).read())
+        cfg = json.loads(open(path, encoding="utf-8").read())
     except json.JSONDecodeError as e:
         sys.exit(f"config: invalid JSON in {path}: {e}")
     base = os.path.dirname(os.path.abspath(path))

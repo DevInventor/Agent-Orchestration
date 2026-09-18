@@ -26,19 +26,29 @@ function readJSON(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, "utf8")); }
   catch { return fallback; }
 }
-function tailMessages(limit) {
+// messages.jsonl is append-only across every run this bus has ever seen, so the tail
+// alone can mix features. Scope it to the active runId; logs written before runId
+// stamping carry none, so fall back to the raw tail rather than showing a blank feed.
+function tailMessages(limit, runId) {
   try {
     const lines = fs.readFileSync(path.join(PIPELINE, "messages.jsonl"), "utf8")
-      .split("\n").filter(Boolean);
-    return lines.slice(-limit).map((l) => { try { return JSON.parse(l); } catch { return null; } })
+      .split("\n").filter(Boolean).slice(-5000);
+    const all = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } })
       .filter(Boolean);
+    if (!runId) return all.slice(-limit);
+    const mine = all.filter((m) => m.runId === runId);
+    return (mine.length ? mine : all).slice(-limit);
   } catch { return []; }
 }
 function snapshot() {
+  const run = readJSON(path.join(PIPELINE, "run.json"), null);
   return {
-    run: readJSON(path.join(PIPELINE, "run.json"), null),
+    run,
+    // plan carries services[].dependsOnServices, which the dashboard uses to draw
+    // dependency waves in a multi-service run.
+    plan: readJSON(path.join(PIPELINE, "plan.json"), null),
     tasks: readJSON(path.join(PIPELINE, "tasks.json"), { tasks: [] }).tasks,
-    messages: tailMessages(400),
+    messages: tailMessages(400, run && run.runId),
     pipelineDir: PIPELINE,
   };
 }
@@ -53,7 +63,7 @@ function broadcast() {
 let lastSig = "";
 setInterval(() => {
   let sig = "";
-  for (const f of ["run.json", "tasks.json", "messages.jsonl"]) {
+  for (const f of ["run.json", "plan.json", "tasks.json", "messages.jsonl"]) {
     try { sig += f + fs.statSync(path.join(PIPELINE, f)).mtimeMs + ";"; } catch {}
   }
   if (sig !== lastSig) { lastSig = sig; broadcast(); }
@@ -83,6 +93,18 @@ const server = http.createServer((req, res) => {
   } else {
     res.writeHead(404); res.end("not found");
   }
+});
+
+// Launching the dashboard is now part of starting a run, so a second launch is expected
+// and must not be a crash: report the one already running and exit clean.
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.log(`Agent-Orchestration dashboard already running  ->  http://localhost:${PORT}`);
+    console.log(`(if it is watching a different pipeline, stop it and restart with)`);
+    console.log(` --pipeline ${PIPELINE}`);
+    process.exit(0);
+  }
+  throw e;
 });
 
 server.listen(PORT, () => {

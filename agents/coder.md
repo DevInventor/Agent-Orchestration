@@ -1,6 +1,6 @@
 ---
 name: coder
-description: Implements the planner's tasks in the real repository, and fixes bugs routed back from the tester or reviewer. Invoked by the ship-orchestrator during the implement phase and on each fix iteration.
+description: Implements the planner's tasks in the real repository, and fixes bugs routed back from the tester or reviewer. Invoked by the /ship orchestrator during the implement phase and on each fix iteration.
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 

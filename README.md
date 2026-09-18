@@ -65,12 +65,27 @@ repos (your "repos root"):
 /ship "add request-id propagation across the api and worker services"
 ```
 
+**Already have a spec?** Skip the authoring step and point the pipeline straight at
+your spec doc:
+
+```
+/ship-from-spec ./docs/my-feature-spec.md
+```
+
+`ship` writes the spec from your one-line feature request; `ship-from-spec` consumes
+a spec doc you already have. Everything after the spec (plan → build → test → review →
+QA) is identical — both share `docs/orchestration-runbook.md`.
+
 In both cases the planner presents a plan and **waits** — reply `finalize` to start.
 Watch progress at **http://localhost:4600**:
 
 ```bash
 node "$(claude plugin root agent-orchestration)/ui/server.js" --pipeline ./pipeline
 ```
+
+A multi-service run renders a **service-swimlane hero** — one lane per service grouped
+into dependency waves (from `plan.json`, which `server.js` now forwards) — while a
+single-service run keeps the classic assembly-line view.
 
 ## Configuring your services (optional)
 
@@ -124,7 +139,7 @@ finalize gate, then delegates.
   batch → awaits → all testers → awaits → re-spawns only the services still failing**,
   then a reviewer batch, then a macro QA gate. Each service keeps its **own** fix-loop
   counter (5 each), drops out the moment it's green, and `dependsOnServices` gates which
-  services enter each wave. See `skills/ship-orchestrator` for the full contract.
+  services enter each wave. See `skills/ship` for the full contract.
 
 ### The pipeline bus
 

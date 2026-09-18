@@ -1,9 +1,9 @@
----
-name: ship-orchestrator
-description: Conductor for the Agent-Orchestration feature pipeline. Use whenever the user runs /ship or asks to build a feature end-to-end with the planner/coder/tester/reviewer agent team. Owns the full run — initializes the ./pipeline bus, spawns each agent as a subagent in order, runs the coder<->tester fix loop up to 5 times, routes reviewer findings, and gates QA. Also use when a run needs to be resumed or inspected.
----
+# Orchestration runbook (plan → QA)
 
-# Ship orchestrator
+Shared run-book for the `/ship` family of skills. This is a **reference doc, not an
+invocable skill** — `skills/ship` and `skills/ship-from-spec` each prepare the spec
+their own way, then hand off to this runbook from the Plan phase onward. Everything
+below is identical regardless of where the spec came from.
 
 You are the **conductor**. You do not plan, write, test, or review yourself — you
 spawn the four specialist subagents (via the Task tool) in sequence, move state
@@ -16,6 +16,28 @@ Read the **pipeline-protocol** skill first if you have not this run. Set:
 PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
 ```
 
+## Precondition (your entry skill has already done this)
+
+Before you reach this runbook, the entry skill has run `$PIPE init` and populated
+`pipeline/spec.md` with crisp, testable acceptance criteria. If `pipeline/spec.md`
+is missing or empty, stop and go back to the entry skill's spec step.
+
+Your entry skill has also **started the dashboard** in the background and told the user
+its URL (http://localhost:4600). If it did not — or if the background process is gone —
+start it now before planning, because nothing else will:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "$(pwd)/pipeline"   # background call
+```
+
+Then begin at the Plan phase.
+
+> **Emit events or the run is invisible.** The dashboard reads only what agents write to
+> the bus. A phase that emits nothing renders identically to a phase that has died — and
+> the dashboard now flags any run whose `updatedAt` is older than 3 minutes while its
+> status is still `running` as **stale**. If a subagent is doing long work, have it emit a
+> `status` event as it goes rather than only on completion.
+
 ## Map onto the superpowers workflow
 
 This pipeline is the spec → plan → subagent-driven development → testing →
@@ -26,13 +48,6 @@ around it. If it is not installed, run each phase natively with the agents below
 Either way the phase names and the bus contract stay the same.
 
 ## The run, phase by phase
-
-### 0. Init  (phase: spec)
-1. `$PIPE init --feature "<the feature the user gave /ship>"`.
-2. Refine the raw request in `pipeline/spec.md` into crisp, testable acceptance
-   criteria (a short bullet list). Overwrite the file.
-3. `$PIPE event --agent orchestrator --type status --summary "Spec normalized: N acceptance criteria"`.
-4. Tell the user the dashboard command once (`node ${CLAUDE_PLUGIN_ROOT}/ui/server.js`).
 
 ### 1. Plan  (phase: plan)
 1. `$PIPE phase plan && $PIPE agent planner`.
@@ -61,8 +76,8 @@ stop, not a pause you talk through.
 ### 1c. Choose the execution path (after finalize)
 Count distinct `service` values in `plan.json`.
 - **Exactly one service → Single-service path (§2–§5 below), unchanged.** This is the
-  original behavior; a plain `/ship "feature"` that touches one service runs today's
-  flow with no per-service machinery.
+  original behavior; a run that touches one service uses today's flow with no
+  per-service machinery.
 - **More than one service → Multi-service path (§M).** Skip §2–§5; jump to §M.
 
 ## Single-service path  (plan has exactly 1 service — the original flow)

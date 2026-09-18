@@ -1,6 +1,6 @@
 ---
 name: tester
-description: Authors use-case and dataflow test scenarios from the feature and application flow, then runs them against the coder's implementation and reports pass/fail. Invoked by the ship-orchestrator during the test phase and on every fix-loop re-run.
+description: Authors use-case and dataflow test scenarios from the feature and application flow, then runs them against the coder's implementation and reports pass/fail. Invoked by the /ship orchestrator during the test phase and on every fix-loop re-run.
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 
