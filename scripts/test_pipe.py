@@ -4,7 +4,7 @@
 Asserts only, no framework on purpose. Covers the runId scoping the dashboard's feed
 filtering depends on, and the updatedAt freshness its staleness warning depends on.
 """
-import json, os, subprocess, sys, tempfile
+import argparse, glob, json, os, re, subprocess, sys, tempfile
 
 PIPE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipe.py")
 
@@ -68,6 +68,31 @@ def events(root):
 def read_run(root):
     with open(os.path.join(root, "run.json"), encoding="utf-8") as f:
         return json.load(f)
+
+
+def command_drift_check():
+    """Every `pipe.py <cmd>` an agent is told to run must exist in the parser.
+
+    The files below are instructions that get executed - agent definitions, skills and
+    the runbook. Spec and ADR docs are deliberately excluded: they name commands that
+    are designed but not built yet, which is not drift. This is a superset guard: it
+    passes whether one command is named or twelve, so it never constrains what a later
+    per-role cheatsheet says."""
+    parser = import_pipe().build_parser()
+    real = {name for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+            for name in a.choices}
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    docs = (glob.glob(os.path.join(repo, "agents", "*.md"))
+            + glob.glob(os.path.join(repo, "skills", "**", "SKILL.md"), recursive=True)
+            + [os.path.join(repo, "docs", "orchestration-runbook.md")])
+    assert len(docs) > 5, f"found almost no agent files - the guard would pass vacuously: {docs}"
+    for path in docs:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        for cmd in re.findall(r"(?:pipe\.py|\$PIPE)\s+([a-z][a-z-]*)", text):
+            assert cmd in real, \
+                f"{os.path.relpath(path, repo)} tells an agent to run `pipe.py {cmd}`, " \
+                f"which pipe.py's parser does not have. Known: {', '.join(sorted(real))}"
 
 
 def workstream_checks():
@@ -299,6 +324,7 @@ def main():
             "absent results are not green - the tester simply never reported"
 
     workstream_checks()
+    command_drift_check()
     print("ok - pipe.py self-check passed")
 
 
