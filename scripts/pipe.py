@@ -211,6 +211,14 @@ def cmd_init(root, args):
         "progressPct": 0,
         "startedAt": now_iso(),
     }
+    if getattr(args, "slug", None):
+        # The one moment the branch name comes into existence. Every later step reads
+        # it; none may choose one. Waves of the same workstream re-init onto the same
+        # slug and so onto the same branch. Omit --slug and this is a legacy bus.
+        run["slug"] = args.slug
+        run["branch"] = "feature/" + args.slug
+        run["repos"] = []
+        run["mode"] = "worktree"
     save_run(root, run)
     atomic_write(os.path.join(root, "spec.md"),
                  f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
@@ -220,6 +228,9 @@ def cmd_init(root, args):
     _event(root, "orchestrator", "status", "spec", f"Run started for: {args.feature}",
            None, None, run_id=run["runId"])
     print(json.dumps(run, indent=2))
+    # Last line is the resolved bus: --slug moves it off ./pipeline, and the entry skill
+    # is the only thing that knows where it went. It bakes this into $PIPE --root.
+    print(root)
 
 
 def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id=None):
@@ -419,7 +430,7 @@ def build_parser():
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--slug", default=None); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
     s = sub.add_parser("slug"); g = s.add_mutually_exclusive_group(required=True); g.add_argument("--spec"); g.add_argument("--title")
     s = sub.add_parser("event")
     s.add_argument("--agent", required=True)
@@ -463,7 +474,11 @@ def main():
     # started in a subdir would hijack/overwrite a parent's existing pipeline (data
     # loss). Every other command walks up to locate the active bus.
     if args.cmd == "init":
-        root = args.root or os.path.abspath("pipeline")
+        # --slug puts the bus under the fixed pipelines root, where it outlives the cwd
+        # it was started from; --root still wins, so an existing ./pipeline run is
+        # untouched (backward compatibility, spec sections 7 and 16).
+        root = args.root or (os.path.join(pipelines_root(), args.slug, "pipeline")
+                             if args.slug else os.path.abspath("pipeline"))
     else:
         root = args.root or find_pipeline()
     {

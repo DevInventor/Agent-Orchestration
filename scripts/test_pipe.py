@@ -119,6 +119,28 @@ def main():
         assert run(root, "slug", "--title", "Widgets!", env=env).strip() == "widgets", \
             "a closed workstream releases its slug"
 
+        # --- init without --slug is byte-for-byte the legacy bus at <cwd>/pipeline ---
+        legacy = os.path.join(tmp, "legacy")
+        os.makedirs(legacy)
+        r = subprocess.run([sys.executable, PIPE, "init", "--feature", "legacy feature"],
+                           cwd=legacy, capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0, r.stderr
+        with open(os.path.join(legacy, "pipeline", "run.json"), encoding="utf-8") as f:
+            lrun = json.load(f)
+        assert not {"slug", "branch", "repos", "mode"} & set(lrun), \
+            f"a no-slug init must stay today's run.json exactly: {sorted(lrun)}"
+
+        # --- init --slug fixes the branch and relocates the bus under the fixed root -
+        r = subprocess.run([sys.executable, PIPE, "init", "--feature", "Hub",
+                            "--slug", "messaging-hub"], cwd=legacy, capture_output=True,
+                           text=True, encoding="utf-8", env={**os.environ, **env})
+        assert r.returncode == 0, r.stderr
+        bus = r.stdout.strip().splitlines()[-1]
+        assert bus == os.path.join(home, "pipelines", "messaging-hub", "pipeline"), bus
+        srun = read_run(bus)
+        assert srun["slug"] == "messaging-hub" and srun["branch"] == "feature/messaging-hub" \
+            and srun["repos"] == [] and srun["mode"] == "worktree", srun
+
     print("ok - pipe.py self-check passed")
 
 
