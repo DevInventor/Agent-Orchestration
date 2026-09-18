@@ -538,11 +538,17 @@ def cmd_qa_check(root, args):
     fails = []
     for svc in services:
         where = f"services/{svc}/" if svc else ""
-        review = read_json(svc_dir(root, svc, "review", "review.json"), {})
-        blocking = [f for f in review.get("findings", []) if f.get("severity") == "blocking"]
-        if blocking:
-            fails.append(f"{len(blocking)} blocking finding(s) in {where}review/review.json: "
-                         + "; ".join(str(f.get("note", ""))[:60] for f in blocking))
+        # None, not {}: `review --from` writes nothing when the payload is malformed,
+        # so a MISSING review is the exact failure this gate exists to catch - it must
+        # not read as a clean one. Same treatment as results.json below.
+        review = read_json(svc_dir(root, svc, "review", "review.json"), None)
+        if review is None:
+            fails.append(f"no review at {where}review/review.json - the reviewer never reported")
+        else:
+            blocking = [f for f in review.get("findings", []) if f.get("severity") == "blocking"]
+            if blocking:
+                fails.append(f"{len(blocking)} blocking finding(s) in {where}review/review.json: "
+                             + "; ".join(str(f.get("note", ""))[:60] for f in blocking))
         results = read_json(svc_dir(root, svc, "test", "results.json"), None)
         if results is None:
             fails.append(f"no test results at {where}test/results.json - the tester never reported")
