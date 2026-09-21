@@ -207,6 +207,45 @@
   .card.collapsed>*{display:none}
   .card.collapsed>.c-head{display:flex}
 
+  /* ---- section 10.4, the motion inventory: eight entries, six rules ----------------
+     Six of the eight are one agent's states plus the two that mark a change. If this
+     list grows to twenty, that is the bug.
+       1. stepped, never eased - a pixel character that tweens reads as a moving div
+       2. exactly one agent per table types; the rest are at much lower --amp
+       3. something always moves at rest - a still floor reads as a broken dashboard
+       4. stillness is the alarm - a stale team freezes mid-keystroke and dims
+       5. transform and opacity only: no layout, no paint, no transition:all
+       6. prefers-reduced-motion stops every loop and leaves the resting pose */
+
+  /* 1 · baton travel — handoff — transform — 280 ms ease-in-out */
+  .baton{transition:transform 280ms var(--ease-in-out)}
+  /* 2 · typing — the one agent that holds the work — 340 ms steps(1), loops */
+  @keyframes typing{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1.5px * var(--amp,1)))}}
+  .who.st-type{animation:typing 340ms steps(1) infinite}
+  /* the rail's current tick beats on the same rhythm, in the active agent's colour -
+     reusing an entry is how the inventory stays at eight */
+  .tk.cur{--amp:.55;animation:typing 340ms steps(1) infinite}
+  /* 3 · waiting — turn not yet come — 3.4 s steps(1), loops */
+  @keyframes waiting{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1px * var(--amp,1)))}}
+  .who.st-wait{--amp:.5;animation:waiting 3.4s steps(1) infinite}
+  /* 4 · asleep — agent finished — 3.6 s, opacity and transform */
+  @keyframes sleeping{0%,100%{opacity:.62;transform:translateY(0)}50%{opacity:.48;transform:translateY(.8px)}}
+  .who.st-sleep{animation:sleeping 3.6s steps(1) infinite}
+  /* 5 · walking in — the baton lands — 440 ms steps(4), once. On the seat, not the
+     sprite, so the arriving agent keeps its own loop. */
+  @keyframes walk-in{from{transform:translateX(-10px);opacity:.6}to{transform:translateX(0);opacity:1}}
+  .seat.arrive{animation:walk-in 440ms steps(4) 1}
+  /* 6 · table entrance — first paint only — 260 ms ease-out, never replays */
+  @keyframes table-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+  .card.enter{animation:table-in 260ms var(--ease-out) 1}
+  /* 7 · repo row in — you register a repo — 240 ms ease-out */
+  @keyframes row-in{from{opacity:0;transform:translateX(-7px)}to{opacity:1;transform:translateX(0)}}
+  .repo.enter{animation:row-in 240ms var(--ease-out) 1}
+  /* 8 · going quiet — stale > 3 min — freeze plus opacity — 2.6 s ease-in-out, loops */
+  @keyframes going-quiet{0%,100%{opacity:1}50%{opacity:.5}}
+  .card.s-stale .felt{animation:going-quiet 2.6s var(--ease-in-out) infinite}
+  .card.s-stale .who,.card.s-stale .tk.cur{animation-play-state:paused}
+
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
@@ -413,6 +452,7 @@ function hasOperator(p){
 
 let HALL={root:"",pipelines:[]};
 let EXTRA_REPOS=[];   // repos you registered here; the payload owns the rest
+let NEW_REPO=null;    // the one row that just arrived - entry 7 animates only that one
 
 function repoRows(){
   // One row per repo any workstream touches, plus the ones registered in this view.
@@ -442,10 +482,11 @@ function renderHeadTable(){
   document.getElementById("reg").innerHTML=rows.length?rows.map(r=>{
     // fresh / drift (HEAD moved) / none (never indexed) - whatever the payload carries.
     const st=r.index||"none",n=r.nodes;
-    return `<div class="repo"><span class="repo-name">${esc(r.name)}</span>
+    return `<div class="repo${r.name===NEW_REPO?" enter":""}"><span class="repo-name">${esc(r.name)}</span>
       <span class="ix ${esc(st)}">${esc(st)}</span>
       <span class="repo-nodes">${n==null?"—":esc(n)+" nodes"}</span></div>`;
   }).join(""):`<div class="reg-note">no repository registered yet</div>`;
+  NEW_REPO=null;
 
   document.getElementById("foot").innerHTML=
     `<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
@@ -483,27 +524,33 @@ function testCount(p){
   return passed+failed?{passed,failed,total:passed+failed}:null;
 }
 
+const SEEN=new Set();   // entry 6: the table entrance is first paint only, and never replays
+const HOLDER={};        // who held the work last frame, per slug - entries 1 and 5
+
 function card(p){
   const st=cardState(p), sm=staleMs(p), cur=railIdx(p.phase);
   const holder=p.activeAgent||"planner";
   const colour=AGENT_COLOR[holder]||"var(--muted)";
-  const [bx,by]=BATON[holder]||BATON.planner;
-  const seats=SEATS.map(s=>`<div class="seat ${s.pos}">${
+  const prev=HOLDER[p.slug]||holder, moved=prev!==holder;
+  HOLDER[p.slug]=holder;
+  const [bx,by]=BATON[prev]||BATON.planner, [tx,ty]=BATON[holder]||BATON.planner;
+  const fresh=!SEEN.has(p.slug); SEEN.add(p.slug);
+  const seats=SEATS.map(s=>`<div class="seat ${s.pos}${moved&&s.role===holder?" arrive":""}">${
     sprite(s.role,{back:s.back,state:seatState(p,s.role)})}</div>`).join("")
-    + (hasOperator(p)?`<div class="seat op">${
+    + (hasOperator(p)?`<div class="seat op${moved&&holder==="operator"?" arrive":""}">${
         sprite("orch",{state:seatState(p,"operator")})}</div>`:"");
   const rail=RAIL.map((ph,i)=>`<span class="tk ${i<cur?"done":i===cur?"cur":""}"
       style="color:${i===cur?colour:""}"><i class="d"></i><i class="l">${ph}</i></span>`).join("");
   const t=testCount(p), loop=p.loop||{count:0,max:5};
   const ev=p.lastEvent;
-  return `<article class="card s-${st}${st==="done"?" collapsed":""}" data-slug="${esc(p.slug)}">
+  return `<article class="card s-${st}${st==="done"?" collapsed":""}${fresh?" enter":""}" data-slug="${esc(p.slug)}">
     <div class="c-head">
       <a class="c-name" href="/r/${encodeURIComponent(p.slug)}">${esc(p.feature||p.slug)}</a>
       <a class="c-open" href="/r/${encodeURIComponent(p.slug)}">open →</a>
       <span class="pill">${st}</span></div>
     <div class="c-repos">${esc((p.repos||[]).join(" · ")||p.slug)}</div>
     <div class="felt">${seats}<div class="rail">${rail}</div>
-      <div class="baton" style="color:${colour};transform:translate(${bx}px,${by}px)"></div></div>
+      <div class="baton" data-to="translate(${tx}px,${ty}px)" style="color:${colour};transform:translate(${bx}px,${by}px)"></div></div>
     <div class="c-foot"><span>phase <b>${esc(p.phase||"—")}</b></span>
       <span>loop <b>${loop.count}/${loop.max}</b></span>
       ${t?`<span class="${t.failed?"fail":""}">tests <b>${t.passed}/${t.total}</b></span>`:""}</div>
@@ -517,11 +564,34 @@ function card(p){
   </article>`;
 }
 
+/* What the card actually draws. Rebuilding every card on every frame would restart every
+   sprite loop in the hall two or three times a second - rule 3 says something always
+   moves, so only a card whose signature changed is replaced. */
+function cardSig(p){
+  return [p.status,p.phase,p.activeAgent,(p.loop||{}).count,!!staleMs(p),hasOperator(p),
+    (p.repos||[]).join(","),p.lastEvent&&p.lastEvent.ts,JSON.stringify(p.services||null)].join("|");
+}
+const CARD_SIG={};
 function renderHall(){
   const el=document.getElementById("hall");
-  el.innerHTML=HALL.pipelines.length
-    ? HALL.pipelines.map(card).join("")
-    : `<div class="empty">no pipelines under ${esc(HALL.root)}</div>`;
+  if(!HALL.pipelines.length){
+    el.innerHTML=`<div class="empty">no pipelines under ${esc(HALL.root)}</div>`;return;
+  }
+  if(el.firstElementChild&&el.firstElementChild.className==="empty") el.innerHTML="";
+  const live=new Set();
+  for(const p of HALL.pipelines){
+    live.add(p.slug);
+    const node=[...el.children].find(c=>c.dataset.slug===p.slug);
+    if(node&&CARD_SIG[p.slug]===cardSig(p)) continue;
+    const t=document.createElement("template"); t.innerHTML=card(p);
+    if(node) node.replaceWith(t.content.firstElementChild); else el.append(t.content.firstElementChild);
+    CARD_SIG[p.slug]=cardSig(p);
+  }
+  [...el.children].forEach(c=>{if(c.dataset.slug&&!live.has(c.dataset.slug)) c.remove();});
+  // The baton is drawn where it was and moved on the next frame - a token that appears
+  // at its destination has not travelled.
+  requestAnimationFrame(()=>el.querySelectorAll(".baton[data-to]").forEach(b=>{
+    b.style.transform=b.dataset.to; b.removeAttribute("data-to");}));
 }
 // A collapsed team is still a team: clicking its row opens it back up.
 document.getElementById("hall").addEventListener("click",e=>{
@@ -550,7 +620,7 @@ document.getElementById("reg-add").addEventListener("submit",e=>{
   e.preventDefault();
   const i=document.getElementById("reg-input"),v=i.value.trim();
   if(!v) return;
-  EXTRA_REPOS.push(v); i.value=""; renderHeadTable();
+  EXTRA_REPOS.push(v); NEW_REPO=v; i.value=""; renderHeadTable();
 });
 
 /* One fixture per card state, shown only until the stream connects. */

@@ -1165,6 +1165,56 @@ def every_character_has_both_hair_layers():
         "nothing decides whether the operator's fifth seat exists - it must not always render"
 
 
+# Section 10.4's eight entries, as they appear in CSS. Baton travel is a transition
+# rather than a loop, so it has no @keyframes and is checked by its duration below.
+MOTION_KEYFRAMES = {"typing", "waiting", "sleeping", "walk-in", "table-in", "row-in",
+                    "going-quiet"}
+# Section 10.5's scrolling screen is the office's own "something is happening here". It
+# is specified separately from the inventory, and it is the only addition allowed.
+MOTION_ALLOWED = MOTION_KEYFRAMES | {"screen-scroll"}
+
+
+def the_motion_inventory_stays_at_eight():
+    """S42 - AC4, section 10.4. Eight entries and six rules: if this list grows to twenty,
+    that is the bug. The rules are mechanical, so check them mechanically - only transform
+    and opacity ever animate (no layout, no paint), every loop is stepped, the stale team
+    freezes, and prefers-reduced-motion stops all of it."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    css = re.sub(r"/\*.*?\*/", "", src, flags=re.S)   # the rules are quoted in comments
+    names = set(re.findall(r"@keyframes\s+([\w-]+)", src))
+    assert not MOTION_KEYFRAMES - names, \
+        f"section 10.4 entries with no animation: {sorted(MOTION_KEYFRAMES - names)}"
+    assert not names - MOTION_ALLOWED, \
+        f"motion beyond the inventory: {sorted(names - MOTION_ALLOWED)} - that is the bug"
+
+    # Rule 5: transform and opacity only, so a full hall stays smooth while the page works.
+    for block in re.findall(r"@keyframes\s+[\w-]+\s*\{(.*)", src):
+        for prop in re.findall(r"([a-z-]+)\s*:", block):
+            assert prop in ("transform", "opacity"), \
+                f"@keyframes animates {prop} - that is layout or paint, not transform/opacity"
+    for value in re.findall(r"transition:([^;}]*)", css):
+        head = value.strip().split()[0].replace("!important", "")
+        assert head in ("transform", "opacity", "none"), \
+            f"transition on {head} - rule 5 forbids it"
+    assert "scale(0)" not in css, "rule 5 forbids scale(0)"
+    assert not re.search(r"ease-in(?!-out)", css), "rule 5 forbids ease-in"
+
+    # Rule 1: stepped, never eased. The snap is what makes a sprite look drawn.
+    assert "steps(1)" in src and "steps(4)" in src, "the sprite loops are not stepped"
+    for duration in ("280ms", "340ms", "3.4s", "3.6s", "440ms", "260ms", "240ms", "2.6s"):
+        assert duration in src, f"section 10.4 has an entry at {duration}; hall.html has none"
+
+    # Rule 4: stillness is the alarm - a stale team freezes mid-keystroke and dims.
+    assert re.search(r"animation-play-state:\s*paused", src), \
+        "nothing freezes when a run goes quiet - in a hall where working things move, that is the signal"
+
+    # Rule 6: every loop stops and the resting pose stays.
+    rm = re.search(r"@media \(prefers-reduced-motion:\s*reduce\)\s*\{(.*?)\n  \}", src, re.S)
+    assert rm and "animation:none" in rm.group(1) and "transition:none" in rm.group(1), \
+        "prefers-reduced-motion does not stop every loop"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1198,6 +1248,7 @@ SCENARIOS = [
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S40", the_root_route_serves_the_hall),
     ("S41", every_character_has_both_hair_layers),
+    ("S42", the_motion_inventory_stays_at_eight),
 ]
 
 
