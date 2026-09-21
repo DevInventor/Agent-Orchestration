@@ -4,7 +4,8 @@
 Asserts only, no framework on purpose. Covers the runId scoping the dashboard's feed
 filtering depends on, and the updatedAt freshness its staleness warning depends on.
 """
-import argparse, glob, json, os, re, subprocess, sys, tempfile
+import argparse, glob, json, os, re, shutil, socket, subprocess, sys, tempfile, time
+import urllib.error, urllib.request
 
 PIPE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipe.py")
 
@@ -925,6 +926,140 @@ def a_previous_runs_gate_does_not_release_this_one():
         assert run(root, "wait", "--for", "gate", "--timeout", "5").strip() == "in-place"
 
 
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVER_JS = os.path.join(REPO, "ui", "server.js")
+
+
+def free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def http_json(port, path, payload=None, method=None):
+    """(status, body) over loopback. An HTTP error code is an answer, not an exception."""
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data,
+                                 method=method or ("POST" if data else "GET"),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+
+
+class Server:
+    """`node ui/server.js` against a throwaway AGENT_ORCHESTRATION_HOME."""
+    def __init__(self, home):
+        self.port = free_port()
+        self.p = subprocess.Popen(
+            ["node", SERVER_JS, "--port", str(self.port)],
+            env={**os.environ, "AGENT_ORCHESTRATION_HOME": home},
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def __enter__(self):
+        for _ in range(80):                       # ~20 s: node is slow to boot on Windows
+            try:
+                http_json(self.port, "/api/hall")
+                return self
+            except Exception:
+                if self.p.poll() is not None:
+                    raise AssertionError("server.js exited: " + self.p.communicate()[0])
+                time.sleep(0.25)
+        raise AssertionError("server.js never answered on 127.0.0.1")
+
+    def __exit__(self, *a):
+        self.p.terminate()
+        try: self.p.wait(timeout=5)
+        except subprocess.TimeoutExpired: self.p.kill()
+
+
+def the_gate_endpoint_is_the_security_boundary():
+    """S36 - AC5/AC4, spec section 14. POST /api/gate is the first path where a browser
+    can move a run forward, so every input is checked at the door: three fixed decisions,
+    a slug resolved by identity against the scan list (never joined to a path), a capped
+    body, and a gate.json that `pipe.py wait` then accepts. Skips - never fails - when
+    node is absent, because a suite that silently passes without it proves nothing."""
+    if not shutil.which("node"):
+        print("SKIP S36 - no node on PATH; the /api/gate endpoint was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "browser-gate", "pipeline")
+        run(root, "init", "--feature", "Browser gate", "--slug", "browser-gate", env=env)
+        before = paths_under(tmp)
+        with Server(home) as s:
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "browser-gate", "decision": "ship-it"})
+            assert code == 400 and "decision" in body, (code, body)
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "no-such-run", "decision": "finalize"})
+            assert code == 404 and "slug" in body, (code, body)
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "../../etc", "decision": "finalize"})
+            assert code == 404, f"a traversal-shaped slug must resolve to nothing: {code} {body}"
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "browser-gate", "decision": "x" * 5000})
+            assert code in (400, 413), f"an oversized body must be refused: {code}"
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "browser-gate", "decision": "finalize"})
+            assert code == 200, (code, body)
+
+        gate = os.path.join(home, "pipelines", "browser-gate", "gate.json")
+        assert os.path.isfile(gate), \
+            f"the endpoint wrote no gate beside the bus: {paths_under(tmp)}"
+        assert json.loads(open(gate, encoding="utf-8").read())["by"] == "browser"
+        assert run(root, "wait", "--for", "gate", "--timeout", "5", env=env).strip() \
+            == "finalize", "pipe.py wait does not accept the gate the browser wrote"
+
+        new = set(paths_under(tmp)) - set(before)
+        assert new == {os.path.relpath(gate, tmp)}, \
+            f"the endpoint touched something other than one gate.json: {sorted(new)}"
+
+
+def both_gate_writers_agree_on_the_format():
+    """S37 - two writers of one file (pipe.py cmd_gate and server.js), which discipline
+    does not keep in agreement. Close it mechanically: the keys server.js writes must be
+    exactly the keys pipe.py writes and cmd_wait reads, and the three accepted decisions
+    must be the same three. Rename a key in either file and this fails."""
+    src = open(SERVER_JS, encoding="utf-8").read()
+    m = re.search(r"function gateRecord\([^)]*\)\s*\{.*?return\s*\{(.*?)\};", src, re.S)
+    assert m, "ui/server.js has no gateRecord() to compare against - the guard is blind"
+    js_keys = set(re.findall(r"(\w+):", m.group(1)))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "workstream", "pipeline")
+        run(root, "init", "--feature", "Format", "--slug", "format")
+        run(root, "gate", "--decision", "reject")
+        py_keys = set(json.loads(
+            open(os.path.join(tmp, "workstream", "gate.json"), encoding="utf-8").read()))
+    assert js_keys == py_keys, \
+        f"the two gate writers disagree: server.js {sorted(js_keys)} vs pipe.py {sorted(py_keys)}"
+    assert "runId" in py_keys, "wait's previous-run guard reads runId - it must be written"
+
+    js_decisions = re.search(r"GATE_DECISIONS\s*=\s*\[(.*?)\]", src, re.S)
+    assert js_decisions, "ui/server.js does not declare GATE_DECISIONS"
+    assert re.findall(r'"([^"]+)"', js_decisions.group(1)) == import_pipe().GATE_DECISIONS, \
+        "server.js accepts a different set of decisions from pipe.py"
+
+
+def the_listen_call_is_explicit_about_loopback():
+    """S38 - section 14. Asserting the negative (that the machine's external address is
+    not serving) would need this machine's external address; the literal is the cheap
+    guard that survives a refactor of the surrounding lines."""
+    src = open(SERVER_JS, encoding="utf-8").read()
+    assert 'listen(PORT, "127.0.0.1"' in src, \
+        "ui/server.js binds every interface, with a git-adjacent POST endpoint behind it"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -952,6 +1087,9 @@ SCENARIOS = [
     ("S33", prune_lists_before_it_removes),
     ("S34", the_gate_round_trips_beside_the_bus),
     ("S35", a_previous_runs_gate_does_not_release_this_one),
+    ("S36", the_gate_endpoint_is_the_security_boundary),
+    ("S37", both_gate_writers_agree_on_the_format),
+    ("S38", the_listen_call_is_explicit_about_loopback),
 ]
 
 

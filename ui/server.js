@@ -159,6 +159,59 @@ setInterval(() => {
   if (sig !== lastSig) { lastSig = sig; broadcast(); }
 }, 700);
 
+// Section 14. The gate is the first path where a browser can move a run forward, so:
+// three fixed decisions and nothing free-form, a slug resolved by identity against the
+// scan list, no slug or decision in the URL, a capped body, and no process ever spawned.
+// It releases a waiter - it never merges. Merging stays `pipe.py finish --apply`.
+const GATE_DECISIONS = ["finalize", "in-place", "reject"];   // == pipe.py GATE_DECISIONS
+const GATE_BODY_MAX = 4096;
+
+// The one record format, written here and by pipe.py cmd_gate, read by cmd_wait.
+// Two writers of one file, kept in agreement by a test rather than by discipline
+// (scripts/test_pipe.py S37 compares this key set against the one pipe.py writes).
+function gateRecord(runId, decision) {
+  return { decision: decision, runId: runId, ts: new Date().toISOString(), by: "browser" };
+}
+
+function apiGate(req, res) {
+  let body = "", done = false;
+  req.on("data", (chunk) => {
+    if (done) return;
+    body += chunk;
+    if (body.length > GATE_BODY_MAX) {
+      done = true;
+      sendJSON(res, 413, { error: `body must be under ${GATE_BODY_MAX} bytes` });
+      req.destroy();
+    }
+  });
+  req.on("end", () => {
+    if (done) return;
+    let payload;
+    try { payload = JSON.parse(body); } catch { payload = null; }
+    if (!payload || typeof payload !== "object") {
+      return sendJSON(res, 400, { error: "body must be JSON {slug, decision}" });
+    }
+    if (!GATE_DECISIONS.includes(payload.decision)) {
+      return sendJSON(res, 400, {
+        error: `decision must be one of ${GATE_DECISIONS.join(", ")}`, field: "decision" });
+    }
+    const p = findPipeline(payload.slug);
+    if (!p) return sendJSON(res, 404, { error: "unknown slug", field: "slug" });
+    // dirname of the bus the SCAN recorded - mirrors pipe.py gate_path(). Nothing from
+    // the request reaches this path, so there is no traversal surface to guard.
+    const file = path.join(path.dirname(p.root), "gate.json");
+    const tmp = file + ".tmp";
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(gateRecord(p.run.runId, payload.decision), null, 2));
+      fs.renameSync(tmp, file);   // temp + rename: a waiter never reads a half-written gate
+    } catch (e) {
+      // A bus deleted between the scan and the write must not take the dashboard down.
+      return sendJSON(res, 500, { error: `could not write the gate: ${e.code || e.message}` });
+    }
+    sendJSON(res, 200, { ok: true, slug: p.slug, decision: payload.decision });
+  });
+}
+
 function serveHTML(res, file, fallback) {
   fs.readFile(file, (err, buf) => {
     if (err && fallback) return serveHTML(res, fallback);
@@ -206,6 +259,7 @@ const server = http.createServer((req, res) => {
       ? serveHTML(res, HTML)
       : (res.writeHead(404), res.end("no such run"));
   }
+  if (url.pathname === "/api/gate" && req.method === "POST") return apiGate(req, res);
   if (url.pathname === "/api/hall") return sendJSON(res, 200, hall());
   if (url.pathname === "/api/state") {
     const p = findPipeline(slug);
