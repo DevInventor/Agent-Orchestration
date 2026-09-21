@@ -143,6 +143,70 @@
   .who.a-orch{color:var(--orch)}
   #cast{position:absolute;width:0;height:0;overflow:hidden}
 
+  /* ---- section 10.2, the hall: one card per workstream, and the card is a table ---- */
+  #hall{display:grid;grid-template-columns:repeat(auto-fill,minmax(314px,1fr));gap:14px;align-content:start}
+  .card{--st:var(--line-2);background:var(--panel);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));
+    border-radius:6px;padding:11px 11px 9px;display:flex;flex-direction:column;gap:8px}
+  .card.s-run{--st:var(--coder)} .card.s-gate{--st:var(--warn)}
+  .card.s-done{--st:var(--ok)} .card.s-stale{--st:var(--bad)}
+  .c-head{display:flex;align-items:center;gap:8px;min-width:0}
+  .c-name{font-size:14px;font-weight:600;color:var(--bright);text-decoration:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .c-name:hover{text-decoration:underline}
+  .c-open{font-family:var(--mono);font-size:10px;color:var(--coder);text-decoration:none;opacity:0;
+    transition:opacity .15s linear;white-space:nowrap}
+  .card:hover .c-open{opacity:1}
+  .pill{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--st);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));border-radius:2px;padding:1px 6px}
+  .c-repos{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+
+  /* the felt is a fixed 288x150 so the baton's 26 px inset is a constant, not a measurement */
+  .felt{position:relative;width:288px;height:150px;margin:0 auto;background:var(--felt);
+    border:1px solid var(--line);border-radius:8px}
+  .seat{position:absolute}
+  .seat.tl{left:5px;top:3px} .seat.tr{right:5px;top:3px}
+  .seat.br{right:5px;bottom:3px} .seat.bl{left:5px;bottom:3px}
+  /* section 10.8-1: the fifth seat sits on the bottom edge, outside the clockwise four */
+  .seat.op{left:50%;bottom:-6px;margin-left:-13px}
+
+  .rail{position:absolute;left:8px;right:8px;top:50%;margin-top:-9px;display:flex}
+  .rail::before{content:"";position:absolute;left:6px;right:6px;top:4px;height:1px;background:var(--line-2);opacity:.7}
+  .tk{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--faint)}
+  .tk .d{width:7px;height:7px;border-radius:50%;background:var(--sunk);border:1px solid var(--line-2);
+    position:relative;z-index:1}
+  .tk .l{font-family:var(--mono);font-size:7px;letter-spacing:.04em;color:var(--faint)}
+  .tk.done .d{background:var(--line-2);border-color:var(--line-2)}
+  .tk.done .l{color:var(--muted)}
+  .tk.cur .d{background:currentColor;border-color:currentColor;transform:scale(1.7)}
+  .tk.cur .l{color:currentColor}
+
+  /* one token resting on the felt, inset 26 px from its seat's corner: consecutive hops
+     therefore run along an edge, and the path reads as passing work round a table. */
+  .baton{position:absolute;left:26px;top:26px;width:10px;height:10px;border-radius:2px;
+    background:currentColor;color:var(--muted)}
+
+  .c-foot{display:flex;gap:12px;font-family:var(--mono);font-size:10px;color:var(--muted);flex-wrap:wrap}
+  .c-foot b{color:var(--text);font-weight:600}
+  .c-foot .fail b{color:var(--bad)}
+  .c-stale{font-family:var(--mono);font-size:10px;color:var(--bad)}
+  .c-last{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .c-last b{font-family:var(--mono);font-size:10px;font-weight:400}
+  .gate{display:flex;gap:6px}
+  .gate button{flex:1;background:var(--sunk);border:1px solid var(--line);border-radius:3px;color:var(--text);
+    font-family:var(--mono);font-size:11px;padding:5px 0;cursor:pointer}
+  .gate button[data-d="finalize"]{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+  .gate button[data-d="reject"]{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+  .gate button:hover{background:var(--raise)}
+  .gate button[disabled]{opacity:.5;cursor:default}
+
+  /* section 10.8-4: a finished team collapses to one line. Not removed, not filtered -
+     six of twelve real pipelines were never closed, so visible closure is the signal
+     worth keeping; collapsing only reclaims the space it takes from live work. */
+  .card.collapsed{grid-column:1/-1;padding:7px 11px}
+  .card.collapsed>*{display:none}
+  .card.collapsed>.c-head{display:flex}
+
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
@@ -387,15 +451,83 @@ function renderHeadTable(){
     `<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
 }
 
+/* Four seats at the corners of the felt in pipeline order clockwise. The near pair face
+   away from you, which is what the -back hair layer exists for. */
+const SEATS=[
+  {role:"planner", pos:"tl", back:false},
+  {role:"coder",   pos:"tr", back:false},
+  {role:"tester",  pos:"br", back:true},
+  {role:"reviewer",pos:"bl", back:true},
+];
+const RAIL=["spec","plan","implement","test","review","done"];
+const STAGE={planner:1,coder:2,tester:3,reviewer:4,operator:2};
+// The hall's rail has no qa tick (section 10.2), so qa reads as the end of review.
+function railIdx(ph){return ph==="qa"?4:RAIL.indexOf(ph);}
+
+/* Rule 2: exactly one agent per table types. The rest wait, or sleep once their stage is
+   behind the run - "busy" stays legible by being the exception in its own row. */
+function seatState(p,role){
+  if(p.status==="done") return "sleep";
+  if(p.activeAgent===role) return "type";
+  return railIdx(p.phase)>STAGE[role]?"sleep":"wait";
+}
+// The baton rests 26 px in from its seat's corner of the 288x150 felt.
+const BATON={planner:[0,0],coder:[226,0],tester:[226,88],reviewer:[0,88],operator:[113,88]};
+const AGENT_COLOR={planner:"var(--planner)",coder:"var(--coder)",tester:"var(--tester)",
+  reviewer:"var(--reviewer)",operator:"var(--orch)",orchestrator:"var(--orch)"};
+
+function testCount(p){
+  const s=p.services; if(!s) return null;
+  const v=Object.values(s);
+  const passed=v.reduce((a,x)=>a+(x.passed||0),0), failed=v.reduce((a,x)=>a+(x.failed||0),0);
+  return passed+failed?{passed,failed,total:passed+failed}:null;
+}
+
+function card(p){
+  const st=cardState(p), sm=staleMs(p), cur=railIdx(p.phase);
+  const holder=p.activeAgent||"planner";
+  const colour=AGENT_COLOR[holder]||"var(--muted)";
+  const [bx,by]=BATON[holder]||BATON.planner;
+  const seats=SEATS.map(s=>`<div class="seat ${s.pos}">${
+    sprite(s.role,{back:s.back,state:seatState(p,s.role)})}</div>`).join("")
+    + (hasOperator(p)?`<div class="seat op">${
+        sprite("orch",{state:seatState(p,"operator")})}</div>`:"");
+  const rail=RAIL.map((ph,i)=>`<span class="tk ${i<cur?"done":i===cur?"cur":""}"
+      style="color:${i===cur?colour:""}"><i class="d"></i><i class="l">${ph}</i></span>`).join("");
+  const t=testCount(p), loop=p.loop||{count:0,max:5};
+  const ev=p.lastEvent;
+  return `<article class="card s-${st}${st==="done"?" collapsed":""}" data-slug="${esc(p.slug)}">
+    <div class="c-head">
+      <a class="c-name" href="/r/${encodeURIComponent(p.slug)}">${esc(p.feature||p.slug)}</a>
+      <a class="c-open" href="/r/${encodeURIComponent(p.slug)}">open →</a>
+      <span class="pill">${st}</span></div>
+    <div class="c-repos">${esc((p.repos||[]).join(" · ")||p.slug)}</div>
+    <div class="felt">${seats}<div class="rail">${rail}</div>
+      <div class="baton" style="color:${colour};transform:translate(${bx}px,${by}px)"></div></div>
+    <div class="c-foot"><span>phase <b>${esc(p.phase||"—")}</b></span>
+      <span>loop <b>${loop.count}/${loop.max}</b></span>
+      ${t?`<span class="${t.failed?"fail":""}">tests <b>${t.passed}/${t.total}</b></span>`:""}</div>
+    ${sm?`<div class="c-stale">◉ no activity ${agoTxt(sm)} — agent may have died</div>`:""}
+    ${ev?`<div class="c-last"><b style="color:${AGENT_COLOR[ev.agent]||"var(--muted)"}">${
+        esc(ev.agent)}</b> ${esc(ev.summary)}</div>`:""}
+    ${st==="gate"?`<div class="gate">
+      <button data-d="finalize">Finalize</button>
+      <button data-d="in-place">In place</button>
+      <button data-d="reject">Reject</button></div>`:""}
+  </article>`;
+}
+
 function renderHall(){
   const el=document.getElementById("hall");
   el.innerHTML=HALL.pipelines.length
-    ? HALL.pipelines.map(p=>`<div>${esc(p.feature||p.slug)}</div><div style="display:flex;gap:12px">
-        ${["planner","coder","tester","reviewer"].map((r,i)=>
-          sprite(r,{back:i>1,state:r===p.activeAgent?"type":"wait"})).join("")}
-        ${hasOperator(p)?sprite("orch",{state:"wait"}):""}</div>`).join("")
+    ? HALL.pipelines.map(card).join("")
     : `<div class="empty">no pipelines under ${esc(HALL.root)}</div>`;
 }
+// A collapsed team is still a team: clicking its row opens it back up.
+document.getElementById("hall").addEventListener("click",e=>{
+  const c=e.target.closest(".card");
+  if(c&&c.classList.contains("s-done")&&!e.target.closest("a")) c.classList.toggle("collapsed");
+});
 function renderOffice(){}
 
 function render(h){HALL=h||HALL;renderHeadTable();renderHall();renderOffice();}
@@ -421,13 +553,24 @@ document.getElementById("reg-add").addEventListener("submit",e=>{
   EXTRA_REPOS.push(v); i.value=""; renderHeadTable();
 });
 
-/* A small fixture so the shell renders before T11 wires it to the bus. */
-render({root:"~/.agent-orchestration/pipelines",pipelines:[
+/* One fixture per card state, shown only until the stream connects. */
+const ago=s=>new Date(Date.now()-s*1000).toISOString();
+const FIXTURE={root:"~/.agent-orchestration/pipelines",pipelines:[
   {slug:"multi-pipeline-engine",feature:"Multi-pipeline engine",phase:"implement",
-   status:"running",activeAgent:"coder",loop:{count:0,max:5},repos:["ship-team"],
-   updatedAt:new Date().toISOString(),
-   lastEvent:{ts:new Date().toISOString(),agent:"coder",type:"status",summary:"Implementing the hall"}}
-]});
+   status:"running",activeAgent:"coder",loop:{count:1,max:5},repos:["ship-team"],
+   updatedAt:ago(20),lastEvent:{ts:ago(20),agent:"coder",type:"status",summary:"Wiring the felt"}},
+  {slug:"009-messaging-hub",feature:"Messaging hub",phase:"plan",status:"awaiting_approval",
+   activeAgent:"planner",loop:{count:0,max:5},repos:["crm","api"],updatedAt:ago(90),
+   lastEvent:{ts:ago(90),agent:"planner",type:"handoff",summary:"Plan ready: 7 tasks, 2 services"}},
+  {slug:"tenant-sso-logout",feature:"Propagate tenant SSO logout",phase:"test",status:"running",
+   activeAgent:"tester",loop:{count:2,max:5},repos:["oauth","MFA_Server"],updatedAt:ago(1500),
+   services:{oauth:{passed:6,failed:1},MFA_Server:{passed:4,failed:0}},
+   lastEvent:{ts:ago(1500),agent:"tester",type:"result",summary:"Tests 10/11 — 1 failing (iter 2)"}},
+  {slug:"ipo-mandate-automation",feature:"IPO mandate automation",phase:"done",status:"done",
+   activeAgent:"reviewer",loop:{count:1,max:5},repos:["crm"],updatedAt:ago(6000),
+   lastEvent:{ts:ago(6000),agent:"orchestrator",type:"status",summary:"Merged and archived"}},
+]};
+render(FIXTURE);
 </script>
 </body>
 </html>
