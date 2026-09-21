@@ -855,6 +855,37 @@ def ls_reports_branch_drift_and_orphan_containers():
             f"a wt-<slug>/ container with no bus is invisible to ls:\n{out}"
 
 
+def prune_lists_before_it_removes():
+    """S33 - AC12. prune follows finish's plan/apply shape: an archived workstream's
+    container is NAMED by a bare prune and still on disk afterwards, and only --apply
+    removes it. Mutate the default branch to delete and the first half fails."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "closing", "pipeline")
+        run(root, "init", "--feature", "Closing", "--slug", "closing", env=env)
+        repo = git_repo(os.path.join(tmp, "repos", "api"), "main")
+        run(root, "worktree", "add", "--service", "api", "--repo", repo, env=env)
+        wt = read_run(root)["repos"][0]["worktree"]
+        container = os.path.dirname(wt)
+        write(os.path.join(wt, "a.txt"), "work\n")
+        git(wt, "add", "-A"); git(wt, "commit", "-qm", "T1: work")
+        run(root, "finish", "--apply", env=env)          # archives the bus, keeps the worktree
+        assert os.path.isdir(container), "finish without --teardown keeps the container"
+
+        # prune's root is the fixed pipelines root, not --root; any path will do here
+        nowhere = os.path.join(tmp, "not-a-bus", "pipeline")
+        out = run(nowhere, "prune", env=env)
+        assert container in out, f"prune does not name the archived container:\n{out}"
+        assert os.path.isdir(container), \
+            "a bare prune removed a container - it must plan, like finish does"
+
+        out = run(nowhere, "prune", "--apply", env=env)
+        assert not os.path.exists(container), f"--apply left the container behind:\n{out}"
+        assert container not in git(repo, "worktree", "list"), \
+            "the worktree registration outlived the directory - git worktree prune never ran"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -879,6 +910,7 @@ SCENARIOS = [
     ("S30", an_explicit_empty_service_is_not_the_flat_layout),
     ("S31", a_mid_loop_merge_failure_names_the_half_shipped_repos),
     ("S32", ls_reports_branch_drift_and_orphan_containers),
+    ("S33", prune_lists_before_it_removes),
 ]
 
 

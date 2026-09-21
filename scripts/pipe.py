@@ -93,6 +93,19 @@ def scan_pipelines():
     return out
 
 
+def archived_buses():
+    """The other half of the registry: <slug>.closed-<YYYYmmdd>/pipeline/run.json, the
+    one convention archive_bus() writes. `prune` needs it because a closed workstream's
+    container is exactly what nobody comes back to delete."""
+    base, out = pipelines_root(), []
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        rp = os.path.join(base, name, "pipeline", "run.json")
+        if ".closed-" in name and os.path.isfile(rp):
+            out.append({"slug": name.split(".closed-")[0],
+                        "root": os.path.dirname(rp), "run": read_json(rp, {})})
+    return out
+
+
 def git(repo, *args, check=True):
     """Every git call goes through here. encoding is pinned: git prints paths in the
     console codepage on Windows, and decoding them with the locale default mangles any
@@ -832,6 +845,34 @@ def cmd_ls(root, args):
         print(f"no pipelines under {pipelines_root()}")
 
 
+def cmd_prune(root, args):
+    """The cleanup half of `ls`. Two steps, and only one of them touches disk by default.
+
+    Containers are listed and removed only with --apply, following `finish`'s plan/apply
+    model rather than deleting on sight: shutil.rmtree on a directory located by
+    inference is irreversible, and this file already established that two-step shape."""
+    pipes = scan_pipelines()
+    closed = archived_buses()
+    # Removal first, so the worktree registrations it invalidates are gone before the
+    # prune below runs - otherwise the repo keeps them until someone runs prune twice.
+    for c in sorted({os.path.dirname(e["worktree"]) for p in closed
+                     for e in (p["run"].get("repos") or []) if e.get("worktree")}):
+        if not os.path.isdir(c):
+            continue
+        if args.apply:
+            shutil.rmtree(c, ignore_errors=True)
+            print(f"removed container {c} (its workstream is archived)")
+        else:
+            print(f"would remove container {c} (its workstream is archived)")
+    for repo in sorted({e["repo"] for p in pipes + closed
+                        for e in (p["run"].get("repos") or []) if e.get("repo")}):
+        if os.path.isdir(repo):
+            git(repo, "worktree", "prune", check=False)
+            print(f"pruned worktree registrations in {repo}")
+    if not args.apply:
+        print("plan only - nothing was removed. re-run with --apply.")
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
@@ -863,6 +904,7 @@ def build_parser():
     s.add_argument("--failed", type=int, default=None)
     s = sub.add_parser("status")
     s = sub.add_parser("ls")
+    s = sub.add_parser("prune"); s.add_argument("--apply", action="store_true")
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
     s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
@@ -899,7 +941,7 @@ def main():
         "init": cmd_init, "slug": cmd_slug, "event": cmd_event, "phase": cmd_phase,
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
-        "status": cmd_status, "ls": cmd_ls, "config": cmd_config, "task": cmd_task,
+        "status": cmd_status, "ls": cmd_ls, "prune": cmd_prune, "config": cmd_config, "task": cmd_task,
         "review": cmd_review, "qa-check": cmd_qa_check,
         "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
