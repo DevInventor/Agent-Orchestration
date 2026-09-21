@@ -451,8 +451,11 @@ function render(s){LAST=s;renderHeader(s.run);renderHero(s.run,s.plan);renderFee
 function setConn(live){const c=document.getElementById("conn");
   c.className="conn"+(live?" live":"");document.getElementById("conn-txt").textContent=live?"live":"offline";}
 let gotLive=false,es;
+/* On /r/<slug> the stream is scoped to that run; single-bus mode has no prefix, asks for
+   no run, and is byte-for-byte the stream it always got. */
+const RUN=(location.pathname.match(/^\/r\/([^/]+)/)||[])[1]||"";
 function connect(){
-  try{es=new EventSource("/events");}catch{startDemo();return;}
+  try{es=new EventSource("/events"+(RUN?"?run="+encodeURIComponent(RUN):""));}catch{startDemo();return;}
   es.onmessage=e=>{gotLive=true;setConn(true);document.getElementById("demo").classList.remove("on");
     try{render(JSON.parse(e.data));}catch{}};
   es.onerror=()=>{es.close();if(!gotLive)startDemo();else{setConn(false);setTimeout(connect,2000);}};
