@@ -246,6 +246,54 @@
   .card.s-stale .felt{animation:going-quiet 2.6s var(--ease-in-out) infinite}
   .card.s-stale .who,.card.s-stale .tk.cur{animation-play-state:paused}
 
+  /* ---- section 10.5, the office floor ----
+     One open floor; the building's outer wall is the only wall. A team is a desk island
+     on a rug and the rug carries the state, so you read the rug before you find a single
+     agent - which is what a floor plan has to earn for being slower to scan than a table. */
+  #office{padding:0;position:relative;overflow:hidden;cursor:grab}
+  #office.drag{cursor:grabbing}
+  .floor{position:absolute;left:0;top:0;transform-origin:0 0;border:4px solid var(--wall);
+    box-shadow:0 0 0 1px var(--wall-edge),inset 0 0 44px var(--wall-shadow);
+    background:
+      repeating-linear-gradient(0deg,var(--grout) 0 1px,transparent 1px 34px),
+      repeating-linear-gradient(90deg,var(--grout) 0 1px,transparent 1px 34px),
+      linear-gradient(160deg,var(--floor),var(--floor-2))}
+  .pod{position:absolute;width:156px;height:118px}
+  .rug{position:absolute;inset:-8px -8px -34px;border-radius:12px;
+    background:var(--floor-2);border:1px solid var(--line)}
+  .pod.s-run .rug{background:color-mix(in srgb,var(--coder) 9%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--coder) 34%,var(--line))}
+  .pod.s-gate .rug{background:color-mix(in srgb,var(--warn) 16%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--warn) 50%,var(--line))}
+  .pod.s-stale .rug{background:color-mix(in srgb,var(--bad) 16%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
+  .pod.s-done .rug{opacity:.4}
+  .pod-name{position:absolute;left:0;right:0;top:-24px;text-align:center;font-family:var(--mono);
+    font-size:9px;letter-spacing:.06em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* desks back to back down the middle, bodies on the outer edges: four fit in nearly
+     the space of two, and no agent is ever in front of a screen */
+  .desk{position:absolute;width:62px;height:30px;border-radius:3px;background:var(--wood);
+    border:1px solid var(--wood-2);box-shadow:inset 0 5px 0 var(--deskglass)}
+  .scr{position:absolute;right:5px;top:3px;width:20px;height:13px;border-radius:1px;
+    background:var(--screen-b);border:1px solid var(--wood-2);overflow:hidden}
+  .scr i{display:block;height:4px;margin:2px 2px 4px;background:var(--screen)}
+  .chair{position:absolute;width:20px;height:7px;border-radius:3px;background:var(--chairc);
+    border:1px solid var(--chairc-2)}
+  .plant{position:absolute;width:14px;height:20px}
+  .plant b{position:absolute;bottom:0;left:2px;width:10px;height:7px;background:var(--pot);border-radius:1px}
+  .plant i{position:absolute;top:0;left:0;width:14px;height:14px;border-radius:50% 50% 40% 40%;background:var(--leaf)}
+  .body{position:absolute}
+  /* the working desk's screen scrolls: the cheapest "something is happening here" that
+     moves no body at all (section 10.5, not a ninth inventory entry) */
+  @keyframes screen-scroll{from{transform:translateY(0)}to{transform:translateY(-9px)}}
+  .desk.work .scr i{animation:screen-scroll 1.2s steps(4) infinite}
+  /* section 10.8-2: pods outside the viewport stop animating. At twelve teams that is
+     ~24 simultaneous sprite loops, and the floor - not the hall - is where it bites. */
+  /* grey, and no role colour: they are the one thing in the room that means nothing */
+  .walker .who{color:var(--faint)}
+  .pod.off *{animation-play-state:paused!important}
+  .pod.s-stale .who{animation-play-state:paused}
+
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
@@ -598,7 +646,149 @@ document.getElementById("hall").addEventListener("click",e=>{
   const c=e.target.closest(".card");
   if(c&&c.classList.contains("s-done")&&!e.target.closest("a")) c.classList.toggle("collapsed");
 });
-function renderOffice(){}
+/* ---- section 10.5, the office floor -----------------------------------------------
+   The same bus data, read the ambient way. Behaviour maps to state, not decoration:
+   typing at a desk means it holds the work, asleep means finished, frozen mid-keystroke
+   means quiet, and the team standing together means a finalize gate. */
+const BUILDING_W=566, BUILDING_H=418;          // six pods fit; past that the floor grows
+const POD_XS=[18,212,406], POD_Y0=16, POD_DY=152;
+// Seating is facing pairs: desks back to back down the middle, bodies on the outer
+// edges. Four fit in nearly the space of two and no agent is ever in front of a screen.
+const POD=[
+  {"role":"planner", "x":26,"y":4,  "dx":12,"dy":34,"back":false},
+  {"role":"coder",   "x":96,"y":4,  "dx":82,"dy":34,"back":false},
+  {"role":"tester",  "x":26,"y":120,"dx":12,"dy":86,"back":true},
+  {"role":"reviewer","x":96,"y":120,"dx":82,"dy":86,"back":true}
+];
+// Only a gate gathers them. Agents do not walk between desks on a handoff (10.8-3):
+// the baton and the seat-level walk-in already carry it, and an agent in transit has no
+// legible state.
+const MEET=[[12,120],[42,120],[72,120],[102,120]];
+
+/* The corridor graph. Desk islands occupy x 18-174 / 212-368 / 406-562 and y 16-134 /
+   168-286, so the walkable space is the two vertical aisles and the horizontal ones.
+   Every edge here is purely horizontal or vertical - that is what stops a walker cutting
+   the corner through somebody's desk. */
+const NODES={"a":[193,10],"b":[387,10],"c":[193,151],"d":[387,151],"e":[193,330],"f":[387,330]};
+const EDGES=[["a","b"],["c","d"],["e","f"],["a","c"],["c","e"],["b","d"],["d","f"]];
+// The bottom corridor follows the last row down as the floor grows; at two rows it is
+// the 330 declared above.
+function nodeAt(k,rows){const n=NODES[k];return (k==="e"||k==="f")?[n[0],POD_Y0+rows*POD_DY+10]:n;}
+
+function podSig(p){return cardSig(p);}
+const POD_SIG={};
+
+function podHTML(p,i){
+  const st=cardState(p), gate=st==="gate";
+  const x=POD_XS[i%3], y=POD_Y0+Math.floor(i/3)*POD_DY;
+  const people=(gate?POD.map((a,j)=>({role:a.role,x:MEET[j][0],y:MEET[j][1],back:false}))
+                    :POD).map(a=>
+    `<div class="chair" style="left:${a.x+2}px;top:${a.back?a.y+21:a.y-5}px"></div>
+     <div class="body" style="left:${a.x}px;top:${a.y}px">${
+       sprite(a.role,{back:a.back,state:seatState(p,a.role),seated:!gate,px:24})}</div>`).join("");
+  const desks=POD.map(a=>`<div class="desk${!gate&&p.activeAgent===a.role?" work":""}"
+    style="left:${a.dx}px;top:${a.dy}px"><div class="scr"><i></i></div></div>`).join("");
+  return `<div class="pod s-${st}" data-slug="${esc(p.slug)}" style="left:${x}px;top:${y}px">
+    <div class="rug"></div><div class="pod-name">${esc(p.feature||p.slug)}</div>
+    ${desks}${people}</div>`;
+}
+
+/* Two walkers, on the graph, one axis at a time. They are the only thing in the room
+   that means nothing, and they are grey for exactly that reason. */
+function startWalkers(floor,rows){
+  const keys=Object.keys(NODES);
+  [0,1].forEach(n=>{
+    const el=document.createElement("div");
+    el.className="walker"; el.style.position="absolute"; el.style.left="0"; el.style.top="0";
+    el.innerHTML=sprite("orch",{state:"wait",px:24});
+    floor.append(el);
+    let at=keys[n?5:0];
+    const put=(k,ms)=>{const c=nodeAt(k,rows);
+      el.style.transition=ms?`transform ${ms}ms steps(${Math.max(2,Math.round(ms/90))})`:"";
+      el.style.transform=`translate(${c[0]-12}px,${c[1]-20}px)`;};
+    const step=()=>{
+      if(!el.isConnected) return;                       // the floor was rebuilt
+      const next=EDGES.filter(e=>e.indexOf(at)>=0).map(e=>e[0]===at?e[1]:e[0]);
+      const to=next[Math.floor(Math.random()*next.length)];
+      const a=nodeAt(at,rows), b=nodeAt(to,rows);
+      const ms=(Math.abs(b[0]-a[0])+Math.abs(b[1]-a[1]))*14;
+      put(to,ms); at=to;
+      setTimeout(step,ms+700+Math.random()*1800);
+    };
+    put(at,0);
+    setTimeout(step,500+n*1100);
+  });
+}
+
+// Section 10.8-2. Capping the floor would hide exactly the stalled pipelines the floor
+// exists to surface, so the building grows and the cost is bounded where it actually
+// is: the sprite loops of pods you are not looking at.
+let IO=null;
+function observePods(floor){
+  const host=document.getElementById("office");
+  if(!IO) IO=new IntersectionObserver(es=>es.forEach(e=>
+    e.target.classList.toggle("off",!e.isIntersecting)),{root:host,rootMargin:"120px"});
+  IO.disconnect();
+  floor.querySelectorAll(".pod").forEach(el=>IO.observe(el));
+}
+
+/* Zoom and pan over real DOM, not a canvas rewrite: every agent keeps its tooltip, its
+   CSS animation and its theme tokens. Ctrl+wheel anchors on the pointer; drag pans. */
+let Z=1,PX=24,PY=24;
+function applyView(){
+  const f=document.querySelector("#office .floor");
+  if(f) f.style.transform=`translate(${PX}px,${PY}px) scale(${Z})`;
+}
+(function view(){
+  const host=document.getElementById("office");
+  host.addEventListener("wheel",e=>{
+    e.preventDefault();
+    if(!e.ctrlKey){                            // plain wheel scrolls the floor, which
+      PX-=e.deltaX; PY-=e.deltaY; applyView(); // grows past the viewport at 12+ teams
+      return;
+    }
+    const r=host.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    const nz=Math.min(2.5,Math.max(0.5,Z*(e.deltaY<0?1.12:1/1.12)));
+    PX=mx-(mx-PX)*(nz/Z); PY=my-(my-PY)*(nz/Z); Z=nz; applyView();
+  },{passive:false});
+  let down=null;
+  host.addEventListener("pointerdown",e=>{down={x:e.clientX-PX,y:e.clientY-PY};
+    host.classList.add("drag");host.setPointerCapture(e.pointerId);});
+  host.addEventListener("pointermove",e=>{if(!down)return;
+    PX=e.clientX-down.x;PY=e.clientY-down.y;applyView();});
+  host.addEventListener("pointerup",()=>{down=null;host.classList.remove("drag");});
+})();
+
+function renderOffice(){
+  const host=document.getElementById("office");
+  if(host.hidden) return;                      // the hall is the working view
+  const ps=HALL.pipelines, rows=Math.max(2,Math.ceil(ps.length/3));
+  const shell=rows+"|"+ps.map(p=>p.slug).join(",");
+  let floor=host.querySelector(".floor");
+  if(!floor||host.dataset.shell!==shell){
+    host.dataset.shell=shell;
+    const h=BUILDING_H+Math.max(0,rows-2)*POD_DY;
+    host.innerHTML=`<div class="floor" style="width:${BUILDING_W}px;height:${h}px">
+      ${ps.map(podHTML).join("")}
+      <div class="plant" style="left:184px;top:${h-56}px"><i></i><b></b></div>
+      <div class="plant" style="left:${BUILDING_W-46}px;top:24px"><i></i><b></b></div></div>`;
+    floor=host.querySelector(".floor");
+    ps.forEach(p=>POD_SIG[p.slug]=podSig(p));
+    applyView(); startWalkers(floor,rows);
+  }else{
+    // Patch only the pod that changed, or the whole floor's loops restart - including
+    // the walkers, who would teleport back to where they started.
+    const pods=[...floor.querySelectorAll(".pod")];
+    ps.forEach((p,i)=>{
+      if(POD_SIG[p.slug]===podSig(p)) return;
+      POD_SIG[p.slug]=podSig(p);
+      const old=pods.find(el=>el.dataset.slug===p.slug); if(!old) return;
+      const t=document.createElement("template"); t.innerHTML=podHTML(p,i);
+      old.replaceWith(t.content.firstElementChild);
+    });
+  }
+  observePods(floor);
+}
 
 function render(h){HALL=h||HALL;renderHeadTable();renderHall();renderOffice();}
 

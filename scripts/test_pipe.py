@@ -1215,6 +1215,64 @@ def the_motion_inventory_stays_at_eight():
         "prefers-reduced-motion does not stop every loop"
 
 
+def js_literal(src, name):
+    """The JSON-shaped literal assigned to `const <name> = ...;` in hall.html. The office
+    geometry is data, so the guard reads the data rather than the drawing code."""
+    m = re.search(rf"const {name}\s*=\s*(\[.*?\]|\{{.*?\}})\s*;", src, re.S)
+    assert m, f"hall.html declares no {name} - the office geometry cannot be checked"
+    return json.loads(re.sub(r"//[^\n]*", "", m.group(1)))
+
+
+# Section 10.5: desk islands occupy these bands, so the walkable space is the two
+# vertical aisles and the horizontal ones between and around them.
+ISLAND_X = [(18, 174), (212, 368), (406, 562)]
+ISLAND_Y = [(16, 134), (168, 286)]
+
+
+def the_corridor_graph_never_cuts_a_corner():
+    """S43 - AC4, section 10.5. Walkers move one axis at a time: every edge in NODES /
+    EDGES is purely horizontal or vertical, and its constant coordinate sits in an aisle.
+    That is the whole reason the graph exists - a diagonal edge walks someone straight
+    through a desk. Also pins the facing-pair offsets, which were chosen so that no agent
+    is ever in front of a screen."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+    nodes, edges = js_literal(src, "NODES"), js_literal(src, "EDGES")
+
+    def in_aisle(v, bands):
+        return all(not (lo <= v <= hi) for lo, hi in bands)
+
+    for a, b in edges:
+        assert a in nodes and b in nodes, f"edge {a}-{b} names a node that does not exist"
+        (ax, ay), (bx, by) = nodes[a], nodes[b]
+        assert (ax == bx) != (ay == by), \
+            f"edge {a}-{b} is diagonal ({ax},{ay})->({bx},{by}) - it cuts through a desk"
+        if ax == bx:
+            assert in_aisle(ax, ISLAND_X), f"vertical edge {a}-{b} runs at x={ax}, inside an island"
+        else:
+            assert in_aisle(ay, ISLAND_Y), f"horizontal edge {a}-{b} runs at y={ay}, inside an island"
+    for name, (x, y) in nodes.items():
+        assert in_aisle(x, ISLAND_X) or in_aisle(y, ISLAND_Y), \
+            f"node {name} at ({x},{y}) stands on a desk island"
+
+    pod = {p["role"]: p for p in js_literal(src, "POD")}
+    expect = {"planner": (26, 4, 12, 34), "coder": (96, 4, 82, 34),
+              "tester": (26, 120, 12, 86), "reviewer": (96, 120, 82, 86)}
+    for role, (x, y, dx, dy) in expect.items():
+        got = pod.get(role)
+        assert got and (got["x"], got["y"], got["dx"], got["dy"]) == (x, y, dx, dy), \
+            f"{role}'s facing-pair offset drifted from section 10.5: {got}"
+    assert pod["tester"]["back"] and pod["reviewer"]["back"], \
+        "the bottom pair must be back: true - bodies sit on the outer edges"
+    assert not pod["planner"]["back"] and not pod["coder"]["back"]
+
+    # Section 10.8-2: the floor grows and off-screen pods stop animating. Capping it
+    # would hide exactly the stalled pipelines the floor exists to surface.
+    assert "IntersectionObserver" in src, \
+        "nothing pauses off-screen pods; at twelve teams that is ~24 sprite loops"
+    assert "566" in src and "418" in src, "the building is not the fixed 566x418 of 10.5"
+    assert "2.5" in src and "0.5" in src, "the zoom range is not 0.5-2.5"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1249,6 +1307,7 @@ SCENARIOS = [
     ("S40", the_root_route_serves_the_hall),
     ("S41", every_character_has_both_hair_layers),
     ("S42", the_motion_inventory_stays_at_eight),
+    ("S43", the_corridor_graph_never_cuts_a_corner),
 ]
 
 
