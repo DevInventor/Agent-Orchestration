@@ -519,23 +519,48 @@ Each of these cost a full session and has a reason behind it.
 6. Pupils use `--pupil` at ~3.6 px.
 7. Something always moves at rest.
 
+§10.8 adds four more, answered 21 Sep 2026 — they are settled on the same terms.
+
 **Licensing, already checked.** `pixel-agents-hq/pixel-agents` states **no licence** — do
 not copy from it. DiceBear `pixel-art` is CC0 1.0 and safe, but was tried and rejected on
 looks. The current cast is original work here. Anthropic's logo is a *trademark* question
 rather than a copyright one — using it implies endorsement, so it is avoided.
 
-### 10.8 Still open — decide before building the hall, not during
+### 10.8 The four that were open, answered 21 Sep 2026
 
-- **Is a full room too busy?** Five teams read well in both views. At twelve the office
-  floor runs out of room before the hall does; the lever is scrolling the floor, or keeping
-  loops only on what is in view.
-- **Should agents walk between desks on a handoff?** They hold position today and only a
-  gate gathers them. Walking would be charming, but a character in transit is a character
-  whose state you cannot read.
-- **Should a finished team leave the hall?** `done` teams stay, dimmed. They could collapse
-  to a row so the hall holds only live work — at the cost of the day's history at a glance.
-- **The operator (§12) has no seat.** It is the one role that is not always present, so
-  the four-corner layout has nowhere to put it. Needs an answer as part of AC9.
+Each was put to the user before the planner ran, because each one changes what gets built.
+
+**1. The operator gets a fifth seat, rendered only when it is spawned.** It sits on the
+bottom edge of the felt, outside the clockwise four. The four-corner geometry — the thing
+that makes position mean role — is therefore untouched for every run that has no operator,
+which is most of them, and the operator still gets a real place and a readable sprite state
+when it exists. Rejected: a header chip (the only agent you could not read as a sprite) and
+seating it at the head table (that table owns project-wide things; an operator works for one
+specific run, and the head table cannot say which).
+
+**2. At 12+ teams, pause off-screen loops and let the floor scroll.** The hall is a wrapping
+grid and scales already; the office is a fixed 566×418 building with six hard-coded pod
+positions, so **the floor runs out of room before the hall does**. Use an
+`IntersectionObserver` to stop animation on pods outside the viewport and let the building
+grow. This bounds the cost where the cost actually is — roughly 24 simultaneous sprite loops
+— without hiding a team. Not hypothetical: the GoTrust root runs 21 buses and 12 pipelines,
+so this is the real number, not an edge case. Rejected: capping the floor, which would hide
+exactly the stalled pipelines the floor exists to surface.
+
+**3. Agents do not walk between desks on a handoff.** They hold position; only a gate
+gathers them. The handoff is already carried twice over — the baton travels and recolours,
+and the arriving agent walks into its seat over 440 ms `steps(4)`. Floor-crossing would
+duplicate an unambiguous signal while costing the property the whole design rests on: **an
+agent in transit has no legible state.** It would also blur the grey walkers, which exist
+precisely to be the one thing in the room that means nothing. This is a deliberate
+*should not animate* decision, not an unbuilt feature.
+
+**4. A finished team collapses to a single-line row.** It is not removed and not hidden
+behind a filter. G1 is the deciding evidence: six of twelve GoTrust pipelines were never
+closed and four were green while still reading `running`, so the real failure is runs that
+never reach `done` — which makes **visible closure the signal worth keeping**. Collapsing
+reclaims the space that finished work takes from live work in a hall that has to hold
+twelve teams, without discarding the day's history.
 
 ## 11. Codebase knowledge: the graph, not a file
 
