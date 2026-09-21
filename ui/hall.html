@@ -132,6 +132,17 @@
   footer{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);
     padding:8px 20px;font-family:var(--mono);font-size:11px;color:var(--muted)}
   footer b{color:var(--text);font-weight:600}
+  /* ---- section 10.3, the cast ----
+     A shared body under a hair layer: the shirt keeps the role colour through
+     currentColor while the hair gives each agent a face, so a team reads two ways at
+     once. Skin, legs, shoes and pupils are theme tokens; hair colours are not - they are
+     the same in both themes, because they are what tells the four of them apart. */
+  .who{display:block;overflow:visible}
+  .who.a-planner{color:var(--planner)} .who.a-coder{color:var(--coder)}
+  .who.a-tester{color:var(--tester)} .who.a-reviewer{color:var(--reviewer)}
+  .who.a-orch{color:var(--orch)}
+  #cast{position:absolute;width:0;height:0;overflow:hidden}
+
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
@@ -146,6 +157,104 @@
 </style>
 </head>
 <body>
+<!-- The cast, inline so the page makes no runtime request. Original drawn work: the
+     no-licence pixel set was not copied from, and DiceBear's pixel-art was tried and
+     rejected on looks. Chibi proportions - the head is 8 of the 18 units. -->
+<svg id="cast" aria-hidden="true" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="who-body" viewBox="0 0 12 18">
+    <rect x="1.4" y="4.4" width="0.6" height="1.6" fill="var(--skin)"/>
+    <rect x="10" y="4.4" width="0.6" height="1.6" fill="var(--skin)"/>
+    <rect x="2" y="1" width="8" height="8" fill="var(--skin)"/>
+    <rect x="5" y="8.6" width="2" height="1.2" fill="var(--skin)"/>
+    <rect x="2.4" y="9.6" width="7.2" height="5" fill="currentColor"/>
+    <rect x="1.4" y="10" width="1" height="3.8" fill="currentColor"/>
+    <rect x="9.6" y="10" width="1" height="3.8" fill="currentColor"/>
+    <rect x="1.4" y="13.8" width="1" height="0.9" fill="var(--skin)"/>
+    <rect x="9.6" y="13.8" width="1" height="0.9" fill="var(--skin)"/>
+    <rect x="3" y="14.6" width="2.6" height="2.2" fill="var(--legs)"/>
+    <rect x="6.4" y="14.6" width="2.6" height="2.2" fill="var(--legs)"/>
+    <rect x="2.8" y="16.8" width="3" height="1.2" fill="var(--shoe)"/>
+    <rect x="6.2" y="16.8" width="3" height="1.2" fill="var(--shoe)"/>
+  </symbol>
+  <!-- 1.7 units wide at the 27 px render size is ~3.8 px of pupil. At the ~1.8 px it
+       started as, the eyes vanished entirely under crispEdges. -->
+  <symbol id="who-face" viewBox="0 0 12 18">
+    <rect x="3.2" y="4.2" width="1.9" height="0.4" fill="var(--eye)"/>
+    <rect x="6.9" y="4.2" width="1.9" height="0.4" fill="var(--eye)"/>
+    <rect x="3.3" y="4.9" width="1.7" height="1.6" fill="var(--pupil)"/>
+    <rect x="7" y="4.9" width="1.7" height="1.6" fill="var(--pupil)"/>
+    <rect x="5" y="7.2" width="2" height="0.4" fill="var(--eye)"/>
+  </symbol>
+  <!-- Shut eyes are markup, not animation, so prefers-reduced-motion keeps them shut. -->
+  <symbol id="who-face-shut" viewBox="0 0 12 18">
+    <rect x="3.3" y="5.6" width="1.7" height="0.5" fill="var(--pupil)"/>
+    <rect x="7" y="5.6" width="1.7" height="0.5" fill="var(--pupil)"/>
+    <rect x="5.2" y="7.2" width="1.6" height="0.4" fill="var(--eye)"/>
+  </symbol>
+
+  <!-- planner: an old man, silver, receding at the temples -->
+  <symbol id="hair-planner" viewBox="0 0 12 18">
+    <rect x="3.4" y="1" width="5.2" height="1.4" fill="#CFCBC2"/>
+    <rect x="2" y="2.2" width="1.6" height="2.8" fill="#CFCBC2"/>
+    <rect x="8.4" y="2.2" width="1.6" height="2.8" fill="#CFCBC2"/>
+    <rect x="4" y="1.3" width="3" height="0.7" fill="#E2DFD8"/>
+  </symbol>
+  <symbol id="hair-planner-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6.4" fill="#CFCBC2"/>
+    <rect x="3" y="1.6" width="4" height="1.2" fill="#E2DFD8"/>
+  </symbol>
+
+  <!-- coder: a boy, dark fringe -->
+  <symbol id="hair-coder" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2.6" fill="#5B4636"/>
+    <rect x="2" y="3.6" width="2.4" height="1.4" fill="#4A382B"/>
+    <rect x="8" y="3.6" width="2" height="1" fill="#5B4636"/>
+    <rect x="3" y="1.4" width="2.4" height="0.8" fill="#6B5544"/>
+  </symbol>
+  <symbol id="hair-coder-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6.2" fill="#5B4636"/>
+    <rect x="3" y="1.6" width="2.6" height="1.2" fill="#6B5544"/>
+    <rect x="2.6" y="7" width="6.8" height="0.8" fill="#4A382B"/>
+  </symbol>
+
+  <!-- tester: a girl, long auburn -->
+  <symbol id="hair-tester" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2.2" fill="#8A4B2F"/>
+    <rect x="1.4" y="1.6" width="1.6" height="8.4" fill="#8A4B2F"/>
+    <rect x="9" y="1.6" width="1.6" height="8.4" fill="#8A4B2F"/>
+    <rect x="1.4" y="8.4" width="1.6" height="1.6" fill="#7A4129"/>
+    <rect x="9" y="8.4" width="1.6" height="1.6" fill="#7A4129"/>
+    <rect x="3.4" y="1.3" width="3" height="0.8" fill="#9A573A"/>
+  </symbol>
+  <symbol id="hair-tester-back" viewBox="0 0 12 18">
+    <rect x="1.4" y="1" width="9.2" height="10.6" fill="#8A4B2F"/>
+    <rect x="3" y="1.6" width="3.4" height="1.2" fill="#9A573A"/>
+    <rect x="1.4" y="10" width="9.2" height="1.6" fill="#7A4129"/>
+  </symbol>
+
+  <!-- reviewer: an uncle, moustache -->
+  <symbol id="hair-reviewer" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2" fill="#3A2E22"/>
+    <rect x="2" y="3" width="1.4" height="2.2" fill="#3A2E22"/>
+    <rect x="8.6" y="3" width="1.4" height="2.2" fill="#3A2E22"/>
+    <rect x="3.6" y="6.6" width="4.8" height="1.1" fill="#3A2E22"/>
+    <rect x="4.2" y="6.8" width="3.6" height="0.5" fill="#4A3B2C"/>
+  </symbol>
+  <symbol id="hair-reviewer-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6" fill="#3A2E22"/>
+    <rect x="3" y="1.6" width="3" height="1.2" fill="#4A3B2C"/>
+  </symbol>
+
+  <!-- the orchestrator, who sits apart at the head table; the operator borrows it -->
+  <symbol id="hair-orch" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2.4" fill="#4A4258"/>
+    <rect x="2" y="3.4" width="1.2" height="1.6" fill="#4A4258"/>
+    <rect x="8.8" y="3.4" width="1.2" height="1.6" fill="#4A4258"/>
+  </symbol>
+  <symbol id="hair-orch-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6.2" fill="#4A4258"/>
+  </symbol>
+</svg>
 <header>
   <span class="brand"><b>agent</b><span>·</span>orchestration</span>
   <div class="seg" id="view-seg">
@@ -211,6 +320,33 @@ function cardState(p){
   return "run";
 }
 
+/* ---- section 10.3, the cast ----
+   One body, one face, one hair layer. `back` is the seat's geometry (the near pair face
+   away from you); `state` is what the agent is doing. */
+function sprite(role,opts){
+  const o=opts||{}, state=o.state||"wait", px=o.px||27;
+  // TWO hair layers per character. -back fills the whole skull, because from behind
+  // there is no face to leave room for; the front one caps the head instead. Never turn
+  // a sleeping agent around - its shut eyes are the whole point of the pose.
+  const rear=!!o.back&&state!=="sleep";
+  // A seated agent is cropped at the waist: the legs are under a desk either way.
+  const units=o.seated?13.4:18;
+  const face=rear?"":`<use href="#who-${state==="sleep"?"face-shut":"face"}"/>`;
+  return `<svg class="who a-${role} st-${state}" width="${px}" height="${(px/12*units).toFixed(1)}"
+    viewBox="0 0 12 ${units}" shape-rendering="crispEdges" aria-hidden="true"
+    ><use href="#who-body"/>${face}<use href="#hair-${role}${rear?"-back":""}"/></svg>`;
+}
+
+/* Section 10.8-1: the operator gets a fifth seat on the bottom edge of the felt, and it
+   renders ONLY when the run actually has one - the clockwise four-corner geometry is
+   what makes position mean role, and most runs have no operator. The bus carries no
+   dedicated flag yet (agents/operator.md is a later task), so presence is read from what
+   it does carry: an operator holding the work, or one that has spoken. */
+function hasOperator(p){
+  return !!(p&&(p.operator||p.activeAgent==="operator"
+    ||(p.lastEvent&&p.lastEvent.agent==="operator")));
+}
+
 let HALL={root:"",pipelines:[]};
 let EXTRA_REPOS=[];   // repos you registered here; the payload owns the rest
 
@@ -254,7 +390,10 @@ function renderHeadTable(){
 function renderHall(){
   const el=document.getElementById("hall");
   el.innerHTML=HALL.pipelines.length
-    ? HALL.pipelines.map(p=>`<div>${esc(p.feature||p.slug)}</div>`).join("")
+    ? HALL.pipelines.map(p=>`<div>${esc(p.feature||p.slug)}</div><div style="display:flex;gap:12px">
+        ${["planner","coder","tester","reviewer"].map((r,i)=>
+          sprite(r,{back:i>1,state:r===p.activeAgent?"type":"wait"})).join("")}
+        ${hasOperator(p)?sprite("orch",{state:"wait"}):""}</div>`).join("")
     : `<div class="empty">no pipelines under ${esc(HALL.root)}</div>`;
 }
 function renderOffice(){}

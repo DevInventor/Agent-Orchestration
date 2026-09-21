@@ -1124,6 +1124,47 @@ def the_root_route_serves_the_hall():
                 f"/r/<slug> must keep serving the existing board: {code} {body[:200]}"
 
 
+CAST = ["planner", "coder", "tester", "reviewer", "orch"]
+# Section 10.3, verbatim. Hair is the layer that gives each agent a face, so its colours
+# are literals rather than theme tokens - they are the same in both themes.
+HAIR_COLOURS = ["#CFCBC2", "#E2DFD8", "#5B4636", "#4A382B", "#6B5544",
+                "#8A4B2F", "#7A4129", "#9A573A", "#3A2E22", "#4A3B2C", "#4A4258"]
+
+
+def every_character_has_both_hair_layers():
+    """S41 - AC4, section 10.3. Two hair layers per character: the front one caps the head
+    and leaves room for a face, the back one fills the whole skull because from behind
+    there is no face to leave room for. Omitting the back layer is what made the near pair
+    render as blank heads - a bare scalp with a fringe balanced on it - and it was the last
+    bug fixed in the mockup. This is the guard that stops it coming back."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    for role in CAST:
+        for sid in (f"hair-{role}", f"hair-{role}-back"):
+            assert re.search(rf'<symbol[^>]+id="{sid}"', src), \
+                f"the cast has no <symbol id=\"{sid}\"> - that seat renders as a blank head"
+
+    body = re.search(r"function sprite\(.*?\n\}", src, re.S)
+    assert body, "hall.html has no sprite() - nothing appends the back layer"
+    assert '-back' in body.group(0), "sprite() never reaches for the -back layer"
+    assert 'sleep' in body.group(0), \
+        "sprite() must never turn a sleeping agent around - there would be no shut eyes to see"
+
+    missing = [c for c in HAIR_COLOURS if c not in src]
+    assert not missing, f"section 10.3 hair colours missing: {missing}"
+
+    # Pupils: a dedicated near-black token at ~3.6 px rendered (1.6-1.7 units of the
+    # 12x18 viewBox at 27 px). At the original ~1.8 px they vanished under crispEdges.
+    assert re.search(r'width="1\.[67]"[^>]*fill="var\(--pupil\)"'
+                     r'|fill="var\(--pupil\)"[^>]*width="1\.[67]"', src), \
+        "no 1.6-1.7 unit pupil rect in --pupil - the eyes will vanish under crispEdges"
+    assert "crispEdges" in src, "the cast is not rendered with shape-rendering: crispEdges"
+
+    # Section 10.8-1: a fifth seat on the bottom edge, only when the run has an operator.
+    assert "function hasOperator(" in src, \
+        "nothing decides whether the operator's fifth seat exists - it must not always render"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1156,6 +1197,7 @@ SCENARIOS = [
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S40", the_root_route_serves_the_hall),
+    ("S41", every_character_has_both_hair_layers),
 ]
 
 
