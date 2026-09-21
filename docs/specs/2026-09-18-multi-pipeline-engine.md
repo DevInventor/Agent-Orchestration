@@ -51,6 +51,7 @@ them.
 | 18 | Reviewer persistence | **Reviewer writes through `pipe.py`** (`Bash`, no `Write`/`Edit`). See ADR-0001. |
 | 19 | Operational work | **An optional `operator` agent** runs things and reports evidence; the orchestrator assesses. See §12. |
 | 20 | Agent preamble | **Role cheatsheets**, not the full protocol, for coder/tester/reviewer. See §13. |
+| 21 | Dashboard design | **The hall mockup is the binding reference**, not an illustration. Tokens, motion, cast and layout are settled; build against them rather than re-deriving. See §10.0. |
 
 `/ship-from-spec` is the daily driver (`/grill-me` → spec doc → `/ship-from-spec`).
 `/ship` is the occasional path. Where the two differ, optimise for `ship-from-spec`.
@@ -305,20 +306,236 @@ A plain basename rule yields `design` for 3 of these; a plain parent rule yields
 the existing dashboard; `/events?run=<slug>` scopes the SSE stream; `POST /api/gate`
 accepts a decision. Existing `--pipeline` single-bus mode is retained so nothing breaks.
 
-**Hall (`/`)** — one row per pipeline: feature, four agent seats lit by state, repos,
-phase, fix-loop position, tests. Amber means a gate is waiting on you. Gate buttons appear
-only on a waiting row. Staleness (shipped, D3) applies per row.
+### 10.0 The design reference is binding
 
-**Board (`/r/<slug>`)** — three panes: team comms left, task flow centre (six columns:
-To do → Coding → Ready for QA → QA → Review → Done, each headed in its owning agent's
-colour), completion matrix right. Panes are collapsible and the dividers drag; the task
-flow absorbs slack so the layout never leaves dead space.
+The hall mockup is **the design contract for this section**, not an illustration of it.
+Everything from §10.1 to §10.6 is settled and was arrived at by iteration; an
+implementation that re-derives the palette, the motion, or the sprite system has produced
+a different product, not a faithful one.
+
+| Artifact | Covers |
+|---|---|
+| `https://claude.ai/artifact/XX4ghERezYsbR3jxhzpM18` (v12) | The hall, the office floor, the cast, the motion inventory |
+| `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1` | Flow and parallelism diagrams, the board, the repos tab |
+
+**Binding:** tokens, layout, state-to-visual mapping, motion values, the cast and its
+layer structure. **Not binding:** the example data, and the "review rig" buttons under the
+mockup (Fire a handoff / Advance a phase / Let one go quiet / Reset) — those exist so
+motion can be reviewed and are explicitly not part of the product.
+
+**One correction to carry over.** The mockup's own office prose claims the office cast is
+DiceBear's `pixel-art` set. It is not, any more — that set was tried and rejected on looks
+and the original drawn cast was restored. The code is right (`who()` delegates to
+`sprite()`); that one paragraph is stale. Build from the code, not that paragraph.
+
+### 10.1 Tokens
+
+Two themes, resolved three ways: bare `:root` is light, `@media (prefers-color-scheme:
+dark)` guarded by `:root:not([data-theme="light"])` is system dark, and
+`:root[data-theme="dark"]` lets an explicit toggle win in both directions.
+
+| Token | Light | Dark |
+|---|---|---|
+| `--ink` / `--panel` / `--sunk` / `--raise` | `#F5F6F9` / `#FFFFFF` / `#ECEEF3` / `#FFFFFF` | `#090C12` / `#11151D` / `#0D1118` / `#171D28` |
+| `--line` / `--line-2` | `#DCE0E7` / `#C2C9D4` | `#1D2531` / `#2C3644` |
+| `--text` / `--bright` / `--muted` / `--faint` | `#3A424F` / `#0E131B` / `#6B7585` / `#98A1AF` | `#C7CEDA` / `#EDF1F6` / `#7A8496` / `#4A5464` |
+| `--planner` / `--coder` / `--tester` / `--reviewer` / `--orch` | `#9A6B10` / `#1A6CA8` / `#A33468` / `#1B7A52` / `#6B4FA8` | `#F2C14E` / `#4FA6E0` / `#E06C9F` / `#5FCF9B` / `#A98BEA` |
+| `--ok` / `--warn` / `--bad` | `#1B7A52` / `#9A6B10` / `#B03A34` | `#5FCF9B` / `#F2C14E` / `#E0655F` |
+| `--felt` (table surface) | `#E7EAF0` | `#121822` |
+
+Floor tokens, used only by the office view:
+
+| Token | Light | Dark |
+|---|---|---|
+| `--floor` / `--floor-2` / `--grout` | `#DFE4EA` / `#D3D9E1` / `rgba(255,255,255,.7)` | `#161C26` / `#131922` / `rgba(255,255,255,.045)` |
+| `--wall` / `--wall-edge` / `--wall-shadow` | `#FBFBFC` / `#C8CFD8` / `rgba(28,38,52,.14)` | `#232C3A` / `#0E131B` / `rgba(0,0,0,.6)` |
+| `--wood` / `--wood-2` / `--deskglass` | `#B9C1CC` / `#98A3B2` / `#EEF1F5` | `#39465A` / `#2A3446` / `#2E394A` |
+| `--chairc` / `--chairc-2` | `#7F8B9B` / `#68748453` | `#3A4658` / `#2C3644` |
+| `--skin` / `--legs` / `--shoe` | `#D8A57C` / `#3C4A63` / `#2B3344` | `#C08E64` / `#2C3548` / `#1B2130` |
+| `--eye` / `--pupil` | `#28313F` / `#11161F` | `#070A0F` / `#05080D` |
+| `--screen` / `--screen-b` / `--pot` / `--leaf` | `#2F9E73` / `#E4E8EE` / `#9BA5B2` / `#7E97A8` | `#3FBE8B` / `#1E2733` / `#39465A` / `#46606F` |
+
+**The palette is cool slate, and there is no brown anywhere.** This is load-bearing: the
+first floor read as a school hall, the instinct was to blame the cast, and it was the
+room. Warm wood and sage read playful whatever stands on them. On slate the same
+characters read as an operations room.
+
+Type: `--mono` is Fira Code, `--sans` is Fira Sans. Easings are
+`--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` and
+`--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)`.
+
+> **Implementation note, not a design change.** The mockup pulls Fira from Google Fonts
+> with a `<link>`. `ui/server.js` is deliberately dependency-free and serves a local page,
+> so the product must not *depend* on that request: declare the families with real system
+> fallbacks (`ui-monospace, Menlo, Consolas, monospace` / `system-ui, -apple-system,
+> "Segoe UI", sans-serif`) and let the page render correctly with no network. Self-hosting
+> the woff2 files is the alternative; either is acceptable, blocking on a CDN is not.
+
+### 10.2 The hall (`/`)
+
+A segmented control switches **Hall** and **Office** — the same bus data, read two ways.
+Hall is the working view (position means role); Office is the ambient one.
+
+Left of the hall is the **head table**: the orchestrator with a one-line "what it is doing
+now" in the same voice as a team's last event, exactly **three** counts (running /
+awaiting you / quiet — a head table crowded with metrics competes with the hall it
+summarises), and the **repository registry**. The registry belongs here because indexing a
+repo is an orchestrator-level act shared by every team: each row shows index state and
+node count (`fresh` / `drift` — HEAD moved / `none` — never indexed), there is a field to
+add another, and a hand-off link to `localhost:9749/?tab=stats` (§11).
+
+One card per pipeline, and the card is a table:
+
+- **Header** — feature name, `open →` affordance on hover, and a status pill
+  (`run` / `gate` / `done` / `stale`). Card border takes the same colour.
+- **Repos line** — the services this workstream touches.
+- **The surface** — the felt, with four seats at its corners in pipeline order clockwise:
+  `planner` top-left, `coder` top-right, `tester` bottom-right, `reviewer` bottom-left.
+- **The phase rail** — across the middle of the felt: `spec → plan → implement → test →
+  review → done`, current tick scaled and pulsing in the active agent's colour.
+- **The baton** — one token resting on the felt, inset 26 px from its seat's corner,
+  recoloured to whoever holds the work. Consecutive hops therefore run along an edge: the
+  path reads as passing work round a table, not cutting across it.
+- **Foot** — phase, fix-loop position, test count (red when failing).
+- **Stale strip** — `◉ no activity 6m — agent may have died`, on a run claiming `running`
+  whose bus has not been written to for ~3 min (D3, shipped).
+- **Last event**, one line.
+- **Gate row** — `Finalize` / `In place` / `Reject`, on a waiting card only. These are
+  §14's three fixed values and nothing else.
+
+Footer count reads `N teams · N awaiting you · N quiet`.
+
+### 10.3 The cast
+
+Four people you can tell apart **without reading a colour**: the planner is an old man
+(silver, receding at the temples), the coder a boy (dark fringe), QA a girl (long auburn),
+the reviewer an uncle (moustache). An orchestrator sits apart at the head table.
+
+- **Hair is a separate SVG layer over a shared body.** The shirt keeps the role colour via
+  `currentColor` while the hair gives each agent a face, so the team reads two ways at
+  once. Skin, legs, shoes and pupils come from theme tokens.
+- **Two hair layers per character**, `hair-<role>` and `hair-<role>-back`. The front one
+  caps the head and leaves room for a face; the back one fills the whole skull, because
+  from behind there is no face to leave room for. `sprite()` appends `-back` automatically
+  for rear-facing seats and never for `sleep`. **Skipping this is what made the near pair
+  render as blank heads** — bare scalp with a fringe balanced on it. It was the last bug
+  fixed in the mockup; do not reintroduce it.
+- Hair colours: planner `#CFCBC2` / `#E2DFD8`, coder `#5B4636` / `#4A382B` / `#6B5544`,
+  tester `#8A4B2F` / `#7A4129` / `#9A573A`, reviewer `#3A2E22` / `#4A3B2C`,
+  orchestrator `#4A4258`.
+- **Eyes need the dedicated near-black `--pupil` token** and roughly 3.6 px of rendered
+  width (a 1.6–1.7 unit rect in the 12×18 viewBox at the 27 px render size). At the
+  original ~1.8 px they vanished entirely under `shape-rendering: crispEdges`.
+- Chibi proportions — head about 45% of the body — and `crispEdges` throughout.
+
+### 10.4 Motion inventory
+
+Eight entries, and six of them are one agent's states plus the two that mark a change.
+**If this list grows to twenty, that is the bug.**
+
+| What | Trigger | Property | Curve & duration |
+|---|---|---|---|
+| Baton travel | handoff | `transform` | 280 ms `ease-in-out` |
+| Typing | agent holds the work | `transform` | 340 ms `steps(1)`, loops |
+| Waiting | turn not yet come | `transform` | 3.4 s `steps(1)`, loops |
+| Asleep | agent finished | `opacity`, `transform` | 3.6 s, loops |
+| Walking in | baton lands | `transform` | 440 ms `steps(4)`, once |
+| Table entrance | first paint only | `transform`, `opacity` | 260 ms `ease-out`, never replays |
+| Repo row in | you register a repo | `transform`, `opacity` | 240 ms `ease-out` |
+| Going quiet | run stale > 3 min | freeze + `opacity` | 2.6 s `ease-in-out`, loops |
+
+Rules that come with it:
+
+1. **Stepped, never eased.** Every sprite loop is `steps(1)` or `steps(4)`. A pixel
+   character that tweens smoothly stops reading as a sprite and starts reading as a moving
+   `div`. The snap is what makes it look drawn.
+2. **Exactly one agent per table types.** The rest wait or sleep at much lower amplitude,
+   so "busy" stays legible by being the exception in its own row.
+3. **Something always moves at rest.** A completely still floor reads as a broken
+   dashboard. This was overruled three times in favour of stillness and restored each
+   time; it is settled.
+4. **Stillness is the alarm.** A stale team freezes mid-keystroke and dims
+   (`animation-play-state: paused`). In a hall where working things move, that reads
+   instantly — which is also what makes D5 visible rather than silent.
+5. **`transform` and `opacity` only.** No layout, no paint, so a full hall stays smooth
+   while the page does other work. No `transition: all`, no `scale(0)`, no `ease-in`.
+6. **`prefers-reduced-motion` stops every loop and leaves the resting pose** — eyes still
+   shut on a sleeping agent, colours unchanged. The dashboard must say exactly the same
+   thing with nothing moving.
+
+### 10.5 The office floor
+
+One open floor; the building's outer wall is the only wall. A team is a **desk island on a
+rug, and the rug carries the state** — amber for a gate, red for a run gone quiet, faded
+for one that is finished. You read the rug before you find a single agent, which is what a
+floor plan must earn, being slower to scan than a table.
+
+- **Seating is facing pairs** — desks back to back down the middle, bodies on the outer
+  edges. Chosen explicitly over solo desk, round table and bench row, because it fits four
+  in nearly the space of two and **no agent is ever in front of a screen**. The bottom pair
+  is `back: true`. Offsets, per agent: planner `(26,4)` desk `(12,34)`, coder `(96,4)` desk
+  `(82,34)`, tester `(26,120)` desk `(12,86)`, reviewer `(96,120)` desk `(82,86)`.
+- **The working desk's screen scrolls.** The cheapest possible "something is happening
+  here" that moves no body at all.
+- **Walkers move on a corridor graph, one axis at a time.** Desk islands occupy x 18–174 /
+  212–368 / 406–562 and y 16–134 / 168–286, so the walkable space is the two vertical
+  aisles and the two horizontal ones. Every edge in `NODES` / `EDGES` is purely horizontal
+  or vertical — that is what stops a walker cutting the corner through somebody's desk.
+  The two walkers are the only thing in the room that means nothing, and they are grey for
+  exactly that reason.
+- **Zoom and pan over real DOM**, not a canvas rewrite: every agent keeps its tooltip, its
+  CSS animation and its theme tokens. Ctrl+wheel zooms anchored on the pointer, drag pans,
+  range 0.5–2.5.
+- Behaviour maps to state, not decoration: typing at a desk = holds the work, asleep =
+  finished, frozen mid-keystroke = quiet, team round the meeting table = a finalize gate.
+
+### 10.6 Board (`/r/<slug>`)
+
+Three panes: team comms left, task flow centre (six columns: To do → Coding → Ready for QA
+→ QA → Review → Done, each headed in its owning agent's colour), completion matrix right.
+Panes minimise to a labelled spine and the dividers drag; **the task flow absorbs the
+slack**, so shrinking a side pane widens the board rather than opening a gap. If the task
+flow itself is minimised, the first open pane takes that role. Widths persist across team
+switches.
 
 The matrix counts tasks that have **reached** a stage or passed it, not tasks sitting in
 it — so the gap between adjacent columns is the work in flight at that stage, which is the
-bottleneck you opened the dashboard to find.
+bottleneck you opened the dashboard to find. A row stopping short at QA is a service
+drowning in test failures; one stopping at Rev is waiting on a reviewer. Fix budget sits
+underneath, so one glance answers both "how far along" and "how much rope is left".
 
-Mockups: published artifact, `https://claude.ai/artifact/47YpPDBQA2phTN8Fjpp1Y1`.
+Sources: comms from `messages.jsonl` filtered by `runId`; flow from `tasks.json` plus
+per-service results; the matrix derived — **no new state on the bus**.
+
+### 10.7 Settled — do not re-open
+
+Each of these cost a full session and has a reason behind it.
+
+1. The cast is four **drawn** pixel characters, original work in this repo.
+2. Hair is a separate layer, and there are **two** of them per character.
+3. Seating is facing pairs.
+4. The palette is cool slate. No brown.
+5. Walkers use a corridor graph, one axis at a time.
+6. Pupils use `--pupil` at ~3.6 px.
+7. Something always moves at rest.
+
+**Licensing, already checked.** `pixel-agents-hq/pixel-agents` states **no licence** — do
+not copy from it. DiceBear `pixel-art` is CC0 1.0 and safe, but was tried and rejected on
+looks. The current cast is original work here. Anthropic's logo is a *trademark* question
+rather than a copyright one — using it implies endorsement, so it is avoided.
+
+### 10.8 Still open — decide before building the hall, not during
+
+- **Is a full room too busy?** Five teams read well in both views. At twelve the office
+  floor runs out of room before the hall does; the lever is scrolling the floor, or keeping
+  loops only on what is in view.
+- **Should agents walk between desks on a handoff?** They hold position today and only a
+  gate gathers them. Walking would be charming, but a character in transit is a character
+  whose state you cannot read.
+- **Should a finished team leave the hall?** `done` teams stay, dimmed. They could collapse
+  to a row so the hall holds only live work — at the cost of the day's history at a glance.
+- **The operator (§12) has no seat.** It is the one role that is not always present, so
+  the four-corner layout has nowhere to put it. Needs an answer as part of AC9.
 
 ## 11. Codebase knowledge: the graph, not a file
 
@@ -466,7 +683,7 @@ it; this catches it.
 | `skills/ship`, `skills/ship-from-spec` | slug derivation, `--root` baked into `$PIPE` |
 | `skills/pipeline-protocol` | `repos[]`, `gate.json`, per-pipeline root |
 | `ui/server.js` | scan mode, `/`, `/r/<slug>`, `/events?run=`, `POST /api/gate` |
-| `ui/index.html` | hall overview, board panes, gate buttons, **Index repos** action |
+| `ui/index.html` | hall overview, office floor, board panes, gate buttons, **Index repos** action — built to §10's design contract. Sprites are inline SVG `<symbol>`s, so no new asset files and no runtime fetch. |
 | `agents/planner.md` | **query the graph instead of Glob/Grep crawling**; `index.md` becomes a feature delta (§11) |
 | `agents/tester.md` | `trace_path(inbound)` for the real caller set (§11) |
 | `agents/reviewer.md` | `detect_changes()` for the blast radius (§11); **persists via `pipe.py`, gains `Bash`, keeps no `Write`/`Edit`** (ADR-0001) |
