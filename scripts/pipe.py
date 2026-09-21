@@ -21,6 +21,10 @@ Usage examples:
     pipe.py qa-check
     pipe.py worktree add --service api --repo /abs/repos/OpenCRM
     pipe.py finish 009-messaging-hub --apply
+    pipe.py ls
+    pipe.py prune [--apply]
+    pipe.py gate --decision finalize
+    pipe.py wait --for gate --timeout 600
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
     pipe.py status
@@ -39,6 +43,9 @@ SEVERITIES = ["blocking", "major", "minor", "nit"]
 # 3-minute liveness warning (ui/index.html STALE_MS) - that answers "did the agent just
 # die?", this answers "is this workstream abandoned?". Two questions, two constants.
 LS_STALE_DAYS = 3
+# The three answers the finalize gate accepts, from the terminal or the browser.
+# ui/server.js carries the same list; scripts/test_pipe.py asserts they match.
+GATE_DECISIONS = ["finalize", "in-place", "reject"]
 RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
 
 
@@ -873,6 +880,41 @@ def cmd_prune(root, args):
         print("plan only - nothing was removed. re-run with --apply.")
 
 
+def gate_path(root):
+    """gate.json is a SIBLING of the bus, in the workstream directory (section 3) -
+    written by the terminal or the browser, read by the waiter. ui/server.js mirrors
+    this one rule; nothing else may choose where the gate lives."""
+    return os.path.join(os.path.dirname(os.path.abspath(root)), "gate.json")
+
+
+def cmd_gate(root, args):
+    run = load_run(root)
+    atomic_write(gate_path(root), json.dumps(
+        {"decision": args.decision, "runId": run.get("runId"),
+         "ts": now_iso(), "by": "terminal"}, indent=2))
+    print(f"{args.decision} -> {gate_path(root)}")
+
+
+def cmd_wait(root, args):
+    """Block until THIS run's gate lands, for the background Bash watcher of section 6.
+
+    The runId check is the point. gate.json is durable on purpose - re-arming a watcher
+    must pick up an approval that already landed - but a workstream outlives its runs
+    (section 3.3), so wave 1's gate would auto-finalize wave 2 the instant its watcher
+    armed. A gate stamped with another run's id is not this run's answer; keep waiting."""
+    want = load_run(root).get("runId")
+    deadline = time.time() + args.timeout if args.timeout is not None else float("inf")
+    while True:
+        gate = read_json(gate_path(root), None)
+        if isinstance(gate, dict) and gate.get("runId") == want:
+            print(gate.get("decision", ""))
+            return
+        if time.time() >= deadline:
+            sys.exit(f"wait: no gate for {want} at {gate_path(root)} "
+                     f"within {args.timeout}s")
+        time.sleep(2)
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
@@ -905,6 +947,8 @@ def build_parser():
     s = sub.add_parser("status")
     s = sub.add_parser("ls")
     s = sub.add_parser("prune"); s.add_argument("--apply", action="store_true")
+    s = sub.add_parser("gate"); s.add_argument("--decision", required=True, choices=GATE_DECISIONS)
+    s = sub.add_parser("wait"); s.add_argument("--for", required=True, choices=["gate"], dest="wait_for"); s.add_argument("--timeout", type=int, default=None)
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
     s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
@@ -941,7 +985,8 @@ def main():
         "init": cmd_init, "slug": cmd_slug, "event": cmd_event, "phase": cmd_phase,
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
-        "status": cmd_status, "ls": cmd_ls, "prune": cmd_prune, "config": cmd_config, "task": cmd_task,
+        "status": cmd_status, "ls": cmd_ls, "prune": cmd_prune,
+        "gate": cmd_gate, "wait": cmd_wait, "config": cmd_config, "task": cmd_task,
         "review": cmd_review, "qa-check": cmd_qa_check,
         "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)

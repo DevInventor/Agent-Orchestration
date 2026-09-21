@@ -886,6 +886,45 @@ def prune_lists_before_it_removes():
             "the worktree registration outlived the directory - git worktree prune never ran"
 
 
+def the_gate_round_trips_beside_the_bus():
+    """S34 - AC5, the terminal half. `gate` then `wait` releases, prints the decision,
+    and the file lands BESIDE the bus (section 3), not inside it - server.js mirrors
+    that one path and a gate written into the bus would be archived away with it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "workstream", "pipeline")
+        run(root, "init", "--feature", "Gate me", "--slug", "gate-me")
+        assert "finalize" in run(root, "gate", "--decision", "finalize")
+        assert os.path.isfile(os.path.join(tmp, "workstream", "gate.json")), \
+            f"gate.json is not beside the bus: {os.listdir(os.path.join(tmp, 'workstream'))}"
+        assert not os.path.exists(os.path.join(root, "gate.json"))
+        assert run(root, "wait", "--for", "gate", "--timeout", "5").strip() == "finalize"
+        run(root, "gate", "--decision", "nope", expect=2)      # argparse refuses it
+
+
+def a_previous_runs_gate_does_not_release_this_one():
+    """S35 - the scenario most worth watching fail. gate.json is durable on purpose
+    (re-arming a watcher must pick up an approval that already landed), but a workstream
+    outlives its runs (section 3.3), so wave 1's gate sitting in the workstream directory
+    would auto-finalize wave 2 the instant its watcher armed - approving a plan nobody
+    read. `wait` ignores a gate stamped with another runId and keeps waiting."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = os.path.join(tmp, "workstream")
+        root = os.path.join(ws, "pipeline")
+        run(root, "init", "--feature", "Wave 1", "--slug", "waves")
+        run(root, "gate", "--decision", "finalize")
+        wave1 = read_json(os.path.join(ws, "gate.json"))["runId"]
+
+        run(root, "init", "--feature", "Wave 2", "--slug", "waves")   # same workstream
+        assert read_run(root)["runId"] != wave1, "wave 2 did not get its own runId"
+        out = run(root, "wait", "--for", "gate", "--timeout", "1", expect=1)
+        assert "wait:" in out, out
+        assert read_json(os.path.join(ws, "gate.json"))["runId"] == wave1, \
+            "wait must not consume or rewrite the gate it ignored"
+
+        run(root, "gate", "--decision", "in-place")                   # this run's answer
+        assert run(root, "wait", "--for", "gate", "--timeout", "5").strip() == "in-place"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -911,6 +950,8 @@ SCENARIOS = [
     ("S31", a_mid_loop_merge_failure_names_the_half_shipped_repos),
     ("S32", ls_reports_branch_drift_and_orphan_containers),
     ("S33", prune_lists_before_it_removes),
+    ("S34", the_gate_round_trips_beside_the_bus),
+    ("S35", a_previous_runs_gate_does_not_release_this_one),
 ]
 
 
