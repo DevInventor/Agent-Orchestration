@@ -1060,6 +1060,70 @@ def the_listen_call_is_explicit_about_loopback():
         "ui/server.js binds every interface, with a git-adjacent POST endpoint behind it"
 
 
+HALL_HTML = os.path.join(REPO, "ui", "hall.html")
+
+# Section 10.1's two tables, by name. The palette was arrived at by iteration and is
+# binding, so the guard is that every token is declared - not that it looks right.
+SECTION_10_1_TOKENS = [
+    "ink", "panel", "sunk", "raise", "line", "line-2", "text", "bright", "muted", "faint",
+    "planner", "coder", "tester", "reviewer", "orch", "ok", "warn", "bad", "felt",
+    "floor", "floor-2", "grout", "wall", "wall-edge", "wall-shadow",
+    "wood", "wood-2", "deskglass", "chairc", "chairc-2", "skin", "legs", "shoe",
+    "eye", "pupil", "screen", "screen-b", "pot", "leaf",
+]
+
+
+def the_hall_carries_its_palette_and_needs_no_network():
+    """S39 - AC4, section 10.1. Two themes resolved three ways, and a page that renders
+    with no network: ui/server.js is dependency-free and serves localhost, so a webfont
+    <link> to a CDN would make the product's type depend on a request it cannot make.
+    Declaring a token in one theme and forgetting the other is the failure this catches."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    assert "fonts.googleapis" not in src and "fonts.gstatic" not in src, \
+        "hall.html pulls a webfont from a CDN - it must render with no network"
+    assert not re.search(r"<link[^>]+href=[\"']https?:", src), \
+        "hall.html loads a remote stylesheet"
+    assert "ui-monospace" in src and "system-ui" in src, \
+        "Fira is declared without the real system fallbacks it degrades to"
+
+    # The three-way resolution: bare :root is light, system dark is guarded so an
+    # explicit light toggle wins, and an explicit dark toggle wins in both directions.
+    for selector in ['@media (prefers-color-scheme:dark)',
+                     ':root:not([data-theme="light"])',
+                     ':root[data-theme="dark"]']:
+        assert selector.replace(" ", "") in src.replace(" ", ""), \
+            f"hall.html never resolves the theme through {selector}"
+
+    missing = [t for t in SECTION_10_1_TOKENS if len(re.findall(rf"--{re.escape(t)}\s*:", src)) < 3]
+    assert not missing, \
+        f"section 10.1 tokens not declared in all three theme blocks: {missing}"
+    # Spot-check one value per table per theme: a token declared with the wrong colour
+    # passes the count above.
+    for value in ("#E7EAF0", "#121822", "#DFE4EA", "#161C26"):
+        assert value in src, f"section 10.1 value {value} is missing from hall.html"
+
+
+def the_root_route_serves_the_hall():
+    """S40 - AC4. `/` is the hall and `/r/<slug>` stays the existing board. Skips - never
+    fails - without node, because a suite that passes silently proves nothing."""
+    if not shutil.which("node"):
+        print("SKIP S40 - no node on PATH; the / route was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        root = os.path.join(home, "pipelines", "hall-route", "pipeline")
+        run(root, "init", "--feature", "Hall route", "--slug", "hall-route",
+            env={"AGENT_ORCHESTRATION_HOME": home})
+        with Server(home) as s:
+            code, body = http_json(s.port, "/")
+            assert code == 200 and 'id="hall"' in body, \
+                f"/ does not serve ui/hall.html: {code} {body[:200]}"
+            code, body = http_json(s.port, "/r/hall-route")
+            assert code == 200 and 'id="feed"' in body, \
+                f"/r/<slug> must keep serving the existing board: {code} {body[:200]}"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1090,6 +1154,8 @@ SCENARIOS = [
     ("S36", the_gate_endpoint_is_the_security_boundary),
     ("S37", both_gate_writers_agree_on_the_format),
     ("S38", the_listen_call_is_explicit_about_loopback),
+    ("S39", the_hall_carries_its_palette_and_needs_no_network),
+    ("S40", the_root_route_serves_the_hall),
 ]
 
 

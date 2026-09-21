@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent-Orchestration · the hall</title>
+<style>
+  /* ---- section 10.1 tokens ---------------------------------------------------------
+     Two themes, resolved three ways: bare :root is light, system dark is guarded by
+     :root:not([data-theme="light"]) so an explicit light toggle wins over the OS, and
+     :root[data-theme="dark"] wins in both directions. The dark block is written twice
+     on purpose - CSS cannot share one declaration list between a media query and a
+     plain selector, and a variable-of-variables costs more than the duplication.
+     The palette is cool slate and there is no brown anywhere: the first floor read as a
+     school hall, the instinct was to blame the cast, and it was the room. */
+  :root{
+    --ink:#F5F6F9; --panel:#FFFFFF; --sunk:#ECEEF3; --raise:#FFFFFF;
+    --line:#DCE0E7; --line-2:#C2C9D4;
+    --text:#3A424F; --bright:#0E131B; --muted:#6B7585; --faint:#98A1AF;
+    --planner:#9A6B10; --coder:#1A6CA8; --tester:#A33468; --reviewer:#1B7A52; --orch:#6B4FA8;
+    --ok:#1B7A52; --warn:#9A6B10; --bad:#B03A34;
+    --felt:#E7EAF0;
+    /* floor tokens - the office view only */
+    --floor:#DFE4EA; --floor-2:#D3D9E1; --grout:rgba(255,255,255,.7);
+    --wall:#FBFBFC; --wall-edge:#C8CFD8; --wall-shadow:rgba(28,38,52,.14);
+    --wood:#B9C1CC; --wood-2:#98A3B2; --deskglass:#EEF1F5;
+    --chairc:#7F8B9B; --chairc-2:#68748453;
+    --skin:#D8A57C; --legs:#3C4A63; --shoe:#2B3344;
+    --eye:#28313F; --pupil:#11161F;
+    --screen:#2F9E73; --screen-b:#E4E8EE; --pot:#9BA5B2; --leaf:#7E97A8;
+    /* Fira where it is installed, real system fallbacks everywhere else. No <link>: the
+       server is dependency-free and serves localhost, so type must not need a network. */
+    --mono:"Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:"Fira Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --ease-out:cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out:cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+      --line:#1D2531; --line-2:#2C3644;
+      --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+      --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+      --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+      --felt:#121822;
+      --floor:#161C26; --floor-2:#131922; --grout:rgba(255,255,255,.045);
+      --wall:#232C3A; --wall-edge:#0E131B; --wall-shadow:rgba(0,0,0,.6);
+      --wood:#39465A; --wood-2:#2A3446; --deskglass:#2E394A;
+      --chairc:#3A4658; --chairc-2:#2C3644;
+      --skin:#C08E64; --legs:#2C3548; --shoe:#1B2130;
+      --eye:#070A0F; --pupil:#05080D;
+      --screen:#3FBE8B; --screen-b:#1E2733; --pot:#39465A; --leaf:#46606F;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+    --line:#1D2531; --line-2:#2C3644;
+    --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+    --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+    --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+    --felt:#121822;
+    --floor:#161C26; --floor-2:#131922; --grout:rgba(255,255,255,.045);
+    --wall:#232C3A; --wall-edge:#0E131B; --wall-shadow:rgba(0,0,0,.6);
+    --wood:#39465A; --wood-2:#2A3446; --deskglass:#2E394A;
+    --chairc:#3A4658; --chairc-2:#2C3644;
+    --skin:#C08E64; --legs:#2C3548; --shoe:#1B2130;
+    --eye:#070A0F; --pupil:#05080D;
+    --screen:#3FBE8B; --screen-b:#1E2733; --pot:#39465A; --leaf:#46606F;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:14px;
+    line-height:1.5;display:flex;flex-direction:column;height:100vh;-webkit-font-smoothing:antialiased}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+
+  /* ---- top bar ---- */
+  header{flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:11px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--bright)}
+  .brand b{color:var(--coder)} .brand span{color:var(--faint)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .seg button{background:transparent;border:0;color:var(--muted);font-family:var(--mono);
+    font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:4px 14px;cursor:pointer}
+  .seg button.sel{background:var(--sunk);color:var(--bright)}
+  .spacer{margin-left:auto}
+  .ghost{background:transparent;border:1px solid var(--line);border-radius:3px;color:var(--muted);
+    font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
+  .ghost:hover{border-color:var(--line-2);color:var(--text)}
+  .conn{font-family:var(--mono);font-size:10px;color:var(--faint);display:flex;align-items:center;gap:5px}
+  .conn .led{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .conn.live .led{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+
+  /* ---- layout: head table left, the hall (or the office) right ---- */
+  main{flex:1 1 auto;display:grid;grid-template-columns:288px 1fr;gap:1px;background:var(--line);min-height:0}
+  .head-table{background:var(--panel);overflow-y:auto;padding:16px 16px 22px;display:flex;
+    flex-direction:column;gap:18px;min-height:0}
+  .view{background:var(--ink);overflow:auto;min-height:0;padding:18px 20px 24px}
+  .view[hidden]{display:none}
+
+  /* head table: the orchestrator, exactly three counts, and the repo registry. Anything
+     more here competes with the hall it is supposed to summarise. */
+  .orch-card{border:1px solid var(--line);border-radius:5px;background:var(--sunk);padding:12px}
+  .orch-top{display:flex;align-items:center;gap:10px}
+  .orch-name{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--orch)}
+  .orch-doing{margin-top:8px;color:var(--text);font-size:13px}
+  .counts{display:flex;gap:8px}
+  .count{flex:1;border:1px solid var(--line);border-radius:4px;padding:7px 8px;background:var(--sunk)}
+  .count b{display:block;font-family:var(--mono);font-size:17px;color:var(--bright);line-height:1.2}
+  .count span{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .count.awaiting b{color:var(--warn)} .count.quiet b{color:var(--bad)}
+
+  .reg-head{display:flex;align-items:baseline;gap:8px}
+  .reg-head a{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--coder);text-decoration:none}
+  .reg-head a:hover{text-decoration:underline}
+  .reg{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+  .repo{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:4px;
+    padding:6px 9px;background:var(--sunk)}
+  .repo-name{font-family:var(--mono);font-size:11px;color:var(--text);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .repo-nodes{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:auto}
+  .ix{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    border:1px solid var(--line);border-radius:2px;padding:0 5px;color:var(--muted)}
+  .ix.fresh{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+  .ix.drift{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+  .reg-add{display:flex;gap:6px;margin-top:8px}
+  .reg-add input{flex:1;min-width:0;background:var(--ink);border:1px solid var(--line);border-radius:3px;
+    color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 8px}
+  .reg-add input::placeholder{color:var(--faint)}
+  .reg-note{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:7px;line-height:1.5}
+
+  footer{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);
+    padding:8px 20px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  footer b{color:var(--text);font-weight:600}
+  .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
+  :focus-visible{outline:2px solid var(--coder);outline-offset:2px}
+  @media (max-width:900px){main{grid-template-columns:1fr;grid-template-rows:auto 1fr}}
+
+  /* Section 10.4 rule 6: every loop stops and the resting pose stays. Declared here so
+     every later rule in this file inherits it. */
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand"><b>agent</b><span>·</span>orchestration</span>
+  <div class="seg" id="view-seg">
+    <button data-view="hall" class="sel">Hall</button><button data-view="office">Office</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
+  <button class="ghost" id="theme">theme</button>
+</header>
+
+<main>
+  <aside class="head-table">
+    <div>
+      <div class="eyebrow" style="margin-bottom:8px">head table</div>
+      <div class="orch-card">
+        <div class="orch-top"><span class="orch-name">orchestrator</span></div>
+        <div class="orch-doing" id="orch-doing">idle</div>
+      </div>
+    </div>
+    <div class="counts" id="counts"></div>
+    <div>
+      <div class="reg-head"><span class="eyebrow">repositories</span>
+        <a href="http://localhost:9749/?tab=stats" target="_blank" rel="noreferrer">graph stats →</a></div>
+      <div class="reg" id="reg"></div>
+      <form class="reg-add" id="reg-add">
+        <input id="reg-input" placeholder="/abs/path/to/repo" spellcheck="false" />
+        <button class="ghost" type="submit">add</button>
+      </form>
+      <!-- The registry indexes nothing. server.js is stdlib Node with no MCP client, so a
+           row displays what the hall payload carries and hands off to the graph UI above;
+           `none` is the honest default for a repo nothing has reported on. -->
+      <div class="reg-note">indexing runs in the graph service · rows here display and hand off</div>
+    </div>
+  </aside>
+
+  <section class="view" id="hall"></section>
+  <section class="view" id="office" hidden></section>
+</main>
+
+<footer id="foot"></footer>
+
+<script>
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* Staleness, same rule as the board (ui/index.html): pipe.py stamps updatedAt on every
+   run.json write, so silence there means no agent has touched the bus. Only "running"
+   counts - awaiting_approval is supposed to sit still and done/blocked are terminal. */
+const STALE_MS=180000; // 3 min
+function staleMs(p){
+  if(!p||p.status!=="running"||!p.updatedAt) return 0;
+  const age=Date.now()-new Date(p.updatedAt);
+  return age>STALE_MS?age:0;
+}
+function agoTxt(ms){const m=Math.floor(ms/60000);return m<60?`${m}m`:`${Math.floor(m/60)}h ${m%60}m`;}
+
+/* run / gate / done / stale - the pill, the card border and the rug all read this one
+   function, so they can never disagree. */
+function cardState(p){
+  if(p.status==="done") return "done";
+  if(p.status==="awaiting_approval") return "gate";
+  if(staleMs(p)) return "stale";
+  if(p.status==="blocked"||p.status==="failed") return "stale";
+  return "run";
+}
+
+let HALL={root:"",pipelines:[]};
+let EXTRA_REPOS=[];   // repos you registered here; the payload owns the rest
+
+function repoRows(){
+  // One row per repo any workstream touches, plus the ones registered in this view.
+  const seen=new Map();
+  for(const p of HALL.pipelines) for(const r of (p.repos||[])) if(!seen.has(r)) seen.set(r,{name:r});
+  for(const r of EXTRA_REPOS) if(!seen.has(r)) seen.set(r,{name:r,fresh:false});
+  return [...seen.values()];
+}
+function renderHeadTable(){
+  const ps=HALL.pipelines;
+  const running=ps.filter(p=>cardState(p)==="run").length;
+  const awaiting=ps.filter(p=>cardState(p)==="gate").length;
+  const quiet=ps.filter(p=>cardState(p)==="stale").length;
+  document.getElementById("counts").innerHTML=
+    `<div class="count"><b>${running}</b><span>running</span></div>
+     <div class="count awaiting"><b>${awaiting}</b><span>awaiting you</span></div>
+     <div class="count quiet"><b>${quiet}</b><span>quiet</span></div>`;
+
+  // The orchestrator's one line, in the same voice as a team's last event.
+  const evs=ps.map(p=>p.lastEvent).filter(Boolean).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+  const own=evs.filter(e=>e.agent==="orchestrator");
+  const e=own.length?own[own.length-1]:evs[evs.length-1];
+  document.getElementById("orch-doing").textContent=
+    e?e.summary:(ps.length?`watching ${ps.length} team${ps.length>1?"s":""}`:"idle");
+
+  const rows=repoRows();
+  document.getElementById("reg").innerHTML=rows.length?rows.map(r=>{
+    // fresh / drift (HEAD moved) / none (never indexed) - whatever the payload carries.
+    const st=r.index||"none",n=r.nodes;
+    return `<div class="repo"><span class="repo-name">${esc(r.name)}</span>
+      <span class="ix ${esc(st)}">${esc(st)}</span>
+      <span class="repo-nodes">${n==null?"—":esc(n)+" nodes"}</span></div>`;
+  }).join(""):`<div class="reg-note">no repository registered yet</div>`;
+
+  document.getElementById("foot").innerHTML=
+    `<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
+}
+
+function renderHall(){
+  const el=document.getElementById("hall");
+  el.innerHTML=HALL.pipelines.length
+    ? HALL.pipelines.map(p=>`<div>${esc(p.feature||p.slug)}</div>`).join("")
+    : `<div class="empty">no pipelines under ${esc(HALL.root)}</div>`;
+}
+function renderOffice(){}
+
+function render(h){HALL=h||HALL;renderHeadTable();renderHall();renderOffice();}
+
+/* ---- view + theme ---- */
+document.getElementById("view-seg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const v=b.dataset.view;
+  document.querySelectorAll("#view-seg button").forEach(x=>x.classList.toggle("sel",x===b));
+  document.getElementById("hall").hidden=v!=="hall";
+  document.getElementById("office").hidden=v!=="office";
+  if(v==="office") renderOffice();
+});
+document.getElementById("theme").onclick=()=>{
+  const r=document.documentElement;
+  const dark=r.dataset.theme?r.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
+  r.dataset.theme=dark?"light":"dark";   // an explicit toggle wins in both directions
+};
+document.getElementById("reg-add").addEventListener("submit",e=>{
+  e.preventDefault();
+  const i=document.getElementById("reg-input"),v=i.value.trim();
+  if(!v) return;
+  EXTRA_REPOS.push(v); i.value=""; renderHeadTable();
+});
+
+/* A small fixture so the shell renders before T11 wires it to the bus. */
+render({root:"~/.agent-orchestration/pipelines",pipelines:[
+  {slug:"multi-pipeline-engine",feature:"Multi-pipeline engine",phase:"implement",
+   status:"running",activeAgent:"coder",loop:{count:0,max:5},repos:["ship-team"],
+   updatedAt:new Date().toISOString(),
+   lastEvent:{ts:new Date().toISOString(),agent:"coder",type:"status",summary:"Implementing the hall"}}
+]});
+</script>
+</body>
+</html>
