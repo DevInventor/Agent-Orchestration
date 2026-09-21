@@ -35,6 +35,10 @@ CONFIG_NAME = "agent-orchestration.config.json"
 GENERIC_SPEC_NAMES = {"design", "spec", "readme", "index", "requirements", "plan"}
 SLUG_MAX = 40
 SEVERITIES = ["blocking", "major", "minor", "nit"]
+# `ls`'s own staleness rule: a run nobody has touched in days. NOT the dashboard's
+# 3-minute liveness warning (ui/index.html STALE_MS) - that answers "did the agent just
+# die?", this answers "is this workstream abandoned?". Two questions, two constants.
+LS_STALE_DAYS = 3
 RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
 
 
@@ -769,6 +773,65 @@ def archive_bus(root, run):
     return dest
 
 
+def age_days(run):
+    """Days since the bus was last written to, or -1 when it never said."""
+    try:
+        return (datetime.now(timezone.utc)
+                - datetime.fromisoformat(run.get("updatedAt") or run.get("startedAt"))).days
+    except (TypeError, ValueError):
+        return -1
+
+
+def orphan_containers(pipes):
+    """wt-<slug>/ directories with no bus behind them. The repos roots are RECOVERED
+    from the worktree paths the buses themselves record - there is no configured root to
+    read, and inventing one would look everywhere except where the containers are."""
+    known = {p["slug"] for p in pipes}
+    roots = {os.path.dirname(os.path.dirname(e["worktree"]))
+             for p in pipes for e in (p["run"].get("repos") or []) if e.get("worktree")}
+    out = []
+    for r in sorted(roots):
+        for name in sorted(os.listdir(r)) if os.path.isdir(r) else []:
+            if name.startswith("wt-") and name[3:] not in known \
+                    and os.path.isdir(os.path.join(r, name)):
+                out.append(os.path.join(r, name))
+    return out
+
+
+def cmd_ls(root, args):
+    """Every workstream under the fixed root, with the drift states section 7 names.
+
+    Read-only: it never shells out to a mutating git command, because the thing you run
+    when you suspect the registry is wrong must not change it. `prune` is the other half.
+    LS_STALE_DAYS is deliberately NOT the dashboard's 3-minute liveness rule - "nobody
+    has touched this in days" and "the agent may have just died" are different questions."""
+    pipes = scan_pipelines()
+    for p in pipes:
+        run, flags = p["run"], []
+        repos = run.get("repos") or []
+        days = age_days(run)
+        if run.get("status") in ("running", "awaiting_approval") and days > LS_STALE_DAYS:
+            flags.append(f"stale({days}d)")
+        branches = sorted({e.get("branch") for e in repos})
+        if len(branches) > 1:
+            flags.append("branch-drift(" + ", ".join(str(b) for b in branches) + ")")
+        gone = [e["repo"] for e in repos if not os.path.isdir(e.get("repo") or "")]
+        if gone:
+            flags.append("missing-repo(" + ", ".join(gone) + ")")
+        if run.get("slug") and not repos:
+            flags.append("orphan(no worktrees recorded)")
+        lost = [e["worktree"] for e in repos if not os.path.isdir(e.get("worktree") or "")]
+        if lost:
+            flags.append("orphan(worktree gone: " + ", ".join(lost) + ")")
+        print(f"{p['slug']}  {run.get('phase', '?')}  {run.get('status', '?')}  "
+              f"{len(repos)} repo(s)  {days}d  {run.get('feature', '')}"
+              + ("  " + " ".join(flags) if flags else ""))
+    for c in orphan_containers(pipes):
+        print(f"(orphan) container {c} has no bus under {pipelines_root()}")
+    if not pipes:
+        print(f"no pipelines under {pipelines_root()}")
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
@@ -799,6 +862,7 @@ def build_parser():
     s.add_argument("--passed", type=int, default=None)
     s.add_argument("--failed", type=int, default=None)
     s = sub.add_parser("status")
+    s = sub.add_parser("ls")
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
     s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
@@ -835,7 +899,7 @@ def main():
         "init": cmd_init, "slug": cmd_slug, "event": cmd_event, "phase": cmd_phase,
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
-        "status": cmd_status, "config": cmd_config, "task": cmd_task,
+        "status": cmd_status, "ls": cmd_ls, "config": cmd_config, "task": cmd_task,
         "review": cmd_review, "qa-check": cmd_qa_check,
         "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)

@@ -820,6 +820,41 @@ def a_mid_loop_merge_failure_names_the_half_shipped_repos():
             "a failed --apply archived the bus anyway - the operator needs it to retry"
 
 
+def ls_reports_branch_drift_and_orphan_containers():
+    """S32 - AC12. The two drift states nobody notices until a merge silently leaves a
+    repo behind: two branch names inside one workstream (2 of 11 real containers), and a
+    wt-<slug>/ container whose bus is gone. Each half is mutated: equal branches must
+    stop the drift assertion firing, so it cannot be passing on a constant."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "twowave", "pipeline")
+        run(root, "init", "--feature", "Two branches", "--slug", "twowave", env=env)
+        repos = os.path.join(tmp, "repos")
+        for svc, base in (("api", "develop"), ("web", "master")):
+            run(root, "worktree", "add", "--service", svc,
+                "--repo", git_repo(os.path.join(repos, svc), base), env=env)
+
+        rj = os.path.join(root, "run.json")
+        data = read_json(rj)
+        one = data["repos"][0]["branch"]
+        data["repos"][1]["branch"] = "feature/twowave-web"
+        write(rj, json.dumps(data, indent=2))
+        out = run(root, "ls", env=env)
+        assert "twowave" in out and "branch-drift" in out, \
+            f"ls does not name a workstream whose repos sit on two branch names:\n{out}"
+
+        data["repos"][1]["branch"] = one                   # the mutation half
+        write(rj, json.dumps(data, indent=2))
+        out = run(root, "ls", env=env)
+        assert "branch-drift" not in out, f"ls reports drift on a workstream that has none:\n{out}"
+
+        os.makedirs(os.path.join(repos, "wt-ghost", "api"))
+        out = run(root, "ls", env=env)
+        assert "wt-ghost" in out and "orphan" in out, \
+            f"a wt-<slug>/ container with no bus is invisible to ls:\n{out}"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -843,6 +878,7 @@ SCENARIOS = [
     ("S29", a_service_name_cannot_escape_its_container),
     ("S30", an_explicit_empty_service_is_not_the_flat_layout),
     ("S31", a_mid_loop_merge_failure_names_the_half_shipped_repos),
+    ("S32", ls_reports_branch_drift_and_orphan_containers),
 ]
 
 
