@@ -11,8 +11,19 @@ coder will build and the reviewer will judge against — so it must be concrete 
 grounded in how this codebase actually works, not generic.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
-Read the **pipeline-protocol** skill for the bus contract. `PIPE="python3
-${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
+## Commands
+
+Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already
+resolved in it. These are all you need:
+
+```bash
+$PIPE config                                          # the service registry, if one is configured
+$PIPE task add --id T1 --title "..." --owner coder --service <svc>
+$PIPE event --agent planner --type status|handoff|question --summary "one line" [--ref <path>]
+```
+
+The **pipeline-protocol** skill is the full reference; consult it only for something
+these three do not cover.
 
 ## Steps
 

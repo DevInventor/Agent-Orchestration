@@ -605,6 +605,25 @@ def the_planner_is_granted_the_graph_it_is_told_to_query():
         "planner.md still tells the planner to crawl the codebase"
 
 
+def every_agent_carries_a_bounded_cheatsheet():
+    """S46 - AC10(a). 62% of a spawn's preamble was the protocol document and a coder
+    uses four commands, so each role carries its own block instead. The ceiling is the
+    point: unbounded, a cheatsheet grows back into the protocol it replaced. S23 proves
+    the commands these blocks name exist; this proves they stay small."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    roles = ["planner", "coder", "tester", "reviewer", "operator"]
+    for name in [r + ".md" for r in roles]:      # team-rules.md is shared prose, not a role
+        path = os.path.join(repo, "agents", name)
+        assert os.path.isfile(path), f"agents/{name} is missing"
+        text = open(path, encoding="utf-8").read()
+        block = re.search(r"^## Commands\b.*?```bash\n(.*?)```", text, re.S | re.M)
+        assert block, f"{name} carries no `## Commands` cheatsheet"
+        size = len(block.group(1).encode("utf-8"))
+        assert 0 < size <= 600, f"{name}'s cheatsheet is {size} B; the ceiling is 600"
+        assert not re.search(r"Read the \*\*pipeline-protocol\*\* skill", text), \
+            f"{name} still orders a full read of the protocol document"
+
+
 def qa_check_spans_service_namespaces():
     """S22 - a green service must not hide a blocked one; --service scopes the gate."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -1457,6 +1476,7 @@ SCENARIOS = [
     ("S43", the_corridor_graph_never_cuts_a_corner),
     ("S44", the_operator_is_gated_and_reports_evidence),
     ("S45", the_planner_is_granted_the_graph_it_is_told_to_query),
+    ("S46", every_agent_carries_a_bounded_cheatsheet),
 ]
 
 

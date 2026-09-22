@@ -13,8 +13,14 @@ into a spec, then run the full pipeline. (If the user already has a spec doc, us
 The **feature to ship** is whatever the user gave when invoking `/ship`. If they
 gave nothing, ask for a one-paragraph feature description before starting.
 
+**Resolve the interpreter once, here.** On Windows `python3` is the Microsoft Store
+alias stub: it is on PATH, so `command -v python3` finds it, and it exits non-zero with
+*"Python was not found"* the moment an agent uses it. Resolve it by **running** it, and
+hand the finished `$PIPE` down to every subagent — they do not repeat this.
+
 ```bash
-PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
+PY=$(python3 -c 'import sys;print(sys.executable)' 2>/dev/null || command -v python)
+PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
 ```
 
 ## Init + author the spec  (phase: spec)
@@ -26,10 +32,10 @@ PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    $PIPE init --slug "<slug>" --spec "<the doc path>" --feature "<the feature>"
    ```
    `init` prints one JSON document; its **`busPath`** key is the resolved absolute
-   bus path (`... | python3 -c 'import json,sys;print(json.load(sys.stdin)["busPath"])'`).
+   bus path (`... | $PY -c 'import json,sys;print(json.load(sys.stdin)["busPath"])'`).
    The bus no longer lives at `./pipeline`, so from here on **bake that path in**:
    ```bash
-   PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <busPath>"
+   PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <busPath>"
    ```
    Use that literal path for the rest of the run and hand it to every subagent you
    spawn — a subagent that guesses `./pipeline` writes to a bus nobody is reading.

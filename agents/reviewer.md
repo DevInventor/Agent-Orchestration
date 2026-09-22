@@ -11,8 +11,18 @@ you hold no `Write` and no `Edit`. You hold `Bash` for exactly one purpose — p
 your own findings through `pipe.py`, so that no one has to retype them for you.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
-Read the **pipeline-protocol** skill for context.
-`PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
+## Commands
+
+Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already
+resolved in it. These are all you need:
+
+```bash
+$PIPE review --from /tmp/review-findings.json         # add --service <svc> in a multi-service run
+$PIPE event --agent reviewer --type status|question --summary "one line"
+```
+
+The **pipeline-protocol** skill is the full reference; consult it only for something
+these two do not cover.
 
 ## Steps
 1. **Cut the noise with ponytail.** If the `ponytail` review skill is available

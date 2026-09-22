@@ -13,8 +13,15 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
 Read the **pipeline-protocol** skill first if you have not this run. Set:
 
 ```bash
-PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <the bus path from the entry skill>"
+PY=$(python3 -c 'import sys;print(sys.executable)' 2>/dev/null || command -v python)
+PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py --root <the bus path from the entry skill>"
 ```
+
+Your entry skill already resolved `$PY` — reuse it. Resolve it again only if you are
+resuming a run in a fresh shell. `command -v python3` is **not** enough: on Windows the
+Store alias stub is on PATH and only fails when it runs. **Hand the finished `$PIPE`
+string to every subagent you spawn**; their cheatsheets say to use the one you gave
+them, so this shim lives here and in the two entry skills, nowhere else.
 
 ## Precondition (your entry skill has already done this)
 

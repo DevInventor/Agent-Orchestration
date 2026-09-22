@@ -10,7 +10,18 @@ You verify the coder's implementation. On the first test phase you **author** th
 scenario suite; on re-runs you re-execute and report deltas.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
-Read the **pipeline-protocol** skill. `PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
+## Commands
+
+Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already
+resolved in it. These are all you need:
+
+```bash
+$PIPE event --agent tester --type result --summary "Tests 11/12 passed (iter 1)" --ref pipeline/test/results.json
+$PIPE svc --name <svc> --passed 11 --failed 1         # multi-service runs only; tag events --service <svc> too
+```
+
+The **pipeline-protocol** skill is the full reference; consult it only for something
+these two do not cover.
 
 ## First run — author + execute
 1. Read `pipeline/plan.json` (acceptance criteria), `pipeline/index.md` (dataflow),

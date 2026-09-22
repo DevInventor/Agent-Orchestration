@@ -19,8 +19,18 @@ and how you persist through `pipe.py`, not a licence to author files. You never 
 feature code; if the fix is a code change, say so and hand it back.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
-Read the **pipeline-protocol** skill for context.
-`PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
+## Commands
+
+Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already
+resolved in it. These are all you need:
+
+```bash
+$PIPE wait --for gate --timeout 1800                  # before anything touching a shared environment
+$PIPE event --agent operator --type status|result --summary "one line" --detail "the four fields"
+```
+
+The **pipeline-protocol** skill is the full reference; consult it only for something
+these two do not cover.
 
 ## Steps
 
