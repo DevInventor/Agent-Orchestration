@@ -117,7 +117,24 @@
      more here competes with the hall it is supposed to summarise. */
   .orch-card{border:1px solid var(--line);border-radius:5px;background:var(--sunk);padding:12px}
   .orch-top{display:flex;align-items:center;gap:10px}
-  .orch-name{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--orch)}
+  .orch-card{position:relative;overflow:hidden}
+  .orch-card::before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:var(--orch)}
+  .orch-mark{flex:0 0 auto;display:flex;color:var(--orch)}
+  .orch-mark .who{width:22px;height:auto}
+  .orch-id{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .orch-id b{font-size:13px;color:var(--bright);font-weight:600}
+  .orch-name{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--orch)}
+  .reg-total{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .reg-link{display:inline-block;margin-top:9px;font-family:var(--mono);font-size:10.5px;
+    color:var(--coder);text-decoration:none}
+  .reg-link:hover{text-decoration:underline}
+  .pri{font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:3px;cursor:pointer;
+    border:1px solid color-mix(in srgb,var(--orch) 55%,var(--line));
+    background:color-mix(in srgb,var(--orch) 14%,transparent);color:var(--orch)}
+  .pri:hover{background:color-mix(in srgb,var(--orch) 24%,transparent)}
+  /* the dot carries index state, so the row reads left to right: state, name, count */
+  .repo .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
+  .repo.fresh .dot{background:var(--ok)} .repo.drift .dot{background:var(--warn)}
   .orch-doing{margin-top:8px;color:var(--text);font-size:13px}
   .counts{display:flex;gap:8px}
   .count{flex:1;border:1px solid var(--line);border-radius:4px;padding:7px 8px;background:var(--sunk)}
@@ -448,19 +465,23 @@
     <div>
       <div class="eyebrow" style="margin-bottom:8px">head table</div>
       <div class="orch-card">
-        <div class="orch-top"><span class="orch-name">orchestrator</span></div>
+        <div class="orch-top">
+          <span class="orch-mark" id="orch-mark"></span>
+          <span class="orch-id"><b>orchestrator</b><span class="orch-name">head table</span></span>
+        </div>
         <div class="orch-doing" id="orch-doing">idle</div>
       </div>
     </div>
     <div class="counts" id="counts"></div>
     <div>
       <div class="reg-head"><span class="eyebrow">repositories</span>
-        <a href="http://localhost:9749/?tab=stats" target="_blank" rel="noreferrer">graph stats →</a></div>
+        <span class="reg-total" id="reg-total"></span></div>
       <div class="reg" id="reg"></div>
       <form class="reg-add" id="reg-add">
-        <input id="reg-input" placeholder="/abs/path/to/repo" spellcheck="false" />
-        <button class="ghost" type="submit">add</button>
+        <input id="reg-input" placeholder="~/GoTrust/codebase/MFA_Server" spellcheck="false" />
+        <button class="pri" type="submit">Index</button>
       </form>
+      <a class="reg-link" href="http://localhost:9749/?tab=stats" target="_blank" rel="noreferrer">Open Codebase Memory &#8599;</a>
       <!-- The registry indexes nothing. server.js is stdlib Node with no MCP client, so a
            row displays what the hall payload carries and hands off to the graph UI above;
            `none` is the honest default for a repo nothing has reported on. -->
@@ -559,13 +580,24 @@ function renderHeadTable(){
   const rows=repoRows();
   document.getElementById("reg").innerHTML=rows.length?rows.map(r=>{
     // fresh / drift (HEAD moved) / none (never indexed) - whatever the payload carries.
-    const st=r.index||"none",n=r.nodes;
-    return `<div class="repo${r.name===NEW_REPO?" enter":""}" title="${esc(r.path||r.name)}"><span class="repo-name">${esc(r.name)}</span>
-      <span class="ix ${esc(st)}">${esc(st)}</span>
-      <span class="repo-nodes">${n==null?"—":esc(n)+" nodes"}</span></div>`;
+    // fresh / drift (HEAD moved) / none (never indexed) - whatever the payload carries.
+    // Nothing reports it today, so the honest right-hand value is a dash rather than a
+    // count this server cannot know: the graph service owns that and the link hands off.
+    const st=r.index||"none";
+    const right=r.nodes!=null?Number(r.nodes).toLocaleString("en-US")
+              :st==="drift"?"HEAD moved":st==="none"?"—":"indexed";
+    return `<div class="repo ${esc(st)}${r.name===NEW_REPO?" enter":""}" title="${esc(r.path||r.name)}"
+      ><span class="dot"></span><span class="repo-name">${esc(r.name)}</span>
+      <span class="repo-nodes">${esc(right)}</span></div>`;
   }).join(""):`<div class="reg-note">no <code>agent-orchestration.config.json</code> found above this
       server's working directory, and no workstream has recorded a repo yet</div>`;
   NEW_REPO=null;
+  const known=rows.filter(r=>r.nodes!=null);
+  document.getElementById("reg-total").textContent = known.length
+    ? known.reduce((a,r)=>a+Number(r.nodes),0).toLocaleString("en-US")+" nodes"
+    : rows.length ? rows.length+" registered" : "";
+  const mk=document.getElementById("orch-mark");
+  if(mk && !mk.childElementCount) mk.innerHTML=sprite("orch",{px:22});
 
   const tally=`<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
   document.getElementById("foot").innerHTML=tally;
