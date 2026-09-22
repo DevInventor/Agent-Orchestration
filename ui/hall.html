@@ -295,6 +295,8 @@
   .pod.s-stale .who{animation-play-state:paused}
 
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
+  /* A refused gate has to read as refused, not as a button that went quiet. */
+  .gate-err{font-family:var(--mono);font-size:10px;color:var(--bad);align-self:center}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
   :focus-visible{outline:2px solid var(--coder);outline-offset:2px}
@@ -643,8 +645,35 @@ function renderHall(){
 }
 // A collapsed team is still a team: clicking its row opens it back up.
 document.getElementById("hall").addEventListener("click",e=>{
+  if(e.target.closest(".gate")) return;              // the gate row owns its own clicks
   const c=e.target.closest(".card");
   if(c&&c.classList.contains("s-done")&&!e.target.closest("a")) c.classList.toggle("collapsed");
+});
+
+/* Section 6 and 14: the browser half writes the same gate.json the terminal does. The
+   decision is one of three fixed strings the server re-checks, and the slug is the card's
+   own - nothing here is read from the URL. */
+document.getElementById("hall").addEventListener("click",async e=>{
+  const b=e.target.closest(".gate button"); if(!b) return;
+  const row=b.parentElement, slug=(b.closest(".card")||{}).dataset?.slug;
+  if(!slug) return;
+  const btns=[...row.querySelectorAll("button")], was=b.textContent;
+  btns.forEach(x=>x.disabled=true);
+  row.querySelectorAll(".gate-err").forEach(x=>x.remove());
+  b.textContent="sending…";
+  try{
+    const r=await fetch("/api/gate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({slug,decision:b.dataset.d})});
+    if(!r.ok) throw new Error("server said "+r.status);
+    b.textContent="sent";
+    await pull();                                    // reflect the new status immediately
+  }catch(err){
+    // A 400 or a 404 must not look like an approval. Put the row back and say why.
+    b.textContent=was; btns.forEach(x=>x.disabled=false);
+    const m=document.createElement("span");
+    m.className="gate-err"; m.textContent="not approved — "+err.message;
+    row.append(m);
+  }
 });
 /* ---- section 10.5, the office floor -----------------------------------------------
    The same bus data, read the ambient way. Behaviour maps to state, not decoration:
