@@ -26,6 +26,9 @@ const SINGLE = args.includes("--pipeline") || process.env.PIPELINE_DIR
 const PORT = parseInt(opt("--port", process.env.PORT || "4600"), 10);
 const HTML = path.join(__dirname, "index.html");
 const HALL = path.join(__dirname, "hall.html");
+// Section 10.6's three-pane board. index.html stays as the fallback so a bus served in
+// single-run mode, and any older install, still renders something.
+const BOARD = path.join(__dirname, "board.html");
 
 function readJSON(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, "utf8")); }
@@ -110,8 +113,50 @@ function lastEvent(dir) {
 
 // Deliberately small: the hall shows twelve teams at once, and everything else is one
 // click away at /r/<slug>.
+// The repositories panel asks "what does this project own", which the service registry
+// already answers - run.repos[] only fills in once a workstream has created worktrees, so
+// an in-place run left the panel permanently empty. Walk up from cwd the way pipe.py's
+// find_config does. ponytail: name and path only. Index state and node counts live in the
+// graph service, which speaks no JSON over 9749, and stdlib node has no MCP client - the
+// panel hands off to it instead. Wire real counts when that service exposes an endpoint.
+function readRegistry(dir) {
+  const p = path.join(dir, "agent-orchestration.config.json");
+  if (!fs.existsSync(p)) return null;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(p, "utf8"));
+    const base = path.resolve(dir, cfg.reposRoot || ".");
+    return (cfg.services || []).map((s) => ({
+      name: s.name,
+      path: path.join(base, s.path || s.name),
+    }));
+  } catch { return null; }            // a broken registry is cmd_config's to report
+}
+
+function registry() {
+  // Up from cwd, the way pipe.py's find_config resolves it - then one level DOWN, because
+  // a repos root is commonly a child of where you start the dashboard (GoTrust keeps its
+  // registry at GoTrust/codebase/, and the natural place to run from is GoTrust/).
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const here = readRegistry(dir);
+    if (here) return here;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  try {
+    for (const e of fs.readdirSync(process.cwd(), { withFileTypes: true })) {
+      if (!e.isDirectory() || e.name.startsWith(".")) continue;
+      const child = readRegistry(path.join(process.cwd(), e.name));
+      if (child) return child;
+    }
+  } catch { /* unreadable cwd is not this panel's problem */ }
+  return [];
+}
+
 function hall() {
   return {
+    registry: registry(),
     root: pipelinesRoot(),
     pipelines: scanPipelines().map((p) => {
       const r = p.run || {};
@@ -256,7 +301,7 @@ const server = http.createServer((req, res) => {
   if (board) {
     // The slug is checked against the scan list, never joined to a path.
     return findPipeline(decodeURIComponent(board[1]))
-      ? serveHTML(res, HTML)
+      ? serveHTML(res, BOARD, HTML)
       : (res.writeHead(404), res.end("no such run"));
   }
   if (url.pathname === "/api/gate" && req.method === "POST") return apiGate(req, res);
