@@ -29,7 +29,7 @@ PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    derives the same name and lands on the same branch.
    ```bash
    $PIPE slug --title "<the feature the user gave /ship>"   # -> e.g. sso-logout-endpoint
-   $PIPE init --slug "<slug>" --spec "<the doc path>" --feature "<the feature>"
+   $PIPE init --slug "<slug>" --feature "<the feature>"   # no --spec: there is no doc yet
    ```
    `init` prints one JSON document; its **`busPath`** key is the resolved absolute
    bus path (`... | $PY -c 'import json,sys;print(json.load(sys.stdin)["busPath"])'`).
