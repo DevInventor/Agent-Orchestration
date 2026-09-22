@@ -227,6 +227,25 @@ Then continue to the QA gate (§5), which aggregates across all services.
 Give the user a tight summary: feature, tasks completed, test result (and how many
 fix iterations it took), review disposition, and the path to `status/summary.md`.
 
+## The operator (optional — only when the plan names an operational task)
+
+Deploying, rebuilding, restarting and diagnosing an environment is nobody's job in
+§2–§5, so it falls to you by default — which puts the logs in the most expensive
+context in the run and makes you player and referee on your own QA gate. Spawn the
+**operator** subagent (`agents/operator.md`) instead, at the point the plan names the
+task. Most runs never do; skip this section entirely when yours doesn't.
+
+- `$PIPE agent operator`, then spawn it with the command to run and the bus path. It
+  holds no `Write`/`Edit` and writes no feature code.
+- It reports one `event --agent operator --type result` with four fields — command,
+  exit code, what changed, what to verify — and is forbidden from concluding success.
+  **You call the outcome**, from that report, so the judgement stays in the run's
+  narrative instead of a subagent's scrollback.
+- **Anything touching a shared environment is gated.** Before spawning it for a deploy,
+  arm the gate — `$PIPE wait --for gate --timeout 1800` in a background Bash, or let the
+  operator wait itself — and get the user's `finalize` through the dashboard or
+  `$PIPE gate --decision finalize`. Assess, then deploy.
+
 ## Guardrails
 - Fix-loop budget is **per service**: 5 iterations each (failing tests + blocking
   review findings share that one budget). In a single-service run that is simply the

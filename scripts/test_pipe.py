@@ -555,17 +555,37 @@ def review_rejections_never_touch_disk():
         assert after == before, "a rejected payload must not disturb the review already on the bus"
 
 
+def agent_file(name):
+    """An agent definition's text and its frontmatter `tools:` allowlist."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    text = open(os.path.join(repo, "agents", name + ".md"), encoding="utf-8").read()
+    tools = [l for l in text.splitlines() if l.startswith("tools:")]
+    assert len(tools) == 1, f"{name}.md must carry exactly one tools: line: {tools}"
+    return text, {t.strip() for t in tools[0].split(":", 1)[1].split(",")}
+
+
 def reviewer_holds_no_write_tool():
     """S19 - AC7 names the tool grant explicitly; it is the permission boundary."""
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    text = open(os.path.join(repo, "agents", "reviewer.md"), encoding="utf-8").read()
-    tools = [l for l in text.splitlines() if l.startswith("tools:")]
-    assert len(tools) == 1, tools
-    granted = {t.strip() for t in tools[0].split(":", 1)[1].split(",")}
+    text, granted = agent_file("reviewer")
     assert "Bash" in granted, f"the reviewer needs Bash to call pipe.py: {granted}"
     assert not granted & {"Write", "Edit"}, f"the reviewer must hold no Write/Edit: {granted}"
     assert re.search(r"(pipe\.py|\$PIPE)\s+review\s+--from", text), \
         "reviewer.md must tell the reviewer how it persists findings"
+
+
+def the_operator_is_gated_and_reports_evidence():
+    """S44 - AC9. An operator without a gate is an agent that deploys ungated, which is
+    the single property section 12 exists to prevent; and its report shape is fixed at
+    four fields because a verdict is exactly what it must not return. S23 then proves
+    every pipe.py command this file names actually exists."""
+    text, granted = agent_file("operator")
+    assert "Bash" in granted, f"the operator needs Bash to run the thing: {granted}"
+    assert not granted & {"Write", "Edit"}, \
+        f"the operator must hold no Write/Edit (ADR-0001's precedent): {granted}"
+    assert re.search(r"(pipe\.py|\$PIPE)\s+wait\s+--for\s+gate", text), \
+        "operator.md must wait at the gate before touching a shared environment"
+    for field in ("command", "exit code", "what changed", "what to verify"):
+        assert field in text, f"operator.md must name the report field {field!r}"
 
 
 def qa_check_spans_service_namespaces():
@@ -1418,6 +1438,7 @@ SCENARIOS = [
     ("S41", every_character_has_both_hair_layers),
     ("S42", the_motion_inventory_stays_at_eight),
     ("S43", the_corridor_graph_never_cuts_a_corner),
+    ("S44", the_operator_is_gated_and_reports_evidence),
 ]
 
 
