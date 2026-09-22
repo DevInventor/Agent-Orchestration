@@ -1273,6 +1273,48 @@ def the_corridor_graph_never_cuts_a_corner():
     assert "2.5" in src and "0.5" in src, "the zoom range is not 0.5-2.5"
 
 
+def the_hall_boots_from_the_bus_not_the_fixture():
+    """S40 - AC4/AC5, the wiring. The hall existed for three agent attempts as a fully
+    built, fully styled page rendering a hard-coded FIXTURE: it looked finished while
+    showing four pipelines that were never real, which is the worst thing a dashboard can
+    do. Assert the boot path reaches the bus, that the fixture is reachable only behind an
+    explicit opt-in, and that a served / actually carries the wiring. Skips - never fails
+    - without node, because a suite that quietly passes without it proves nothing."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    for needle, why in [("/api/hall", "the hall never fetches the scan"),
+                        ("EventSource", "the hall never subscribes to /events"),
+                        ("/api/gate", "the gate buttons write nowhere")]:
+        assert needle in src, f"{why} - {needle} absent from hall.html"
+
+    # The fixture must not be the boot. Every render(FIXTURE) has to sit inside the demo
+    # opt-in; an unguarded one is precisely the defect this scenario exists to catch.
+    calls = [m.start() for m in re.finditer(r"render\(FIXTURE\)", src)]
+    assert calls, "the fixture is gone - ?demo=1 is how this page gets reviewed offline"
+    guard = src.find('has("demo")')
+    assert guard != -1, "no ?demo= opt-in guards the fixture"
+    for at in calls:
+        assert guard < at < guard + 400, \
+            "render(FIXTURE) sits outside the ?demo= branch - the hall can boot on fake data"
+
+    if not shutil.which("node"):
+        print("SKIP S40 - no node on PATH; / was not served")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "hall-boot", "pipeline")
+        run(root, "init", "--feature", "Hall boot", "--slug", "hall-boot", env=env)
+        with Server(home) as s:
+            code, body = http_json(s.port, "/")
+            assert code == 200, f"/ returned {code}"
+            assert 'id="conn-txt"' in body, "/ did not serve hall.html in scan mode"
+            for needle in ("/api/hall", "EventSource", "/api/gate"):
+                assert needle in body, f"the served hall is missing {needle}"
+            code, body = http_json(s.port, "/api/hall")
+            assert code == 200 and "hall-boot" in body, (code, body[:200])
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1304,6 +1346,7 @@ SCENARIOS = [
     ("S37", both_gate_writers_agree_on_the_format),
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
+    ("S40", the_hall_boots_from_the_bus_not_the_fixture),
     ("S40", the_root_route_serves_the_hall),
     ("S41", every_character_has_both_hair_layers),
     ("S42", the_motion_inventory_stays_at_eight),
