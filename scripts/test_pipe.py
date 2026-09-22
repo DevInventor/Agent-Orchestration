@@ -1436,6 +1436,49 @@ def a_later_wave_lands_on_the_same_branch():
             "--wave must attach to the live workstream instead of suffixing"
 
 
+def an_inherited_failure_needs_evidence_not_a_smaller_number():
+    """S48 - qa-check used to fail on any non-zero `failed`, so a correct run that
+    inherited two pre-existing reds was gated red anyway, and the cheapest way to green it
+    was to edit the number down. That is an incentive to falsify the record, not a
+    friction. An inherited failure can be declared - with evidence - and anything beyond
+    the declared ones is new by definition."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Baseline reds")
+        run(root, "task", "add", "--id", "T1", "--title", "only task")
+        run(root, "task", "update", "--id", "T1", "--status", "done")
+        os.makedirs(os.path.join(root, "review"), exist_ok=True)
+        os.makedirs(os.path.join(root, "test"), exist_ok=True)
+        rev = os.path.join(root, "review", "review.json")
+        res = os.path.join(root, "test", "results.json")
+        open(rev, "w", encoding="utf-8").write(json.dumps({"findings": []}))
+
+        def results(payload):
+            open(res, "w", encoding="utf-8").write(json.dumps(payload))
+
+        results({"failed": 2})
+        out = run(root, "qa-check", expect=1)
+        assert "failing test" in out, out
+
+        # Declared, with proof, and nothing else red: the gate is green.
+        results({"failed": 2, "baselineFailures": [
+            {"test": "a", "evidence": "fails on base 1cbf13f"},
+            {"test": "b", "evidence": "fails on base 1cbf13f"}]})
+        run(root, "qa-check")
+
+        # One more red than declared is new, whatever the declarations say.
+        results({"failed": 3, "baselineFailures": [
+            {"test": "a", "evidence": "fails on base 1cbf13f"},
+            {"test": "b", "evidence": "fails on base 1cbf13f"}]})
+        out = run(root, "qa-check", expect=1)
+        assert "1 new failing test" in out, out
+
+        # A declaration without evidence is a claim, not a baseline.
+        results({"failed": 1, "baselineFailures": [{"test": "a"}]})
+        out = run(root, "qa-check", expect=1)
+        assert "no evidence" in out, out
+
+
 def heartbeat_keeps_a_long_command_from_looking_dead():
     """S47 - the watchdog kills an agent after ~600s of silent output, and a ten-minute
     build is silent for its whole duration. Five agents across two estates have died that
@@ -1511,6 +1554,7 @@ SCENARIOS = [
     ("S41", slug_derivation_strips_decoration_at_either_end),
     ("S42", a_later_wave_lands_on_the_same_branch),
     ("S47", heartbeat_keeps_a_long_command_from_looking_dead),
+    ("S48", an_inherited_failure_needs_evidence_not_a_smaller_number),
     ("S40", the_root_route_serves_the_hall),
     ("S41", every_character_has_both_hair_layers),
     ("S42", the_motion_inventory_stays_at_eight),

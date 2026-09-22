@@ -648,7 +648,21 @@ def cmd_qa_check(root, args):
         if results is None:
             fails.append(f"no test results at {where}test/results.json - the tester never reported")
         elif results.get("failed"):
-            fails.append(f"{results['failed']} failing test(s) in {where}test/results.json")
+            # A red that the run did not cause still failed the gate, and the cheapest way
+            # to make it green was to edit this number down - so the old rule rewarded
+            # falsifying the record. An inherited failure can now be declared, but only
+            # with evidence: the tester proves it by running the test on the untouched
+            # base commit. Unproven entries do not count, and a failure beyond the
+            # declared ones is new by definition.
+            inherited = results.get("baselineFailures") or []
+            unproven = [b for b in inherited if not str(b.get("evidence", "")).strip()]
+            if unproven:
+                fails.append(f"{len(unproven)} baseline failure(s) in {where}test/results.json "
+                             f"carry no evidence: "
+                             + "; ".join(str(b.get("test", "?"))[:40] for b in unproven))
+            elif results["failed"] > len(inherited):
+                fails.append(f"{results['failed'] - len(inherited)} new failing test(s) in "
+                             f"{where}test/results.json ({len(inherited)} declared inherited)")
     tasks = read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])
     todo = [t for t in tasks if t.get("status") != "done"]
     if todo:

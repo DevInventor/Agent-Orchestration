@@ -50,6 +50,20 @@ these two do not cover.
 2. Overwrite `pipeline/test/results.json` with the new iteration number and delta.
 3. Emit a `result` event with the new pass/fail count.
 
+## A red you inherited is not a red you caused
+
+If a test was already failing before this run touched anything, **prove it and declare
+it** — do not quietly leave it in the count, and never edit the count down. Run the failing
+test on the untouched base commit, then record it in `test/results.json`:
+
+```json
+{ "failed": 2,
+  "baselineFailures": [ { "test": "AuthIT#expiredToken", "evidence": "fails on base 1cbf13f" } ] }
+```
+
+`qa-check` passes when every remaining failure is declared **with evidence**, and fails on
+anything beyond them. A declaration with no evidence is a claim, and counts as a failure.
+
 ## Commit your tests, and run them through the heartbeat
 
 **Commit every test file you add or change**, message `T#: tests for <task>`. The reviewer
