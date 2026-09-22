@@ -277,12 +277,19 @@ const server = http.createServer((req, res) => {
 
 // Launching the dashboard is now part of starting a run, so a second launch is expected
 // and must not be a crash: report the one already running and exit clean.
+// A held port is NOT proof our dashboard is on it. Observed: 4600 and 4601 both taken,
+// one by a dashboard from a run that had finished three days earlier and that nothing
+// reaps - so assuming "already running" and exiting left the operator with no dashboard
+// at all. Step to the next free port instead, and report the one actually bound.
+let port = PORT;
 server.on("error", (e) => {
+  if (e.code === "EADDRINUSE" && port < PORT + 10) {
+    server.listen(++port, "127.0.0.1");
+    return;
+  }
   if (e.code === "EADDRINUSE") {
-    console.log(`Agent-Orchestration dashboard already running  ->  http://localhost:${PORT}`);
-    console.log(`(if it is watching a different pipeline, stop it and restart with)`);
-    console.log(` --pipeline ${SINGLE || "<dir>"}`);
-    process.exit(0);
+    console.log(`no free port in ${PORT}-${PORT + 10}; stop a stale dashboard and retry`);
+    process.exit(1);
   }
   throw e;
 });
@@ -290,7 +297,8 @@ server.on("error", (e) => {
 // 127.0.0.1 only (section 14): POST /api/gate sits behind this, and an unbound listen
 // offers it to the whole network.
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Agent-Orchestration dashboard  ->  http://localhost:${PORT}`);
+  port = server.address().port;
+  console.log(`Agent-Orchestration dashboard  ->  http://localhost:${port}`);
   if (SINGLE) {
     console.log(`watching pipeline    ->  ${SINGLE}`);
     if (!fs.existsSync(SINGLE)) {

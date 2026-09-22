@@ -170,6 +170,19 @@ def derive_slug(spec_path):
     return slugify(stem)
 
 
+def configured_repos_root():
+    """The registry's reposRoot, or None when there is no registry. Absence is valid."""
+    path = find_config()
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        cfg = json.loads(open(path, encoding="utf-8").read())
+    except (json.JSONDecodeError, OSError):
+        return None      # cmd_config is where a broken registry is reported, not here
+    base = os.path.dirname(os.path.abspath(path))
+    return os.path.abspath(os.path.join(base, cfg.get("reposRoot", ".")))
+
+
 def same_spec(a, b):
     """Two spec paths naming one document, compared the way this filesystem compares."""
     if not a or not b:
@@ -693,7 +706,12 @@ def cmd_worktree(root, args):
     repo = os.path.abspath(args.repo)
     if not os.path.isdir(repo) or git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
         sys.exit(f"not a git repository: {repo}")
-    repos_root = os.path.dirname(repo)
+    # The container belongs beside the repositories, not beside one of them. Where a
+    # registry declares reposRoot, that IS the repos root; deriving it from the repo's
+    # parent puts the container *inside* the checkout directory when repos are grouped
+    # under one (GoTrust keeps every repo under GoTrust/codebase/, and its hand-made
+    # containers correctly sit at GoTrust/wt-<slug>, a sibling of it).
+    repos_root = configured_repos_root() or os.path.dirname(repo)
     # The container is repos-root-shaped and sits OUTSIDE every repo, so nothing in it
     # can be committed into one by accident (section 17).
     if git(repos_root, "rev-parse", "--show-toplevel", check=False).returncode == 0:
