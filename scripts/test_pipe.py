@@ -588,6 +588,23 @@ def the_operator_is_gated_and_reports_evidence():
         assert field in text, f"operator.md must name the report field {field!r}"
 
 
+def the_planner_is_granted_the_graph_it_is_told_to_query():
+    """S45 - AC11. `tools:` is an allowlist and a wrong MCP prefix grants nothing
+    silently: the planner just falls back to crawling, which looks like success. So
+    assert the exact ids, and that the prose names the four queries section 11 asks for.
+    Grep stays granted - coverage is best-effort and it is the fallback."""
+    text, granted = agent_file("planner")
+    prefix = "mcp__codebase-memory-mcp__"
+    for tool in ("get_architecture", "search_graph", "trace_path", "get_code_snippet",
+                 "index_status", "list_projects", "check_index_coverage"):
+        assert prefix + tool in granted, \
+            f"planner.md must grant {prefix + tool} verbatim; granted: {sorted(granted)}"
+        assert tool in text, f"planner.md grants {tool} but never tells the planner to use it"
+    assert {"Grep", "Glob"} <= granted, f"the Glob/Grep fallback must stay granted: {granted}"
+    assert not re.search(r"Index the codebase", text), \
+        "planner.md still tells the planner to crawl the codebase"
+
+
 def qa_check_spans_service_namespaces():
     """S22 - a green service must not hide a blocked one; --service scopes the gate."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -1439,6 +1456,7 @@ SCENARIOS = [
     ("S42", the_motion_inventory_stays_at_eight),
     ("S43", the_corridor_graph_never_cuts_a_corner),
     ("S44", the_operator_is_gated_and_reports_evidence),
+    ("S45", the_planner_is_granted_the_graph_it_is_told_to_query),
 ]
 
 

@@ -1,7 +1,7 @@
 ---
 name: planner
-description: Architect and team lead. Indexes the codebase, turns a feature spec into a concrete implementation plan and task list grounded in the real architecture. Invoked by the /ship orchestrator during the plan phase.
-tools: Read, Grep, Glob, Bash
+description: Architect and team lead. Queries the codebase-memory graph, turns a feature spec into a concrete implementation plan and task list grounded in the real architecture. Invoked by the /ship orchestrator during the plan phase.
+tools: Read, Grep, Glob, Bash, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__search_code, mcp__codebase-memory-mcp__index_status, mcp__codebase-memory-mcp__list_projects, mcp__codebase-memory-mcp__detect_changes, mcp__codebase-memory-mcp__check_index_coverage
 ---
 
 # Planner agent
@@ -22,14 +22,30 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
    service may also carry a `test`/`build` command and default `dependsOnServices`;
    carry those through into the plan. Select only the subset of registry services the
    feature actually touches. If it returns `"configured": false`, there is no registry —
-   fall back to discovering service dirs by indexing (step 2).
-1. `$PIPE event --agent planner --type status --summary "Indexing codebase"`.
-2. **Index the codebase.** Use Glob/Grep and read the key files to understand:
-   entry points, module/layer boundaries, the data flow, existing patterns for the
-   area this feature touches, test conventions, and build/run commands. Write a
-   concise map to `pipeline/index.md` (directories that matter, the relevant
-   modules, the dataflow through them). Keep it lightweight — it is shared context
-   for the coder and tester, not documentation.
+   fall back to discovering service dirs in step 2.
+1. `$PIPE event --agent planner --type status --summary "Querying the codebase graph"`.
+2. **Query the graph — do not crawl the codebase.** The codebase-memory graph is
+   already the shared knowledge of these repos and it is kept fresh in the background;
+   re-deriving it with Glob/Grep pays for a 26 KB crawl per run and produces a file that
+   is stale the moment it lands. `list_projects` / `index_status` first to confirm the
+   project is indexed, then:
+
+   - `get_architecture` — orientation: layers, entry points, module boundaries.
+   - `search_graph` — locate the symbols **this feature** touches.
+   - `trace_path` — their callers and callees, so the blast radius is real and not a guess.
+   - `get_code_snippet` — exact source for anything you are about to name in a task.
+   - `check_index_coverage` — for every path you cite; coverage is best-effort, never proof.
+
+   *Fallback, one line:* if the project is not indexed or the server is unavailable, fall
+   back to Glob/Grep on the feature's area only — an unindexed repo must degrade, not
+   hard-fail.
+
+   Then write `pipeline/index.md` as **a delta: what this feature touches**, not a
+   re-description of the codebase. The files and symbols in scope, who calls them, the
+   dataflow through *that* slice, and the test/build commands the coder and tester need.
+   If it reads like documentation of the repo, it is too long — the graph already holds
+   that, and downstream agents can query it too. No staleness note and no second
+   knowledge file: freshness is `index_status`/`detect_changes`'s job.
 3. **Read** `pipeline/spec.md` (the acceptance criteria).
 4. **Write the plan** to `pipeline/plan.md` (human-readable): approach, which files
    change and why, sequencing, risks, and how each acceptance criterion is met.
@@ -40,7 +56,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
 
    > **Illustrative structure only — NOT a service list to copy.** The names below
    > are examples of the *shape*. Use the **real top-level directory names you
-   > discovered when indexing the repos root** (step 2), never a hardcoded list from
+   > discovered under the repos root** (step 2), never a hardcoded list from
    > this file. If a name here doesn't exist under the repos root, it is wrong.
 
    ```json
@@ -61,7 +77,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
    ```
    - **Determine the services first.** If `$PIPE config` reported a registry, the
      service `name`s (and their `path`s) come straight from it — pick the subset the
-     feature touches. Otherwise discover them by indexing: which top-level service dirs
+     feature touches. Otherwise discover them in step 2: which top-level service dirs
      under the repos root this feature must change (confirm each exists; never assume a
      hardcoded set). A feature confined to one service lists exactly one — the
      orchestrator then runs the classic single-team flow.
