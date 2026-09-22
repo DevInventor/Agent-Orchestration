@@ -1436,6 +1436,46 @@ def a_later_wave_lands_on_the_same_branch():
             "--wave must attach to the live workstream instead of suffixing"
 
 
+def heartbeat_keeps_a_long_command_from_looking_dead():
+    """S47 - the watchdog kills an agent after ~600s of silent output, and a ten-minute
+    build is silent for its whole duration. Five agents across two estates have died that
+    way. The wrapper has to do three things or it is not worth running: tick while the
+    command lives, exit with the command's own code, and break a lock whose owner is gone
+    rather than waiting out an age-based timeout - a hard kill never runs a shell trap."""
+    hb = os.path.join(os.path.dirname(PIPE), "heartbeat.py")
+    assert os.path.isfile(hb), "scripts/heartbeat.py is missing"
+
+    def hbrun(*args):
+        r = subprocess.run([sys.executable, hb, *args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120)
+        return r.returncode, r.stdout + r.stderr
+
+    code, _ = hbrun("--", sys.executable, "-c", "import sys; sys.exit(7)")
+    assert code == 7, f"the wrapped command's exit code must survive; got {code}"
+
+    code, out = hbrun("--tick", "1", "--",
+                      sys.executable, "-c", "import time; time.sleep(3)")
+    assert code == 0, code
+    assert "[heartbeat]" in out, \
+        f"nothing was printed while the command ran - the stream stays silent:\n{out}"
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        # A lock whose owner is long gone must not cost the next build its timeout.
+        locks = os.path.join(os.path.expanduser("~"), ".agent-orchestration", "locks")
+        os.makedirs(locks, exist_ok=True)
+        name = "test-" + os.path.basename(tmp)
+        lock = os.path.join(locks, name + ".lock")
+        open(lock, "w", encoding="utf-8").write("999999")
+        try:
+            code, out = hbrun("--lock", name, "--", sys.executable, "-c", "pass")
+            assert code == 0, f"a dead owner's lock blocked the run: {out}"
+            assert "breaking" in out, f"the steal must say so:\n{out}"
+            assert not os.path.exists(lock), "the lock was not released on exit"
+        finally:
+            if os.path.exists(lock):
+                os.unlink(lock)
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1470,6 +1510,7 @@ SCENARIOS = [
     ("S40", the_hall_boots_from_the_bus_not_the_fixture),
     ("S41", slug_derivation_strips_decoration_at_either_end),
     ("S42", a_later_wave_lands_on_the_same_branch),
+    ("S47", heartbeat_keeps_a_long_command_from_looking_dead),
     ("S40", the_root_route_serves_the_hall),
     ("S41", every_character_has_both_hair_layers),
     ("S42", the_motion_inventory_stays_at_eight),

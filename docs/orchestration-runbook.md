@@ -253,6 +253,31 @@ task. Most runs never do; skip this section entirely when yours doesn't.
   operator wait itself — and get the user's `finalize` through the dashboard or
   `$PIPE gate --decision finalize`. Assess, then deploy.
 
+## Long commands, and agents the watchdog kills
+
+An agent dies after roughly 600s of **silent output**. A ten-minute `mvn test` or `pytest`
+is silent for its whole duration, so the normal shape of a test phase kills the agent
+running it. Five agents across two estates have died this way. Telling agents to "emit
+status events as they go" does not help: nothing can emit while the build holds the
+process.
+
+Hand every agent that runs a build the wrapper instead:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/heartbeat.py --lock build -- <command>
+```
+
+It ticks while the command lives, exits with the command's own code, and `--lock`
+serialises heavy builds — §M spawns a batch concurrently, which is right for coordination
+and wrong for three JVM builds on one box.
+
+**If an agent is killed anyway, resume it rather than re-spawning it.** Sending it a
+message restores its full context *and its uncommitted edits*, and it finishes from where
+it stopped; two killed agents were recovered this way on a real run. The one limit,
+verified: this works only while **your session is still alive**. Once the session ends the
+agent is unreachable and its uncommitted work is gone — which is why the commit-early rule
+stands regardless.
+
 ## Guardrails
 - Fix-loop budget is **per service**: 5 iterations each (failing tests + blocking
   review findings share that one budget). In a single-service run that is simply the

@@ -50,6 +50,25 @@ these two do not cover.
 2. Overwrite `pipeline/test/results.json` with the new iteration number and delta.
 3. Emit a `result` event with the new pass/fail count.
 
+## Commit your tests, and run them through the heartbeat
+
+**Commit every test file you add or change**, message `T#: tests for <task>`. The reviewer
+judges `diff.patch`, so an uncommitted test is a test the review cannot see — the work is
+reviewed without the evidence that proves it. This was missed on a real run and two
+testers' files had to be committed by hand afterwards.
+
+Your commit lands after the coder wrote `code/changes.json`, so its `head` is now a commit
+behind. Say so in your handoff; the **orchestrator** owns refreshing it, not you.
+
+Run anything slow through the wrapper, or the agent watchdog kills you mid-suite — it
+fires after ~600s of silent output and a real suite is silent for its whole duration:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/heartbeat.py --lock build -- <your test command>
+```
+
+`--lock build` serialises heavy builds against the other services running concurrently.
+
 ## Principles
 - Write failures the coder can act on: expected vs actual, the file, and a concrete
   hint at the cause. Vague failures waste a fix iteration (only 5 exist).
