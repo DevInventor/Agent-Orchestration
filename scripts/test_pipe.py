@@ -1315,6 +1315,71 @@ def the_hall_boots_from_the_bus_not_the_fixture():
             assert code == 200 and "hall-boot" in body, (code, body[:200])
 
 
+def slug_derivation_strips_decoration_at_either_end():
+    """S41 - section 9. Decoration leads as well as trails, and stacks. A document
+    carries a kind prefix and a date because documents need them; a branch name needs
+    neither. GoTrust's real spec is SPEC-2026-09-21-entra-hold-and-deny.md, and leaving
+    the prefix on produced the slug spec-2026-09-21-entra-hold-and-deny - a second branch
+    beside the real one, whose first symptom is a deploy that ships nothing."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        env = {"AGENT_ORCHESTRATION_HOME": os.path.join(tmp, "aohome")}
+        root = os.path.join(tmp, "bus")
+        for path, want in {
+            "SPEC-2026-09-21-entra-hold-and-deny.md": "entra-hold-and-deny",
+            "docs/SPEC-2026-09-21-entra-hold-and-deny.md": "entra-hold-and-deny",
+            "docs/specs/entra-hold-and-deny-spec.md": "entra-hold-and-deny",
+            "2026-09-18-multi-pipeline-engine.md": "multi-pipeline-engine",
+            "RFC-2026-01-02-token-rotation.md": "token-rotation",
+        }.items():
+            got = run(root, "slug", "--spec", path, env=env).strip()
+            assert got == want, f"{path} derived {got!r}, expected {want!r}"
+
+
+def a_later_wave_lands_on_the_same_branch():
+    """S42 - section 3.3, and the contract derive_slug's own docstring states: a later
+    wave re-derives the slug and must land on the same string. The old rule suffixed on
+    ANY collision with a live workstream, so wave 2 silently became <slug>-2 - a second
+    branch in every repo, and a finish that merges the wrong half. The spec path decides:
+    same document attaches, a different document that derives the same name is a real
+    collision, and a bus too old to say stops rather than guessing a branch."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        docs = os.path.join(tmp, "docs")
+        os.makedirs(docs, exist_ok=True)
+        spec = os.path.join(docs, "auth-v2.md")
+        open(spec, "w", encoding="utf-8").write("# spec\n")
+
+        root = os.path.join(home, "pipelines", "auth-v2", "pipeline")
+        run(root, "init", "--slug", "auth-v2", "--spec", spec,
+            "--feature", "Auth v2", env=env)
+        rec = json.loads(open(os.path.join(root, "run.json"), encoding="utf-8").read())
+        assert rec.get("specPath"), "init did not record which spec the workstream came from"
+
+        assert run(root, "slug", "--spec", spec, env=env).strip() == "auth-v2", \
+            "a wave of the same document must attach to the same slug, not suffix"
+
+        other = os.path.join(tmp, "archive")
+        os.makedirs(other, exist_ok=True)
+        other_spec = os.path.join(other, "auth-v2.md")
+        open(other_spec, "w", encoding="utf-8").write("# different feature\n")
+        assert run(root, "slug", "--spec", other_spec, env=env).strip() == "auth-v2-2", \
+            "a different document deriving the same name is a real collision"
+
+        # A bus from before specPath existed cannot be told apart. Suffixing stays the
+        # default there - two different live workstreams must not share a branch - but it
+        # must not happen silently, and --wave has to be offered as the way to attach.
+        legacy = os.path.join(home, "pipelines", "legacy-ws", "pipeline")
+        run(legacy, "init", "--slug", "legacy-ws", "--feature", "Legacy", env=env)
+        lspec = os.path.join(docs, "legacy-ws.md")
+        open(lspec, "w", encoding="utf-8").write("# spec\n")
+        out = run(legacy, "slug", "--spec", lspec, env=env).strip()
+        assert out == "legacy-ws-2", \
+            f"an undecidable collision must still suffix, exactly as it always did: {out!r}"
+        assert run(legacy, "slug", "--spec", lspec, "--wave", env=env).strip() == "legacy-ws", \
+            "--wave must attach to the live workstream instead of suffixing"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1347,6 +1412,8 @@ SCENARIOS = [
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S40", the_hall_boots_from_the_bus_not_the_fixture),
+    ("S41", slug_derivation_strips_decoration_at_either_end),
+    ("S42", a_later_wave_lands_on_the_same_branch),
     ("S40", the_root_route_serves_the_hall),
     ("S41", every_character_has_both_hair_layers),
     ("S42", the_motion_inventory_stays_at_eight),

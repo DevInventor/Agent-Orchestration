@@ -25,7 +25,7 @@ PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    on a second branch.
    ```bash
    $PIPE slug --spec "<the doc path>"                      # -> e.g. 009-messaging-hub
-   $PIPE init --slug "<slug>" --feature "<one-line title>" # stdout is JSON; .busPath = the bus
+   $PIPE init --slug "<slug>" --spec "<the doc path>" --feature "<one-line title>"
    ```
    `init` prints one JSON document; its **`busPath`** key is the resolved absolute
    bus path (`... | python3 -c 'import json,sys;print(json.load(sys.stdin)["busPath"])'`).

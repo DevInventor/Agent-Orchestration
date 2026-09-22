@@ -155,19 +155,58 @@ def derive_slug(spec_path):
     stem = os.path.splitext(os.path.basename(p))[0]
     if stem.lower() in GENERIC_SPEC_NAMES:
         stem = os.path.basename(os.path.dirname(p))
-    stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)
-    stem = re.sub(r"-(design|spec)$", "", stem, flags=re.IGNORECASE)
+    # Decoration can lead as well as trail, and can stack: 'SPEC-2026-09-21-entra-...'
+    # is a real filename from the GoTrust estate. A document carries a kind prefix and a
+    # date because documents need them; a branch name needs neither, and leaving either
+    # on produced 'spec-2026-09-21-entra-hold-and-deny' - a second branch beside the real
+    # one, whose first symptom is a deploy that ships nothing. Strip until nothing leads.
+    while True:
+        stripped = re.sub(r"^(?:\d{4}-\d{2}-\d{2}|design|spec|rfc|adr)[-_]", "", stem,
+                          flags=re.IGNORECASE)
+        if stripped == stem:
+            break
+        stem = stripped
+    stem = re.sub(r"[-_](design|spec)$", "", stem, flags=re.IGNORECASE)
     return slugify(stem)
 
 
-def resolve_slug(slug):
-    """Suffix rather than reuse an ACTIVE workstream's slug — two live runs sharing a
-    slug would share a branch, a container and a bus directory. A closed one is free."""
-    active = {p["slug"] for p in scan_pipelines()
-              if p["run"].get("status") not in ("done", "failed")}
-    if slug not in active:
+def same_spec(a, b):
+    """Two spec paths naming one document, compared the way this filesystem compares."""
+    if not a or not b:
+        return False
+    norm = lambda p: os.path.normcase(os.path.abspath(p.replace("\\", "/")))
+    return norm(a) == norm(b)
+
+
+def resolve_slug(slug, spec_path=None, mode="auto"):
+    """Decide whether this slug starts a NEW workstream or attaches to a live one.
+
+    The old rule suffixed on ANY collision with an active workstream, which broke the
+    contract derive_slug exists to keep - that a later wave re-derives the slug and lands
+    on the same string. Wave 2 of a live workstream silently became '<slug>-2': a second
+    branch, in every repo, and a `finish` that then merges the wrong half. Reproduced
+    against a live run, so this is a fix and not a precaution.
+
+    The spec path decides. Same document, same workstream: attach to it. A different
+    document that happens to derive the same name: a real collision, suffix it. A bus
+    from before specPath was recorded cannot be told apart, and guessing either way can
+    be wrong, so that case stops and asks rather than choosing in silence."""
+    live = [p for p in scan_pipelines()
+            if p["run"].get("status") not in ("done", "failed")]
+    clash = [p for p in live if p["slug"] == slug]
+    if not clash or mode == "wave":
         return slug
+
+    if mode == "auto":
+        knowable = [p for p in clash if p["run"].get("specPath")]
+        if any(same_spec(p["run"]["specPath"], spec_path) for p in knowable):
+            return slug                       # a later wave of this same workstream
+        # A bus from before specPath was recorded cannot be told apart, and falls through
+        # to the suffix unchanged - two *different* live workstreams sharing a slug would
+        # share a branch, a container and a bus. `--wave` is the way to say otherwise.
+
     n = 2
+    active = {p["slug"] for p in live}
     while f"{slug}-{n}" in active:
         n += 1
     return f"{slug}-{n}"
@@ -248,7 +287,10 @@ def cmd_slug(root, args):
     """Print the workstream slug for a spec doc (or a bare feature title), collision
     -checked against the active workstreams. The entry skills call this instead of
     applying the rule by eye, so `init`, a later wave and `finish` all agree."""
-    print(resolve_slug(derive_slug(args.spec) if args.spec else slugify(args.title)))
+    mode = "wave" if getattr(args, "wave", False) else \
+           "new" if getattr(args, "new", False) else "auto"
+    base = derive_slug(args.spec) if args.spec else slugify(args.title)
+    print(resolve_slug(base, spec_path=args.spec, mode=mode))
 
 
 def cmd_init(root, args):
@@ -284,6 +326,11 @@ def cmd_init(root, args):
         run["branch"] = "feature/" + args.slug
         run["repos"] = []
         run["mode"] = "worktree"
+        # Which document this workstream came from. Recorded so a later wave can be told
+        # apart from a different feature that derives the same name - without it,
+        # resolve_slug has to stop and ask rather than pick a branch on a guess.
+        if getattr(args, "spec", None):
+            run["specPath"] = os.path.abspath(args.spec)
     save_run(root, run)
     atomic_write(os.path.join(root, "spec.md"),
                  f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
@@ -920,8 +967,9 @@ def build_parser():
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--slug", default=None); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--slug", default=None); s.add_argument("--spec", default=None); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
     s = sub.add_parser("slug"); g = s.add_mutually_exclusive_group(required=True); g.add_argument("--spec"); g.add_argument("--title")
+    w = s.add_mutually_exclusive_group(); w.add_argument("--wave", action="store_true", help="attach to the live workstream of this name"); w.add_argument("--new", action="store_true", help="mint a suffixed slug beside it")
     s = sub.add_parser("event")
     s.add_argument("--agent", required=True)
     s.add_argument("--type", required=True, choices=["status", "handoff", "finding", "question", "result", "error"])
