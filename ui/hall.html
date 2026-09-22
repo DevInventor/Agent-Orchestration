@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent-Orchestration · the hall</title>
+<style>
+  /* ---- section 10.1 tokens ---------------------------------------------------------
+     Two themes, resolved three ways: bare :root is light, system dark is guarded by
+     :root:not([data-theme="light"]) so an explicit light toggle wins over the OS, and
+     :root[data-theme="dark"] wins in both directions. The dark block is written twice
+     on purpose - CSS cannot share one declaration list between a media query and a
+     plain selector, and a variable-of-variables costs more than the duplication.
+     The palette is cool slate and there is no brown anywhere: the first floor read as a
+     school hall, the instinct was to blame the cast, and it was the room. */
+  :root{
+    --ink:#F5F6F9; --panel:#FFFFFF; --sunk:#ECEEF3; --raise:#FFFFFF;
+    --line:#DCE0E7; --line-2:#C2C9D4;
+    --text:#3A424F; --bright:#0E131B; --muted:#6B7585; --faint:#98A1AF;
+    --planner:#9A6B10; --coder:#1A6CA8; --tester:#A33468; --reviewer:#1B7A52; --orch:#6B4FA8;
+    --ok:#1B7A52; --warn:#9A6B10; --bad:#B03A34;
+    --felt:#E7EAF0;
+    /* floor tokens - the office view only */
+    --floor:#DFE4EA; --floor-2:#D3D9E1; --grout:rgba(255,255,255,.7);
+    --wall:#FBFBFC; --wall-edge:#C8CFD8; --wall-shadow:rgba(28,38,52,.14);
+    --wood:#B9C1CC; --wood-2:#98A3B2; --deskglass:#EEF1F5;
+    --chairc:#7F8B9B; --chairc-2:#68748453;
+    --skin:#D8A57C; --legs:#3C4A63; --shoe:#2B3344;
+    --eye:#28313F; --pupil:#11161F;
+    --screen:#2F9E73; --screen-b:#E4E8EE; --pot:#9BA5B2; --leaf:#7E97A8;
+    /* Fira where it is installed, real system fallbacks everywhere else. No <link>: the
+       server is dependency-free and serves localhost, so type must not need a network. */
+    --mono:"Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:"Fira Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --ease-out:cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out:cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+      --line:#1D2531; --line-2:#2C3644;
+      --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+      --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+      --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+      --felt:#121822;
+      --floor:#161C26; --floor-2:#131922; --grout:rgba(255,255,255,.045);
+      --wall:#232C3A; --wall-edge:#0E131B; --wall-shadow:rgba(0,0,0,.6);
+      --wood:#39465A; --wood-2:#2A3446; --deskglass:#2E394A;
+      --chairc:#3A4658; --chairc-2:#2C3644;
+      --skin:#C08E64; --legs:#2C3548; --shoe:#1B2130;
+      --eye:#070A0F; --pupil:#05080D;
+      --screen:#3FBE8B; --screen-b:#1E2733; --pot:#39465A; --leaf:#46606F;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+    --line:#1D2531; --line-2:#2C3644;
+    --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+    --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+    --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+    --felt:#121822;
+    --floor:#161C26; --floor-2:#131922; --grout:rgba(255,255,255,.045);
+    --wall:#232C3A; --wall-edge:#0E131B; --wall-shadow:rgba(0,0,0,.6);
+    --wood:#39465A; --wood-2:#2A3446; --deskglass:#2E394A;
+    --chairc:#3A4658; --chairc-2:#2C3644;
+    --skin:#C08E64; --legs:#2C3548; --shoe:#1B2130;
+    --eye:#070A0F; --pupil:#05080D;
+    --screen:#3FBE8B; --screen-b:#1E2733; --pot:#39465A; --leaf:#46606F;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:14px;
+    line-height:1.5;display:flex;flex-direction:column;height:100vh;-webkit-font-smoothing:antialiased}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+
+  /* ---- top bar ---- */
+  header{flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:11px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--bright)}
+  .brand b{color:var(--coder)} .brand span{color:var(--faint)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .seg button{background:transparent;border:0;color:var(--muted);font-family:var(--mono);
+    font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:4px 14px;cursor:pointer}
+  .seg button.sel{background:var(--sunk);color:var(--bright)}
+  .spacer{margin-left:auto}
+  .ghost{background:transparent;border:1px solid var(--line);border-radius:3px;color:var(--muted);
+    font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
+  .ghost:hover{border-color:var(--line-2);color:var(--text)}
+  .conn{font-family:var(--mono);font-size:10px;color:var(--faint);display:flex;align-items:center;gap:5px}
+  .conn .led{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .conn.live .led{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+
+  /* ---- layout: head table left, the hall (or the office) right ---- */
+  main{flex:1 1 auto;display:grid;grid-template-columns:288px 1fr;gap:1px;background:var(--line);min-height:0}
+  .head-table{background:var(--panel);overflow-y:auto;padding:16px 16px 22px;display:flex;
+    flex-direction:column;gap:18px;min-height:0;grid-column:1;grid-row:1}
+  /* Both views are placed in the SAME cell on purpose. main is a two-column grid with
+     three children, so an auto-placed third child wraps to row 2 column 1 - the bottom
+     left corner - the instant hall and office are visible together. Stacking them here
+     makes that state unrepresentable instead of merely unlikely. */
+  .view{background:var(--ink);overflow:auto;min-height:0;padding:18px 20px 24px;
+    grid-column:2;grid-row:1}
+  .view[hidden]{display:none}
+
+  /* head table: the orchestrator, exactly three counts, and the repo registry. Anything
+     more here competes with the hall it is supposed to summarise. */
+  .orch-card{border:1px solid var(--line);border-radius:5px;background:var(--sunk);padding:12px}
+  .orch-top{display:flex;align-items:center;gap:10px}
+  .orch-name{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--orch)}
+  .orch-doing{margin-top:8px;color:var(--text);font-size:13px}
+  .counts{display:flex;gap:8px}
+  .count{flex:1;border:1px solid var(--line);border-radius:4px;padding:7px 8px;background:var(--sunk)}
+  .count b{display:block;font-family:var(--mono);font-size:17px;color:var(--bright);line-height:1.2}
+  .count span{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .count.awaiting b{color:var(--warn)} .count.quiet b{color:var(--bad)}
+
+  .reg-head{display:flex;align-items:baseline;gap:8px}
+  .reg-head a{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--coder);text-decoration:none}
+  .reg-head a:hover{text-decoration:underline}
+  .reg{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+  .repo{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:4px;
+    padding:6px 9px;background:var(--sunk)}
+  .repo-name{font-family:var(--mono);font-size:11px;color:var(--text);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .repo-nodes{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:auto}
+  .ix{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    border:1px solid var(--line);border-radius:2px;padding:0 5px;color:var(--muted)}
+  .ix.fresh{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+  .ix.drift{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+  .reg-add{display:flex;gap:6px;margin-top:8px}
+  .reg-add input{flex:1;min-width:0;background:var(--ink);border:1px solid var(--line);border-radius:3px;
+    color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 8px}
+  .reg-add input::placeholder{color:var(--faint)}
+  .reg-note{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:7px;line-height:1.5}
+
+  footer{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);
+    padding:8px 20px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  footer b{color:var(--text);font-weight:600}
+  /* ---- section 10.3, the cast ----
+     A shared body under a hair layer: the shirt keeps the role colour through
+     currentColor while the hair gives each agent a face, so a team reads two ways at
+     once. Skin, legs, shoes and pupils are theme tokens; hair colours are not - they are
+     the same in both themes, because they are what tells the four of them apart. */
+  .who{display:block;overflow:visible}
+  .who.a-planner{color:var(--planner)} .who.a-coder{color:var(--coder)}
+  .who.a-tester{color:var(--tester)} .who.a-reviewer{color:var(--reviewer)}
+  .who.a-orch{color:var(--orch)}
+  #cast{position:absolute;width:0;height:0;overflow:hidden}
+
+  /* ---- section 10.2, the hall: one card per workstream, and the card is a table ---- */
+  #hall{display:grid;grid-template-columns:repeat(auto-fill,minmax(314px,1fr));gap:14px;align-content:start}
+  .card{--st:var(--line-2);background:var(--panel);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));
+    border-radius:6px;padding:11px 11px 9px;display:flex;flex-direction:column;gap:8px}
+  .card.s-run{--st:var(--coder)} .card.s-gate{--st:var(--warn)}
+  .card.s-done{--st:var(--ok)} .card.s-stale{--st:var(--bad)}
+  .c-head{display:flex;align-items:center;gap:8px;min-width:0}
+  .c-name{font-size:14px;font-weight:600;color:var(--bright);text-decoration:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .c-name:hover{text-decoration:underline}
+  .c-open{font-family:var(--mono);font-size:10px;color:var(--coder);text-decoration:none;opacity:0;
+    transition:opacity .15s linear;white-space:nowrap}
+  .card:hover .c-open{opacity:1}
+  .pill{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--st);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));border-radius:2px;padding:1px 6px}
+  .c-repos{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+
+  /* the felt is a fixed 288x150 so the baton's 26 px inset is a constant, not a measurement */
+  .felt{position:relative;width:288px;height:150px;margin:0 auto;background:var(--felt);
+    border:1px solid var(--line);border-radius:8px}
+  .seat{position:absolute}
+  .seat.tl{left:5px;top:3px} .seat.tr{right:5px;top:3px}
+  .seat.br{right:5px;bottom:3px} .seat.bl{left:5px;bottom:3px}
+  /* section 10.8-1: the fifth seat sits on the bottom edge, outside the clockwise four */
+  .seat.op{left:50%;bottom:-6px;margin-left:-13px}
+
+  .rail{position:absolute;left:8px;right:8px;top:50%;margin-top:-9px;display:flex}
+  .rail::before{content:"";position:absolute;left:6px;right:6px;top:4px;height:1px;background:var(--line-2);opacity:.7}
+  .tk{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--faint)}
+  .tk .d{width:7px;height:7px;border-radius:50%;background:var(--sunk);border:1px solid var(--line-2);
+    position:relative;z-index:1}
+  .tk .l{font-family:var(--mono);font-size:7px;letter-spacing:.04em;color:var(--faint)}
+  .tk.done .d{background:var(--line-2);border-color:var(--line-2)}
+  .tk.done .l{color:var(--muted)}
+  .tk.cur .d{background:currentColor;border-color:currentColor;transform:scale(1.7)}
+  .tk.cur .l{color:currentColor}
+
+  /* one token resting on the felt, inset 26 px from its seat's corner: consecutive hops
+     therefore run along an edge, and the path reads as passing work round a table. */
+  .baton{position:absolute;left:26px;top:26px;width:10px;height:10px;border-radius:2px;
+    background:currentColor;color:var(--muted)}
+
+  .c-foot{display:flex;gap:12px;font-family:var(--mono);font-size:10px;color:var(--muted);flex-wrap:wrap}
+  .c-foot b{color:var(--text);font-weight:600}
+  .c-foot .fail b{color:var(--bad)}
+  .c-stale{font-family:var(--mono);font-size:10px;color:var(--bad)}
+  .c-last{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .c-last b{font-family:var(--mono);font-size:10px;font-weight:400}
+  .gate{display:flex;gap:6px}
+  .gate button{flex:1;background:var(--sunk);border:1px solid var(--line);border-radius:3px;color:var(--text);
+    font-family:var(--mono);font-size:11px;padding:5px 0;cursor:pointer}
+  .gate button[data-d="finalize"]{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+  .gate button[data-d="reject"]{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+  .gate button:hover{background:var(--raise)}
+  .gate button[disabled]{opacity:.5;cursor:default}
+
+  /* section 10.8-4: a finished team collapses to one line. Not removed, not filtered -
+     six of twelve real pipelines were never closed, so visible closure is the signal
+     worth keeping; collapsing only reclaims the space it takes from live work. */
+  .card.collapsed{grid-column:1/-1;padding:7px 11px}
+  .card.collapsed>*{display:none}
+  .card.collapsed>.c-head{display:flex}
+
+  /* ---- section 10.4, the motion inventory: eight entries, six rules ----------------
+     Six of the eight are one agent's states plus the two that mark a change. If this
+     list grows to twenty, that is the bug.
+       1. stepped, never eased - a pixel character that tweens reads as a moving div
+       2. exactly one agent per table types; the rest are at much lower --amp
+       3. something always moves at rest - a still floor reads as a broken dashboard
+       4. stillness is the alarm - a stale team freezes mid-keystroke and dims
+       5. transform and opacity only: no layout, no paint, no transition:all
+       6. prefers-reduced-motion stops every loop and leaves the resting pose */
+
+  /* 1 · baton travel — handoff — transform — 280 ms ease-in-out */
+  .baton{transition:transform 280ms var(--ease-in-out)}
+  /* 2 · typing — the one agent that holds the work — 340 ms steps(1), loops */
+  @keyframes typing{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1.5px * var(--amp,1)))}}
+  .who.st-type{animation:typing 340ms steps(1) infinite}
+  /* the rail's current tick beats on the same rhythm, in the active agent's colour -
+     reusing an entry is how the inventory stays at eight */
+  .tk.cur{--amp:.55;animation:typing 340ms steps(1) infinite}
+  /* 3 · waiting — turn not yet come — 3.4 s steps(1), loops */
+  @keyframes waiting{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1px * var(--amp,1)))}}
+  .who.st-wait{--amp:.5;animation:waiting 3.4s steps(1) infinite}
+  /* 4 · asleep — agent finished — 3.6 s, opacity and transform */
+  @keyframes sleeping{0%,100%{opacity:.62;transform:translateY(0)}50%{opacity:.48;transform:translateY(.8px)}}
+  .who.st-sleep{animation:sleeping 3.6s steps(1) infinite}
+  /* 5 · walking in — the baton lands — 440 ms steps(4), once. On the seat, not the
+     sprite, so the arriving agent keeps its own loop. */
+  @keyframes walk-in{from{transform:translateX(-10px);opacity:.6}to{transform:translateX(0);opacity:1}}
+  .seat.arrive{animation:walk-in 440ms steps(4) 1}
+  /* 6 · table entrance — first paint only — 260 ms ease-out, never replays */
+  @keyframes table-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+  .card.enter{animation:table-in 260ms var(--ease-out) 1}
+  /* 7 · repo row in — you register a repo — 240 ms ease-out */
+  @keyframes row-in{from{opacity:0;transform:translateX(-7px)}to{opacity:1;transform:translateX(0)}}
+  .repo.enter{animation:row-in 240ms var(--ease-out) 1}
+  /* 8 · going quiet — stale > 3 min — freeze plus opacity — 2.6 s ease-in-out, loops */
+  @keyframes going-quiet{0%,100%{opacity:1}50%{opacity:.5}}
+  .card.s-stale .felt{animation:going-quiet 2.6s var(--ease-in-out) infinite}
+  .card.s-stale .who,.card.s-stale .tk.cur{animation-play-state:paused}
+
+  /* ---- section 10.5, the office floor ----
+     One open floor; the building's outer wall is the only wall. A team is a desk island
+     on a rug and the rug carries the state, so you read the rug before you find a single
+     agent - which is what a floor plan has to earn for being slower to scan than a table. */
+  #office{padding:0;position:relative;overflow:hidden;cursor:grab}
+  #office.drag{cursor:grabbing}
+  .floor{position:absolute;left:0;top:0;transform-origin:0 0;border:4px solid var(--wall);
+    box-shadow:0 0 0 1px var(--wall-edge),inset 0 0 44px var(--wall-shadow);
+    background:
+      repeating-linear-gradient(0deg,var(--grout) 0 1px,transparent 1px 34px),
+      repeating-linear-gradient(90deg,var(--grout) 0 1px,transparent 1px 34px),
+      linear-gradient(160deg,var(--floor),var(--floor-2))}
+  .pod{position:absolute;width:156px;height:118px}
+  .rug{position:absolute;inset:-8px -8px -34px;border-radius:12px;
+    background:var(--floor-2);border:1px solid var(--line)}
+  .pod.s-run .rug{background:color-mix(in srgb,var(--coder) 9%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--coder) 34%,var(--line))}
+  .pod.s-gate .rug{background:color-mix(in srgb,var(--warn) 16%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--warn) 50%,var(--line))}
+  .pod.s-stale .rug{background:color-mix(in srgb,var(--bad) 16%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
+  .pod.s-done .rug{opacity:.4}
+  .pod-name{position:absolute;left:0;right:0;top:-24px;text-align:center;font-family:var(--mono);
+    font-size:9px;letter-spacing:.06em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* desks back to back down the middle, bodies on the outer edges: four fit in nearly
+     the space of two, and no agent is ever in front of a screen */
+  .desk{position:absolute;width:62px;height:30px;border-radius:3px;background:var(--wood);
+    border:1px solid var(--wood-2);box-shadow:inset 0 5px 0 var(--deskglass)}
+  .scr{position:absolute;right:5px;top:3px;width:20px;height:13px;border-radius:1px;
+    background:var(--screen-b);border:1px solid var(--wood-2);overflow:hidden}
+  .scr i{display:block;height:4px;margin:2px 2px 4px;background:var(--screen)}
+  .chair{position:absolute;width:20px;height:7px;border-radius:3px;background:var(--chairc);
+    border:1px solid var(--chairc-2)}
+  .plant{position:absolute;width:14px;height:20px}
+  .plant b{position:absolute;bottom:0;left:2px;width:10px;height:7px;background:var(--pot);border-radius:1px}
+  .plant i{position:absolute;top:0;left:0;width:14px;height:14px;border-radius:50% 50% 40% 40%;background:var(--leaf)}
+  .body{position:absolute}
+  /* the working desk's screen scrolls: the cheapest "something is happening here" that
+     moves no body at all (section 10.5, not a ninth inventory entry) */
+  @keyframes screen-scroll{from{transform:translateY(0)}to{transform:translateY(-9px)}}
+  .desk.work .scr i{animation:screen-scroll 1.2s steps(4) infinite}
+  /* section 10.8-2: pods outside the viewport stop animating. At twelve teams that is
+     ~24 simultaneous sprite loops, and the floor - not the hall - is where it bites. */
+  /* grey, and no role colour: they are the one thing in the room that means nothing */
+  .walker .who{color:var(--faint)}
+  .pod.off *{animation-play-state:paused!important}
+  .pod.s-stale .who{animation-play-state:paused}
+
+  .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
+  /* A refused gate has to read as refused, not as a button that went quiet. */
+  .gate-err{font-family:var(--mono);font-size:10px;color:var(--bad);align-self:center}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
+  :focus-visible{outline:2px solid var(--coder);outline-offset:2px}
+  @media (max-width:900px){main{grid-template-columns:1fr;grid-template-rows:auto 1fr}}
+
+  /* Section 10.4 rule 6: every loop stops and the resting pose stays. Declared here so
+     every later rule in this file inherits it. */
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<!-- The cast, inline so the page makes no runtime request. Original drawn work: the
+     no-licence pixel set was not copied from, and DiceBear's pixel-art was tried and
+     rejected on looks. Chibi proportions - the head is 8 of the 18 units. -->
+<svg id="cast" aria-hidden="true" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="who-body" viewBox="0 0 12 18">
+    <rect x="1.4" y="4.4" width="0.6" height="1.6" fill="var(--skin)"/>
+    <rect x="10" y="4.4" width="0.6" height="1.6" fill="var(--skin)"/>
+    <rect x="2" y="1" width="8" height="8" fill="var(--skin)"/>
+    <rect x="5" y="8.6" width="2" height="1.2" fill="var(--skin)"/>
+    <rect x="2.4" y="9.6" width="7.2" height="5" fill="currentColor"/>
+    <rect x="1.4" y="10" width="1" height="3.8" fill="currentColor"/>
+    <rect x="9.6" y="10" width="1" height="3.8" fill="currentColor"/>
+    <rect x="1.4" y="13.8" width="1" height="0.9" fill="var(--skin)"/>
+    <rect x="9.6" y="13.8" width="1" height="0.9" fill="var(--skin)"/>
+    <rect x="3" y="14.6" width="2.6" height="2.2" fill="var(--legs)"/>
+    <rect x="6.4" y="14.6" width="2.6" height="2.2" fill="var(--legs)"/>
+    <rect x="2.8" y="16.8" width="3" height="1.2" fill="var(--shoe)"/>
+    <rect x="6.2" y="16.8" width="3" height="1.2" fill="var(--shoe)"/>
+  </symbol>
+  <!-- 1.7 units wide at the 27 px render size is ~3.8 px of pupil. At the ~1.8 px it
+       started as, the eyes vanished entirely under crispEdges. -->
+  <symbol id="who-face" viewBox="0 0 12 18">
+    <rect x="3.2" y="4.2" width="1.9" height="0.4" fill="var(--eye)"/>
+    <rect x="6.9" y="4.2" width="1.9" height="0.4" fill="var(--eye)"/>
+    <rect x="3.3" y="4.9" width="1.7" height="1.6" fill="var(--pupil)"/>
+    <rect x="7" y="4.9" width="1.7" height="1.6" fill="var(--pupil)"/>
+    <rect x="5" y="7.2" width="2" height="0.4" fill="var(--eye)"/>
+  </symbol>
+  <!-- Shut eyes are markup, not animation, so prefers-reduced-motion keeps them shut. -->
+  <symbol id="who-face-shut" viewBox="0 0 12 18">
+    <rect x="3.3" y="5.6" width="1.7" height="0.5" fill="var(--pupil)"/>
+    <rect x="7" y="5.6" width="1.7" height="0.5" fill="var(--pupil)"/>
+    <rect x="5.2" y="7.2" width="1.6" height="0.4" fill="var(--eye)"/>
+  </symbol>
+
+  <!-- planner: an old man, silver, receding at the temples -->
+  <symbol id="hair-planner" viewBox="0 0 12 18">
+    <rect x="3.4" y="1" width="5.2" height="1.4" fill="#CFCBC2"/>
+    <rect x="2" y="2.2" width="1.6" height="2.8" fill="#CFCBC2"/>
+    <rect x="8.4" y="2.2" width="1.6" height="2.8" fill="#CFCBC2"/>
+    <rect x="4" y="1.3" width="3" height="0.7" fill="#E2DFD8"/>
+  </symbol>
+  <symbol id="hair-planner-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6.4" fill="#CFCBC2"/>
+    <rect x="3" y="1.6" width="4" height="1.2" fill="#E2DFD8"/>
+  </symbol>
+
+  <!-- coder: a boy, dark fringe -->
+  <symbol id="hair-coder" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2.6" fill="#5B4636"/>
+    <rect x="2" y="3.6" width="2.4" height="1.4" fill="#4A382B"/>
+    <rect x="8" y="3.6" width="2" height="1" fill="#5B4636"/>
+    <rect x="3" y="1.4" width="2.4" height="0.8" fill="#6B5544"/>
+  </symbol>
+  <symbol id="hair-coder-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6.2" fill="#5B4636"/>
+    <rect x="3" y="1.6" width="2.6" height="1.2" fill="#6B5544"/>
+    <rect x="2.6" y="7" width="6.8" height="0.8" fill="#4A382B"/>
+  </symbol>
+
+  <!-- tester: a girl, long auburn -->
+  <symbol id="hair-tester" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2.2" fill="#8A4B2F"/>
+    <rect x="1.4" y="1.6" width="1.6" height="8.4" fill="#8A4B2F"/>
+    <rect x="9" y="1.6" width="1.6" height="8.4" fill="#8A4B2F"/>
+    <rect x="1.4" y="8.4" width="1.6" height="1.6" fill="#7A4129"/>
+    <rect x="9" y="8.4" width="1.6" height="1.6" fill="#7A4129"/>
+    <rect x="3.4" y="1.3" width="3" height="0.8" fill="#9A573A"/>
+  </symbol>
+  <symbol id="hair-tester-back" viewBox="0 0 12 18">
+    <rect x="1.4" y="1" width="9.2" height="10.6" fill="#8A4B2F"/>
+    <rect x="3" y="1.6" width="3.4" height="1.2" fill="#9A573A"/>
+    <rect x="1.4" y="10" width="9.2" height="1.6" fill="#7A4129"/>
+  </symbol>
+
+  <!-- reviewer: an uncle, moustache -->
+  <symbol id="hair-reviewer" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2" fill="#3A2E22"/>
+    <rect x="2" y="3" width="1.4" height="2.2" fill="#3A2E22"/>
+    <rect x="8.6" y="3" width="1.4" height="2.2" fill="#3A2E22"/>
+    <rect x="3.6" y="6.6" width="4.8" height="1.1" fill="#3A2E22"/>
+    <rect x="4.2" y="6.8" width="3.6" height="0.5" fill="#4A3B2C"/>
+  </symbol>
+  <symbol id="hair-reviewer-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6" fill="#3A2E22"/>
+    <rect x="3" y="1.6" width="3" height="1.2" fill="#4A3B2C"/>
+  </symbol>
+
+  <!-- the orchestrator, who sits apart at the head table; the operator borrows it -->
+  <symbol id="hair-orch" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="2.4" fill="#4A4258"/>
+    <rect x="2" y="3.4" width="1.2" height="1.6" fill="#4A4258"/>
+    <rect x="8.8" y="3.4" width="1.2" height="1.6" fill="#4A4258"/>
+  </symbol>
+  <symbol id="hair-orch-back" viewBox="0 0 12 18">
+    <rect x="2" y="1" width="8" height="6.2" fill="#4A4258"/>
+  </symbol>
+</svg>
+<header>
+  <span class="brand"><b>agent</b><span>·</span>orchestration</span>
+  <div class="seg" id="view-seg">
+    <button data-view="hall" class="sel">Hall</button><button data-view="office">Office</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
+  <button class="ghost" id="theme">theme</button>
+</header>
+
+<main>
+  <aside class="head-table">
+    <div>
+      <div class="eyebrow" style="margin-bottom:8px">head table</div>
+      <div class="orch-card">
+        <div class="orch-top"><span class="orch-name">orchestrator</span></div>
+        <div class="orch-doing" id="orch-doing">idle</div>
+      </div>
+    </div>
+    <div class="counts" id="counts"></div>
+    <div>
+      <div class="reg-head"><span class="eyebrow">repositories</span>
+        <a href="http://localhost:9749/?tab=stats" target="_blank" rel="noreferrer">graph stats →</a></div>
+      <div class="reg" id="reg"></div>
+      <form class="reg-add" id="reg-add">
+        <input id="reg-input" placeholder="/abs/path/to/repo" spellcheck="false" />
+        <button class="ghost" type="submit">add</button>
+      </form>
+      <!-- The registry indexes nothing. server.js is stdlib Node with no MCP client, so a
+           row displays what the hall payload carries and hands off to the graph UI above;
+           `none` is the honest default for a repo nothing has reported on. -->
+      <div class="reg-note">indexing runs in the graph service · rows here display and hand off</div>
+    </div>
+  </aside>
+
+  <section class="view" id="hall"></section>
+  <section class="view" id="office" hidden></section>
+</main>
+
+<footer id="foot"></footer>
+
+<script>
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* Staleness, same rule as the board (ui/index.html): pipe.py stamps updatedAt on every
+   run.json write, so silence there means no agent has touched the bus. Only "running"
+   counts - awaiting_approval is supposed to sit still and done/blocked are terminal. */
+const STALE_MS=180000; // 3 min
+function staleMs(p){
+  if(!p||p.status!=="running"||!p.updatedAt) return 0;
+  const age=Date.now()-new Date(p.updatedAt);
+  return age>STALE_MS?age:0;
+}
+function agoTxt(ms){const m=Math.floor(ms/60000);return m<60?`${m}m`:`${Math.floor(m/60)}h ${m%60}m`;}
+
+/* run / gate / done / stale - the pill, the card border and the rug all read this one
+   function, so they can never disagree. */
+function cardState(p){
+  if(p.status==="done") return "done";
+  if(p.status==="awaiting_approval") return "gate";
+  if(staleMs(p)) return "stale";
+  if(p.status==="blocked"||p.status==="failed") return "stale";
+  return "run";
+}
+
+/* ---- section 10.3, the cast ----
+   One body, one face, one hair layer. `back` is the seat's geometry (the near pair face
+   away from you); `state` is what the agent is doing. */
+function sprite(role,opts){
+  const o=opts||{}, state=o.state||"wait", px=o.px||27;
+  // TWO hair layers per character. -back fills the whole skull, because from behind
+  // there is no face to leave room for; the front one caps the head instead. Never turn
+  // a sleeping agent around - its shut eyes are the whole point of the pose.
+  const rear=!!o.back&&state!=="sleep";
+  // A seated agent is cropped at the waist: the legs are under a desk either way.
+  const units=o.seated?13.4:18;
+  const face=rear?"":`<use href="#who-${state==="sleep"?"face-shut":"face"}"/>`;
+  return `<svg class="who a-${role} st-${state}" width="${px}" height="${(px/12*units).toFixed(1)}"
+    viewBox="0 0 12 ${units}" shape-rendering="crispEdges" aria-hidden="true"
+    ><use href="#who-body"/>${face}<use href="#hair-${role}${rear?"-back":""}"/></svg>`;
+}
+
+/* Section 10.8-1: the operator gets a fifth seat on the bottom edge of the felt, and it
+   renders ONLY when the run actually has one - the clockwise four-corner geometry is
+   what makes position mean role, and most runs have no operator. The bus carries no
+   dedicated flag yet (agents/operator.md is a later task), so presence is read from what
+   it does carry: an operator holding the work, or one that has spoken. */
+function hasOperator(p){
+  return !!(p&&(p.operator||p.activeAgent==="operator"
+    ||(p.lastEvent&&p.lastEvent.agent==="operator")));
+}
+
+let HALL={root:"",pipelines:[]};
+let EXTRA_REPOS=[];   // repos you registered here; the payload owns the rest
+let NEW_REPO=null;    // the one row that just arrived - entry 7 animates only that one
+
+function repoRows(){
+  // One row per repo any workstream touches, plus the ones registered in this view.
+  const seen=new Map();
+  for(const p of HALL.pipelines) for(const r of (p.repos||[])) if(!seen.has(r)) seen.set(r,{name:r});
+  for(const r of EXTRA_REPOS) if(!seen.has(r)) seen.set(r,{name:r,fresh:false});
+  return [...seen.values()];
+}
+function renderHeadTable(){
+  const ps=HALL.pipelines;
+  const running=ps.filter(p=>cardState(p)==="run").length;
+  const awaiting=ps.filter(p=>cardState(p)==="gate").length;
+  const quiet=ps.filter(p=>cardState(p)==="stale").length;
+  document.getElementById("counts").innerHTML=
+    `<div class="count"><b>${running}</b><span>running</span></div>
+     <div class="count awaiting"><b>${awaiting}</b><span>awaiting you</span></div>
+     <div class="count quiet"><b>${quiet}</b><span>quiet</span></div>`;
+
+  // The orchestrator's one line, in the same voice as a team's last event.
+  const evs=ps.map(p=>p.lastEvent).filter(Boolean).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+  const own=evs.filter(e=>e.agent==="orchestrator");
+  const e=own.length?own[own.length-1]:evs[evs.length-1];
+  document.getElementById("orch-doing").textContent=
+    e?e.summary:(ps.length?`watching ${ps.length} team${ps.length>1?"s":""}`:"idle");
+
+  const rows=repoRows();
+  document.getElementById("reg").innerHTML=rows.length?rows.map(r=>{
+    // fresh / drift (HEAD moved) / none (never indexed) - whatever the payload carries.
+    const st=r.index||"none",n=r.nodes;
+    return `<div class="repo${r.name===NEW_REPO?" enter":""}"><span class="repo-name">${esc(r.name)}</span>
+      <span class="ix ${esc(st)}">${esc(st)}</span>
+      <span class="repo-nodes">${n==null?"—":esc(n)+" nodes"}</span></div>`;
+  }).join(""):`<div class="reg-note">no repository registered yet</div>`;
+  NEW_REPO=null;
+
+  document.getElementById("foot").innerHTML=
+    `<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
+}
+
+/* Four seats at the corners of the felt in pipeline order clockwise. The near pair face
+   away from you, which is what the -back hair layer exists for. */
+const SEATS=[
+  {role:"planner", pos:"tl", back:false},
+  {role:"coder",   pos:"tr", back:false},
+  {role:"tester",  pos:"br", back:true},
+  {role:"reviewer",pos:"bl", back:true},
+];
+const RAIL=["spec","plan","implement","test","review","done"];
+const STAGE={planner:1,coder:2,tester:3,reviewer:4,operator:2};
+// The hall's rail has no qa tick (section 10.2), so qa reads as the end of review.
+function railIdx(ph){return ph==="qa"?4:RAIL.indexOf(ph);}
+
+/* Rule 2: exactly one agent per table types. The rest wait, or sleep once their stage is
+   behind the run - "busy" stays legible by being the exception in its own row. */
+function seatState(p,role){
+  if(p.status==="done") return "sleep";
+  if(p.activeAgent===role) return "type";
+  return railIdx(p.phase)>STAGE[role]?"sleep":"wait";
+}
+// The baton rests 26 px in from its seat's corner of the 288x150 felt.
+const BATON={planner:[0,0],coder:[226,0],tester:[226,88],reviewer:[0,88],operator:[113,88]};
+const AGENT_COLOR={planner:"var(--planner)",coder:"var(--coder)",tester:"var(--tester)",
+  reviewer:"var(--reviewer)",operator:"var(--orch)",orchestrator:"var(--orch)"};
+
+function testCount(p){
+  const s=p.services; if(!s) return null;
+  const v=Object.values(s);
+  const passed=v.reduce((a,x)=>a+(x.passed||0),0), failed=v.reduce((a,x)=>a+(x.failed||0),0);
+  return passed+failed?{passed,failed,total:passed+failed}:null;
+}
+
+const SEEN=new Set();   // entry 6: the table entrance is first paint only, and never replays
+const HOLDER={};        // who held the work last frame, per slug - entries 1 and 5
+
+function card(p){
+  const st=cardState(p), sm=staleMs(p), cur=railIdx(p.phase);
+  const holder=p.activeAgent||"planner";
+  const colour=AGENT_COLOR[holder]||"var(--muted)";
+  const prev=HOLDER[p.slug]||holder, moved=prev!==holder;
+  HOLDER[p.slug]=holder;
+  const [bx,by]=BATON[prev]||BATON.planner, [tx,ty]=BATON[holder]||BATON.planner;
+  const fresh=!SEEN.has(p.slug); SEEN.add(p.slug);
+  const seats=SEATS.map(s=>`<div class="seat ${s.pos}${moved&&s.role===holder?" arrive":""}">${
+    sprite(s.role,{back:s.back,state:seatState(p,s.role)})}</div>`).join("")
+    + (hasOperator(p)?`<div class="seat op${moved&&holder==="operator"?" arrive":""}">${
+        sprite("orch",{state:seatState(p,"operator")})}</div>`:"");
+  const rail=RAIL.map((ph,i)=>`<span class="tk ${i<cur?"done":i===cur?"cur":""}"
+      style="color:${i===cur?colour:""}"><i class="d"></i><i class="l">${ph}</i></span>`).join("");
+  const t=testCount(p), loop=p.loop||{count:0,max:5};
+  const ev=p.lastEvent;
+  return `<article class="card s-${st}${st==="done"?" collapsed":""}${fresh?" enter":""}" data-slug="${esc(p.slug)}">
+    <div class="c-head">
+      <a class="c-name" href="/r/${encodeURIComponent(p.slug)}">${esc(p.feature||p.slug)}</a>
+      <a class="c-open" href="/r/${encodeURIComponent(p.slug)}">open →</a>
+      <span class="pill">${st}</span></div>
+    <div class="c-repos">${esc((p.repos||[]).join(" · ")||p.slug)}</div>
+    <div class="felt">${seats}<div class="rail">${rail}</div>
+      <div class="baton" data-to="translate(${tx}px,${ty}px)" style="color:${colour};transform:translate(${bx}px,${by}px)"></div></div>
+    <div class="c-foot"><span>phase <b>${esc(p.phase||"—")}</b></span>
+      <span>loop <b>${loop.count}/${loop.max}</b></span>
+      ${t?`<span class="${t.failed?"fail":""}">tests <b>${t.passed}/${t.total}</b></span>`:""}</div>
+    ${sm?`<div class="c-stale">◉ no activity ${agoTxt(sm)} — agent may have died</div>`:""}
+    ${ev?`<div class="c-last"><b style="color:${AGENT_COLOR[ev.agent]||"var(--muted)"}">${
+        esc(ev.agent)}</b> ${esc(ev.summary)}</div>`:""}
+    ${st==="gate"?`<div class="gate">
+      <button data-d="finalize">Finalize</button>
+      <button data-d="in-place">In place</button>
+      <button data-d="reject">Reject</button></div>`:""}
+  </article>`;
+}
+
+/* What the card actually draws. Rebuilding every card on every frame would restart every
+   sprite loop in the hall two or three times a second - rule 3 says something always
+   moves, so only a card whose signature changed is replaced. */
+function cardSig(p){
+  return [p.status,p.phase,p.activeAgent,(p.loop||{}).count,!!staleMs(p),hasOperator(p),
+    (p.repos||[]).join(","),p.lastEvent&&p.lastEvent.ts,JSON.stringify(p.services||null)].join("|");
+}
+const CARD_SIG={};
+function renderHall(){
+  const el=document.getElementById("hall");
+  if(!HALL.pipelines.length){
+    el.innerHTML=`<div class="empty">no pipelines under ${esc(HALL.root)}</div>`;return;
+  }
+  if(el.firstElementChild&&el.firstElementChild.className==="empty") el.innerHTML="";
+  const live=new Set();
+  for(const p of HALL.pipelines){
+    live.add(p.slug);
+    const node=[...el.children].find(c=>c.dataset.slug===p.slug);
+    if(node&&CARD_SIG[p.slug]===cardSig(p)) continue;
+    const t=document.createElement("template"); t.innerHTML=card(p);
+    if(node) node.replaceWith(t.content.firstElementChild); else el.append(t.content.firstElementChild);
+    CARD_SIG[p.slug]=cardSig(p);
+  }
+  [...el.children].forEach(c=>{if(c.dataset.slug&&!live.has(c.dataset.slug)) c.remove();});
+  // The baton is drawn where it was and moved on the next frame - a token that appears
+  // at its destination has not travelled.
+  requestAnimationFrame(()=>el.querySelectorAll(".baton[data-to]").forEach(b=>{
+    b.style.transform=b.dataset.to; b.removeAttribute("data-to");}));
+}
+// A collapsed team is still a team: clicking its row opens it back up.
+document.getElementById("hall").addEventListener("click",e=>{
+  if(e.target.closest(".gate")) return;              // the gate row owns its own clicks
+  const c=e.target.closest(".card");
+  if(c&&c.classList.contains("s-done")&&!e.target.closest("a")) c.classList.toggle("collapsed");
+});
+
+/* Section 6 and 14: the browser half writes the same gate.json the terminal does. The
+   decision is one of three fixed strings the server re-checks, and the slug is the card's
+   own - nothing here is read from the URL. */
+document.getElementById("hall").addEventListener("click",async e=>{
+  const b=e.target.closest(".gate button"); if(!b) return;
+  const row=b.parentElement, slug=(b.closest(".card")||{}).dataset?.slug;
+  if(!slug) return;
+  const btns=[...row.querySelectorAll("button")], was=b.textContent;
+  btns.forEach(x=>x.disabled=true);
+  row.querySelectorAll(".gate-err").forEach(x=>x.remove());
+  b.textContent="sending…";
+  try{
+    const r=await fetch("/api/gate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({slug,decision:b.dataset.d})});
+    if(!r.ok) throw new Error("server said "+r.status);
+    b.textContent="sent";
+    await pull();                                    // reflect the new status immediately
+  }catch(err){
+    // A 400 or a 404 must not look like an approval. Put the row back and say why.
+    b.textContent=was; btns.forEach(x=>x.disabled=false);
+    const m=document.createElement("span");
+    m.className="gate-err"; m.textContent="not approved — "+err.message;
+    row.append(m);
+  }
+});
+/* ---- section 10.5, the office floor -----------------------------------------------
+   The same bus data, read the ambient way. Behaviour maps to state, not decoration:
+   typing at a desk means it holds the work, asleep means finished, frozen mid-keystroke
+   means quiet, and the team standing together means a finalize gate. */
+const BUILDING_W=566, BUILDING_H=418;          // six pods fit; past that the floor grows
+const POD_XS=[18,212,406], POD_Y0=16, POD_DY=152;
+// Seating is facing pairs: desks back to back down the middle, bodies on the outer
+// edges. Four fit in nearly the space of two and no agent is ever in front of a screen.
+const POD=[
+  {"role":"planner", "x":26,"y":4,  "dx":12,"dy":34,"back":false},
+  {"role":"coder",   "x":96,"y":4,  "dx":82,"dy":34,"back":false},
+  {"role":"tester",  "x":26,"y":120,"dx":12,"dy":86,"back":true},
+  {"role":"reviewer","x":96,"y":120,"dx":82,"dy":86,"back":true}
+];
+// Only a gate gathers them. Agents do not walk between desks on a handoff (10.8-3):
+// the baton and the seat-level walk-in already carry it, and an agent in transit has no
+// legible state.
+const MEET=[[12,120],[42,120],[72,120],[102,120]];
+
+/* The corridor graph. Desk islands occupy x 18-174 / 212-368 / 406-562 and y 16-134 /
+   168-286, so the walkable space is the two vertical aisles and the horizontal ones.
+   Every edge here is purely horizontal or vertical - that is what stops a walker cutting
+   the corner through somebody's desk. */
+const NODES={"a":[193,10],"b":[387,10],"c":[193,151],"d":[387,151],"e":[193,330],"f":[387,330]};
+const EDGES=[["a","b"],["c","d"],["e","f"],["a","c"],["c","e"],["b","d"],["d","f"]];
+// The bottom corridor follows the last row down as the floor grows; at two rows it is
+// the 330 declared above.
+function nodeAt(k,rows){const n=NODES[k];return (k==="e"||k==="f")?[n[0],POD_Y0+rows*POD_DY+10]:n;}
+
+function podSig(p){return cardSig(p);}
+const POD_SIG={};
+
+function podHTML(p,i){
+  const st=cardState(p), gate=st==="gate";
+  const x=POD_XS[i%3], y=POD_Y0+Math.floor(i/3)*POD_DY;
+  const people=(gate?POD.map((a,j)=>({role:a.role,x:MEET[j][0],y:MEET[j][1],back:false}))
+                    :POD).map(a=>
+    `<div class="chair" style="left:${a.x+2}px;top:${a.back?a.y+21:a.y-5}px"></div>
+     <div class="body" style="left:${a.x}px;top:${a.y}px">${
+       sprite(a.role,{back:a.back,state:seatState(p,a.role),seated:!gate,px:24})}</div>`).join("");
+  const desks=POD.map(a=>`<div class="desk${!gate&&p.activeAgent===a.role?" work":""}"
+    style="left:${a.dx}px;top:${a.dy}px"><div class="scr"><i></i></div></div>`).join("");
+  return `<div class="pod s-${st}" data-slug="${esc(p.slug)}" style="left:${x}px;top:${y}px">
+    <div class="rug"></div><div class="pod-name">${esc(p.feature||p.slug)}</div>
+    ${desks}${people}</div>`;
+}
+
+/* Two walkers, on the graph, one axis at a time. They are the only thing in the room
+   that means nothing, and they are grey for exactly that reason. */
+function startWalkers(floor,rows){
+  const keys=Object.keys(NODES);
+  [0,1].forEach(n=>{
+    const el=document.createElement("div");
+    el.className="walker"; el.style.position="absolute"; el.style.left="0"; el.style.top="0";
+    el.innerHTML=sprite("orch",{state:"wait",px:24});
+    floor.append(el);
+    let at=keys[n?5:0];
+    const put=(k,ms)=>{const c=nodeAt(k,rows);
+      el.style.transition=ms?`transform ${ms}ms steps(${Math.max(2,Math.round(ms/90))})`:"";
+      el.style.transform=`translate(${c[0]-12}px,${c[1]-20}px)`;};
+    const step=()=>{
+      if(!el.isConnected) return;                       // the floor was rebuilt
+      const next=EDGES.filter(e=>e.indexOf(at)>=0).map(e=>e[0]===at?e[1]:e[0]);
+      const to=next[Math.floor(Math.random()*next.length)];
+      const a=nodeAt(at,rows), b=nodeAt(to,rows);
+      const ms=(Math.abs(b[0]-a[0])+Math.abs(b[1]-a[1]))*14;
+      put(to,ms); at=to;
+      setTimeout(step,ms+700+Math.random()*1800);
+    };
+    put(at,0);
+    setTimeout(step,500+n*1100);
+  });
+}
+
+// Section 10.8-2. Capping the floor would hide exactly the stalled pipelines the floor
+// exists to surface, so the building grows and the cost is bounded where it actually
+// is: the sprite loops of pods you are not looking at.
+let IO=null;
+function observePods(floor){
+  const host=document.getElementById("office");
+  if(!IO) IO=new IntersectionObserver(es=>es.forEach(e=>
+    e.target.classList.toggle("off",!e.isIntersecting)),{root:host,rootMargin:"120px"});
+  IO.disconnect();
+  floor.querySelectorAll(".pod").forEach(el=>IO.observe(el));
+}
+
+/* Zoom and pan over real DOM, not a canvas rewrite: every agent keeps its tooltip, its
+   CSS animation and its theme tokens. Ctrl+wheel anchors on the pointer; drag pans. */
+let Z=1,PX=24,PY=24;
+function applyView(){
+  const f=document.querySelector("#office .floor");
+  if(f) f.style.transform=`translate(${PX}px,${PY}px) scale(${Z})`;
+}
+(function view(){
+  const host=document.getElementById("office");
+  host.addEventListener("wheel",e=>{
+    e.preventDefault();
+    if(!e.ctrlKey){                            // plain wheel scrolls the floor, which
+      PX-=e.deltaX; PY-=e.deltaY; applyView(); // grows past the viewport at 12+ teams
+      return;
+    }
+    const r=host.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    const nz=Math.min(2.5,Math.max(0.5,Z*(e.deltaY<0?1.12:1/1.12)));
+    PX=mx-(mx-PX)*(nz/Z); PY=my-(my-PY)*(nz/Z); Z=nz; applyView();
+  },{passive:false});
+  let down=null;
+  host.addEventListener("pointerdown",e=>{down={x:e.clientX-PX,y:e.clientY-PY};
+    host.classList.add("drag");host.setPointerCapture(e.pointerId);});
+  host.addEventListener("pointermove",e=>{if(!down)return;
+    PX=e.clientX-down.x;PY=e.clientY-down.y;applyView();});
+  host.addEventListener("pointerup",()=>{down=null;host.classList.remove("drag");});
+})();
+
+function renderOffice(){
+  const host=document.getElementById("office");
+  if(host.hidden) return;                      // the hall is the working view
+  const ps=HALL.pipelines, rows=Math.max(2,Math.ceil(ps.length/3));
+  const shell=rows+"|"+ps.map(p=>p.slug).join(",");
+  let floor=host.querySelector(".floor");
+  if(!floor||host.dataset.shell!==shell){
+    host.dataset.shell=shell;
+    const h=BUILDING_H+Math.max(0,rows-2)*POD_DY;
+    host.innerHTML=`<div class="floor" style="width:${BUILDING_W}px;height:${h}px">
+      ${ps.map(podHTML).join("")}
+      <div class="plant" style="left:184px;top:${h-56}px"><i></i><b></b></div>
+      <div class="plant" style="left:${BUILDING_W-46}px;top:24px"><i></i><b></b></div></div>`;
+    floor=host.querySelector(".floor");
+    ps.forEach(p=>POD_SIG[p.slug]=podSig(p));
+    applyView(); startWalkers(floor,rows);
+  }else{
+    // Patch only the pod that changed, or the whole floor's loops restart - including
+    // the walkers, who would teleport back to where they started.
+    const pods=[...floor.querySelectorAll(".pod")];
+    ps.forEach((p,i)=>{
+      if(POD_SIG[p.slug]===podSig(p)) return;
+      POD_SIG[p.slug]=podSig(p);
+      const old=pods.find(el=>el.dataset.slug===p.slug); if(!old) return;
+      const t=document.createElement("template"); t.innerHTML=podHTML(p,i);
+      old.replaceWith(t.content.firstElementChild);
+    });
+  }
+  observePods(floor);
+}
+
+function render(h){HALL=h||HALL;renderHeadTable();renderHall();renderOffice();}
+
+/* ---- view + theme ----
+   One function owns which view is showing, and it is exhaustive: every view is set on
+   every call, so no path can leave two of them visible at once. The segmented control
+   and the initial paint both go through it rather than each setting flags themselves. */
+const VIEWS=["hall","office"];
+let VIEW="hall";
+function setView(v){
+  VIEW=VIEWS.includes(v)?v:"hall";
+  for(const k of VIEWS) document.getElementById(k).hidden=k!==VIEW;
+  document.querySelectorAll("#view-seg button")
+    .forEach(b=>b.classList.toggle("sel",b.dataset.view===VIEW));
+  if(VIEW==="office") renderOffice();   // it skips itself while hidden
+}
+document.getElementById("view-seg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  setView(b.dataset.view);
+});
+setView("hall");
+document.getElementById("theme").onclick=()=>{
+  const r=document.documentElement;
+  const dark=r.dataset.theme?r.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
+  r.dataset.theme=dark?"light":"dark";   // an explicit toggle wins in both directions
+};
+document.getElementById("reg-add").addEventListener("submit",e=>{
+  e.preventDefault();
+  const i=document.getElementById("reg-input"),v=i.value.trim();
+  if(!v) return;
+  EXTRA_REPOS.push(v); NEW_REPO=v; i.value=""; renderHeadTable();
+});
+
+/* One fixture per card state, for reviewing the design with no server behind it.
+   It is deliberately NOT a fallback: a hall that invents four pipelines when the bus is
+   unreachable is worse than one that says it cannot reach the bus. Opt in with ?demo=1. */
+const ago=s=>new Date(Date.now()-s*1000).toISOString();
+const FIXTURE={root:"~/.agent-orchestration/pipelines",pipelines:[
+  {slug:"multi-pipeline-engine",feature:"Multi-pipeline engine",phase:"implement",
+   status:"running",activeAgent:"coder",loop:{count:1,max:5},repos:["ship-team"],
+   updatedAt:ago(20),lastEvent:{ts:ago(20),agent:"coder",type:"status",summary:"Wiring the felt"}},
+  {slug:"009-messaging-hub",feature:"Messaging hub",phase:"plan",status:"awaiting_approval",
+   activeAgent:"planner",loop:{count:0,max:5},repos:["crm","api"],updatedAt:ago(90),
+   lastEvent:{ts:ago(90),agent:"planner",type:"handoff",summary:"Plan ready: 7 tasks, 2 services"}},
+  {slug:"tenant-sso-logout",feature:"Propagate tenant SSO logout",phase:"test",status:"running",
+   activeAgent:"tester",loop:{count:2,max:5},repos:["oauth","MFA_Server"],updatedAt:ago(1500),
+   services:{oauth:{passed:6,failed:1},MFA_Server:{passed:4,failed:0}},
+   lastEvent:{ts:ago(1500),agent:"tester",type:"result",summary:"Tests 10/11 — 1 failing (iter 2)"}},
+  {slug:"ipo-mandate-automation",feature:"IPO mandate automation",phase:"done",status:"done",
+   activeAgent:"reviewer",loop:{count:1,max:5},repos:["crm"],updatedAt:ago(6000),
+   lastEvent:{ts:ago(6000),agent:"orchestrator",type:"status",summary:"Merged and archived"}},
+]};
+
+/* ---- live data ---------------------------------------------------------------------
+   /events with no run= streams hall() itself - byte-identical in shape to what
+   /api/hall returns - so the stream IS the feed, and the opening fetch only buys a
+   faster first paint than waiting for the first SSE frame. */
+function conn(txt,live){
+  document.getElementById("conn").classList.toggle("live",!!live);
+  document.getElementById("conn-txt").textContent=txt;
+}
+function fail(msg){
+  conn(msg,false);
+  // Only claim the view if there is nothing real in it - a dropped connection must not
+  // wipe the hall you were already reading.
+  const el=document.getElementById("hall");
+  if(!el.querySelector(".card")) el.innerHTML=`<div class="empty">${esc(msg)}</div>`;
+}
+async function pull(){
+  const r=await fetch("/api/hall",{cache:"no-store"});
+  if(!r.ok) throw new Error("/api/hall returned "+r.status);
+  render(await r.json());
+}
+function listen(){
+  const es=new EventSource("/events");
+  es.onopen=()=>conn("live",true);
+  es.onmessage=e=>{try{render(JSON.parse(e.data));conn("live",true);}catch(err){}};
+  // EventSource reconnects by itself; say so rather than leaving a stale hall labelled live.
+  es.onerror=()=>conn("reconnecting…",false);
+}
+
+if(new URLSearchParams(location.search).has("demo")){
+  conn("demo — not live",false);
+  render(FIXTURE);
+}else{
+  conn("connecting…",false);
+  pull().then(listen).catch(e=>{fail("cannot reach the dashboard server — "+e.message);listen();});
+}
+</script>
+</body>
+</html>

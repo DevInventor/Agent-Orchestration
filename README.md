@@ -26,12 +26,13 @@ many at once** — coordinating through a shared `./pipeline` bus with a live lo
 
 - **Claude Code** with plugin support.
 - **Node.js** 18+ (for the dashboard server — Node stdlib only, no npm install).
-- **Python 3.8+** available as `python3` (the pipeline bus CLI).
-  - On **native Windows**, Python is usually `python`, not `python3`. Either run inside WSL2, or add a `python3` shim on PATH. Git Bash shim:
+- **Python 3.8+** on PATH as either `python3` or `python` (the pipeline bus CLI).
+  - **No shim needed on native Windows.** The entry skills resolve the interpreter by
+    running it and hand the result down, so the Microsoft Store `python3` alias stub —
+    which is on PATH and only fails when invoked — is detected and skipped:
     ```bash
-    printf '#!/bin/sh\nexec python "$@"\n' > ~/.local/bin/python3 && chmod +x ~/.local/bin/python3
+    PY=$(python3 -c 'import sys;print(sys.executable)' 2>/dev/null || command -v python)
     ```
-    (and a `python3.cmd` doing `python %*` on PATH for PowerShell).
 
 ## Install
 

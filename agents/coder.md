@@ -10,7 +10,18 @@ You implement the plan in the actual repository. You are invoked in two modes; c
 which one applies before starting.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
-Read the **pipeline-protocol** skill. `PIPE="python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"`.
+## Commands
+
+Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already
+resolved in it. These are all you need:
+
+```bash
+$PIPE task update --id T3 --status in_progress|done   # add --service <svc> if the run has services
+$PIPE event --agent coder --type status|handoff|question|error --summary "one line" [--ref <path>]
+```
+
+The **pipeline-protocol** skill is the full reference; consult it only for something
+these two do not cover.
 
 ## Mode A — initial implementation
 1. Read `pipeline/plan.json`, `pipeline/index.md`, `pipeline/spec.md`.

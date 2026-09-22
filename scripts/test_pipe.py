@@ -4,7 +4,8 @@
 Asserts only, no framework on purpose. Covers the runId scoping the dashboard's feed
 filtering depends on, and the updatedAt freshness its staleness warning depends on.
 """
-import argparse, glob, json, os, re, subprocess, sys, tempfile
+import argparse, glob, json, os, re, shutil, socket, subprocess, sys, tempfile, time
+import urllib.error, urllib.request
 
 PIPE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipe.py")
 
@@ -554,17 +555,73 @@ def review_rejections_never_touch_disk():
         assert after == before, "a rejected payload must not disturb the review already on the bus"
 
 
+def agent_file(name):
+    """An agent definition's text and its frontmatter `tools:` allowlist."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    text = open(os.path.join(repo, "agents", name + ".md"), encoding="utf-8").read()
+    tools = [l for l in text.splitlines() if l.startswith("tools:")]
+    assert len(tools) == 1, f"{name}.md must carry exactly one tools: line: {tools}"
+    return text, {t.strip() for t in tools[0].split(":", 1)[1].split(",")}
+
+
 def reviewer_holds_no_write_tool():
     """S19 - AC7 names the tool grant explicitly; it is the permission boundary."""
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    text = open(os.path.join(repo, "agents", "reviewer.md"), encoding="utf-8").read()
-    tools = [l for l in text.splitlines() if l.startswith("tools:")]
-    assert len(tools) == 1, tools
-    granted = {t.strip() for t in tools[0].split(":", 1)[1].split(",")}
+    text, granted = agent_file("reviewer")
     assert "Bash" in granted, f"the reviewer needs Bash to call pipe.py: {granted}"
     assert not granted & {"Write", "Edit"}, f"the reviewer must hold no Write/Edit: {granted}"
     assert re.search(r"(pipe\.py|\$PIPE)\s+review\s+--from", text), \
         "reviewer.md must tell the reviewer how it persists findings"
+
+
+def the_operator_is_gated_and_reports_evidence():
+    """S44 - AC9. An operator without a gate is an agent that deploys ungated, which is
+    the single property section 12 exists to prevent; and its report shape is fixed at
+    four fields because a verdict is exactly what it must not return. S23 then proves
+    every pipe.py command this file names actually exists."""
+    text, granted = agent_file("operator")
+    assert "Bash" in granted, f"the operator needs Bash to run the thing: {granted}"
+    assert not granted & {"Write", "Edit"}, \
+        f"the operator must hold no Write/Edit (ADR-0001's precedent): {granted}"
+    assert re.search(r"(pipe\.py|\$PIPE)\s+wait\s+--for\s+gate", text), \
+        "operator.md must wait at the gate before touching a shared environment"
+    for field in ("command", "exit code", "what changed", "what to verify"):
+        assert field in text, f"operator.md must name the report field {field!r}"
+
+
+def the_planner_is_granted_the_graph_it_is_told_to_query():
+    """S45 - AC11. `tools:` is an allowlist and a wrong MCP prefix grants nothing
+    silently: the planner just falls back to crawling, which looks like success. So
+    assert the exact ids, and that the prose names the four queries section 11 asks for.
+    Grep stays granted - coverage is best-effort and it is the fallback."""
+    text, granted = agent_file("planner")
+    prefix = "mcp__codebase-memory-mcp__"
+    for tool in ("get_architecture", "search_graph", "trace_path", "get_code_snippet",
+                 "index_status", "list_projects", "check_index_coverage"):
+        assert prefix + tool in granted, \
+            f"planner.md must grant {prefix + tool} verbatim; granted: {sorted(granted)}"
+        assert tool in text, f"planner.md grants {tool} but never tells the planner to use it"
+    assert {"Grep", "Glob"} <= granted, f"the Glob/Grep fallback must stay granted: {granted}"
+    assert not re.search(r"Index the codebase", text), \
+        "planner.md still tells the planner to crawl the codebase"
+
+
+def every_agent_carries_a_bounded_cheatsheet():
+    """S46 - AC10(a). 62% of a spawn's preamble was the protocol document and a coder
+    uses four commands, so each role carries its own block instead. The ceiling is the
+    point: unbounded, a cheatsheet grows back into the protocol it replaced. S23 proves
+    the commands these blocks name exist; this proves they stay small."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    roles = ["planner", "coder", "tester", "reviewer", "operator"]
+    for name in [r + ".md" for r in roles]:      # team-rules.md is shared prose, not a role
+        path = os.path.join(repo, "agents", name)
+        assert os.path.isfile(path), f"agents/{name} is missing"
+        text = open(path, encoding="utf-8").read()
+        block = re.search(r"^## Commands\b.*?```bash\n(.*?)```", text, re.S | re.M)
+        assert block, f"{name} carries no `## Commands` cheatsheet"
+        size = len(block.group(1).encode("utf-8"))
+        assert 0 < size <= 600, f"{name}'s cheatsheet is {size} B; the ceiling is 600"
+        assert not re.search(r"Read the \*\*pipeline-protocol\*\* skill", text), \
+            f"{name} still orders a full read of the protocol document"
 
 
 def qa_check_spans_service_namespaces():
@@ -820,6 +877,648 @@ def a_mid_loop_merge_failure_names_the_half_shipped_repos():
             "a failed --apply archived the bus anyway - the operator needs it to retry"
 
 
+def ls_reports_branch_drift_and_orphan_containers():
+    """S32 - AC12. The two drift states nobody notices until a merge silently leaves a
+    repo behind: two branch names inside one workstream (2 of 11 real containers), and a
+    wt-<slug>/ container whose bus is gone. Each half is mutated: equal branches must
+    stop the drift assertion firing, so it cannot be passing on a constant."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "twowave", "pipeline")
+        run(root, "init", "--feature", "Two branches", "--slug", "twowave", env=env)
+        repos = os.path.join(tmp, "repos")
+        for svc, base in (("api", "develop"), ("web", "master")):
+            run(root, "worktree", "add", "--service", svc,
+                "--repo", git_repo(os.path.join(repos, svc), base), env=env)
+
+        rj = os.path.join(root, "run.json")
+        data = read_json(rj)
+        one = data["repos"][0]["branch"]
+        data["repos"][1]["branch"] = "feature/twowave-web"
+        write(rj, json.dumps(data, indent=2))
+        out = run(root, "ls", env=env)
+        assert "twowave" in out and "branch-drift" in out, \
+            f"ls does not name a workstream whose repos sit on two branch names:\n{out}"
+
+        data["repos"][1]["branch"] = one                   # the mutation half
+        write(rj, json.dumps(data, indent=2))
+        out = run(root, "ls", env=env)
+        assert "branch-drift" not in out, f"ls reports drift on a workstream that has none:\n{out}"
+
+        os.makedirs(os.path.join(repos, "wt-ghost", "api"))
+        out = run(root, "ls", env=env)
+        assert "wt-ghost" in out and "orphan" in out, \
+            f"a wt-<slug>/ container with no bus is invisible to ls:\n{out}"
+
+
+def prune_lists_before_it_removes():
+    """S33 - AC12. prune follows finish's plan/apply shape: an archived workstream's
+    container is NAMED by a bare prune and still on disk afterwards, and only --apply
+    removes it. Mutate the default branch to delete and the first half fails."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "closing", "pipeline")
+        run(root, "init", "--feature", "Closing", "--slug", "closing", env=env)
+        repo = git_repo(os.path.join(tmp, "repos", "api"), "main")
+        run(root, "worktree", "add", "--service", "api", "--repo", repo, env=env)
+        wt = read_run(root)["repos"][0]["worktree"]
+        container = os.path.dirname(wt)
+        write(os.path.join(wt, "a.txt"), "work\n")
+        git(wt, "add", "-A"); git(wt, "commit", "-qm", "T1: work")
+        run(root, "finish", "--apply", env=env)          # archives the bus, keeps the worktree
+        assert os.path.isdir(container), "finish without --teardown keeps the container"
+
+        # prune's root is the fixed pipelines root, not --root; any path will do here
+        nowhere = os.path.join(tmp, "not-a-bus", "pipeline")
+        out = run(nowhere, "prune", env=env)
+        assert container in out, f"prune does not name the archived container:\n{out}"
+        assert os.path.isdir(container), \
+            "a bare prune removed a container - it must plan, like finish does"
+
+        out = run(nowhere, "prune", "--apply", env=env)
+        assert not os.path.exists(container), f"--apply left the container behind:\n{out}"
+        assert container not in git(repo, "worktree", "list"), \
+            "the worktree registration outlived the directory - git worktree prune never ran"
+
+
+def the_gate_round_trips_beside_the_bus():
+    """S34 - AC5, the terminal half. `gate` then `wait` releases, prints the decision,
+    and the file lands BESIDE the bus (section 3), not inside it - server.js mirrors
+    that one path and a gate written into the bus would be archived away with it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "workstream", "pipeline")
+        run(root, "init", "--feature", "Gate me", "--slug", "gate-me")
+        assert "finalize" in run(root, "gate", "--decision", "finalize")
+        assert os.path.isfile(os.path.join(tmp, "workstream", "gate.json")), \
+            f"gate.json is not beside the bus: {os.listdir(os.path.join(tmp, 'workstream'))}"
+        assert not os.path.exists(os.path.join(root, "gate.json"))
+        assert run(root, "wait", "--for", "gate", "--timeout", "5").strip() == "finalize"
+        run(root, "gate", "--decision", "nope", expect=2)      # argparse refuses it
+
+
+def a_previous_runs_gate_does_not_release_this_one():
+    """S35 - the scenario most worth watching fail. gate.json is durable on purpose
+    (re-arming a watcher must pick up an approval that already landed), but a workstream
+    outlives its runs (section 3.3), so wave 1's gate sitting in the workstream directory
+    would auto-finalize wave 2 the instant its watcher armed - approving a plan nobody
+    read. `wait` ignores a gate stamped with another runId and keeps waiting."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = os.path.join(tmp, "workstream")
+        root = os.path.join(ws, "pipeline")
+        run(root, "init", "--feature", "Wave 1", "--slug", "waves")
+        run(root, "gate", "--decision", "finalize")
+        wave1 = read_json(os.path.join(ws, "gate.json"))["runId"]
+
+        run(root, "init", "--feature", "Wave 2", "--slug", "waves")   # same workstream
+        assert read_run(root)["runId"] != wave1, "wave 2 did not get its own runId"
+        out = run(root, "wait", "--for", "gate", "--timeout", "1", expect=1)
+        assert "wait:" in out, out
+        assert read_json(os.path.join(ws, "gate.json"))["runId"] == wave1, \
+            "wait must not consume or rewrite the gate it ignored"
+
+        run(root, "gate", "--decision", "in-place")                   # this run's answer
+        assert run(root, "wait", "--for", "gate", "--timeout", "5").strip() == "in-place"
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVER_JS = os.path.join(REPO, "ui", "server.js")
+
+
+def free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def http_json(port, path, payload=None, method=None):
+    """(status, body) over loopback. An HTTP error code is an answer, not an exception."""
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data,
+                                 method=method or ("POST" if data else "GET"),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+
+
+class Server:
+    """`node ui/server.js` against a throwaway AGENT_ORCHESTRATION_HOME."""
+    def __init__(self, home):
+        self.port = free_port()
+        self.p = subprocess.Popen(
+            ["node", SERVER_JS, "--port", str(self.port)],
+            env={**os.environ, "AGENT_ORCHESTRATION_HOME": home},
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def __enter__(self):
+        for _ in range(80):                       # ~20 s: node is slow to boot on Windows
+            try:
+                http_json(self.port, "/api/hall")
+                return self
+            except Exception:
+                if self.p.poll() is not None:
+                    raise AssertionError("server.js exited: " + self.p.communicate()[0])
+                time.sleep(0.25)
+        raise AssertionError("server.js never answered on 127.0.0.1")
+
+    def __exit__(self, *a):
+        self.p.terminate()
+        try: self.p.wait(timeout=5)
+        except subprocess.TimeoutExpired: self.p.kill()
+
+
+def the_gate_endpoint_is_the_security_boundary():
+    """S36 - AC5/AC4, spec section 14. POST /api/gate is the first path where a browser
+    can move a run forward, so every input is checked at the door: three fixed decisions,
+    a slug resolved by identity against the scan list (never joined to a path), a capped
+    body, and a gate.json that `pipe.py wait` then accepts. Skips - never fails - when
+    node is absent, because a suite that silently passes without it proves nothing."""
+    if not shutil.which("node"):
+        print("SKIP S36 - no node on PATH; the /api/gate endpoint was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "browser-gate", "pipeline")
+        run(root, "init", "--feature", "Browser gate", "--slug", "browser-gate", env=env)
+        before = paths_under(tmp)
+        with Server(home) as s:
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "browser-gate", "decision": "ship-it"})
+            assert code == 400 and "decision" in body, (code, body)
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "no-such-run", "decision": "finalize"})
+            assert code == 404 and "slug" in body, (code, body)
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "../../etc", "decision": "finalize"})
+            assert code == 404, f"a traversal-shaped slug must resolve to nothing: {code} {body}"
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "browser-gate", "decision": "x" * 5000})
+            assert code in (400, 413), f"an oversized body must be refused: {code}"
+
+            code, body = http_json(s.port, "/api/gate",
+                                   {"slug": "browser-gate", "decision": "finalize"})
+            assert code == 200, (code, body)
+
+        gate = os.path.join(home, "pipelines", "browser-gate", "gate.json")
+        assert os.path.isfile(gate), \
+            f"the endpoint wrote no gate beside the bus: {paths_under(tmp)}"
+        assert json.loads(open(gate, encoding="utf-8").read())["by"] == "browser"
+        assert run(root, "wait", "--for", "gate", "--timeout", "5", env=env).strip() \
+            == "finalize", "pipe.py wait does not accept the gate the browser wrote"
+
+        new = set(paths_under(tmp)) - set(before)
+        assert new == {os.path.relpath(gate, tmp)}, \
+            f"the endpoint touched something other than one gate.json: {sorted(new)}"
+
+
+def both_gate_writers_agree_on_the_format():
+    """S37 - two writers of one file (pipe.py cmd_gate and server.js), which discipline
+    does not keep in agreement. Close it mechanically: the keys server.js writes must be
+    exactly the keys pipe.py writes and cmd_wait reads, and the three accepted decisions
+    must be the same three. Rename a key in either file and this fails."""
+    src = open(SERVER_JS, encoding="utf-8").read()
+    m = re.search(r"function gateRecord\([^)]*\)\s*\{.*?return\s*\{(.*?)\};", src, re.S)
+    assert m, "ui/server.js has no gateRecord() to compare against - the guard is blind"
+    js_keys = set(re.findall(r"(\w+):", m.group(1)))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "workstream", "pipeline")
+        run(root, "init", "--feature", "Format", "--slug", "format")
+        run(root, "gate", "--decision", "reject")
+        py_keys = set(json.loads(
+            open(os.path.join(tmp, "workstream", "gate.json"), encoding="utf-8").read()))
+    assert js_keys == py_keys, \
+        f"the two gate writers disagree: server.js {sorted(js_keys)} vs pipe.py {sorted(py_keys)}"
+    assert "runId" in py_keys, "wait's previous-run guard reads runId - it must be written"
+
+    js_decisions = re.search(r"GATE_DECISIONS\s*=\s*\[(.*?)\]", src, re.S)
+    assert js_decisions, "ui/server.js does not declare GATE_DECISIONS"
+    assert re.findall(r'"([^"]+)"', js_decisions.group(1)) == import_pipe().GATE_DECISIONS, \
+        "server.js accepts a different set of decisions from pipe.py"
+
+
+def the_listen_call_is_explicit_about_loopback():
+    """S38 - section 14. Asserting the negative (that the machine's external address is
+    not serving) would need this machine's external address; the literal is the cheap
+    guard that survives a refactor of the surrounding lines."""
+    src = open(SERVER_JS, encoding="utf-8").read()
+    assert 'listen(PORT, "127.0.0.1"' in src, \
+        "ui/server.js binds every interface, with a git-adjacent POST endpoint behind it"
+
+
+HALL_HTML = os.path.join(REPO, "ui", "hall.html")
+
+# Section 10.1's two tables, by name. The palette was arrived at by iteration and is
+# binding, so the guard is that every token is declared - not that it looks right.
+SECTION_10_1_TOKENS = [
+    "ink", "panel", "sunk", "raise", "line", "line-2", "text", "bright", "muted", "faint",
+    "planner", "coder", "tester", "reviewer", "orch", "ok", "warn", "bad", "felt",
+    "floor", "floor-2", "grout", "wall", "wall-edge", "wall-shadow",
+    "wood", "wood-2", "deskglass", "chairc", "chairc-2", "skin", "legs", "shoe",
+    "eye", "pupil", "screen", "screen-b", "pot", "leaf",
+]
+
+
+def the_hall_carries_its_palette_and_needs_no_network():
+    """S39 - AC4, section 10.1. Two themes resolved three ways, and a page that renders
+    with no network: ui/server.js is dependency-free and serves localhost, so a webfont
+    <link> to a CDN would make the product's type depend on a request it cannot make.
+    Declaring a token in one theme and forgetting the other is the failure this catches."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    assert "fonts.googleapis" not in src and "fonts.gstatic" not in src, \
+        "hall.html pulls a webfont from a CDN - it must render with no network"
+    assert not re.search(r"<link[^>]+href=[\"']https?:", src), \
+        "hall.html loads a remote stylesheet"
+    assert "ui-monospace" in src and "system-ui" in src, \
+        "Fira is declared without the real system fallbacks it degrades to"
+
+    # The three-way resolution: bare :root is light, system dark is guarded so an
+    # explicit light toggle wins, and an explicit dark toggle wins in both directions.
+    for selector in ['@media (prefers-color-scheme:dark)',
+                     ':root:not([data-theme="light"])',
+                     ':root[data-theme="dark"]']:
+        assert selector.replace(" ", "") in src.replace(" ", ""), \
+            f"hall.html never resolves the theme through {selector}"
+
+    missing = [t for t in SECTION_10_1_TOKENS if len(re.findall(rf"--{re.escape(t)}\s*:", src)) < 3]
+    assert not missing, \
+        f"section 10.1 tokens not declared in all three theme blocks: {missing}"
+    # Spot-check one value per table per theme: a token declared with the wrong colour
+    # passes the count above.
+    for value in ("#E7EAF0", "#121822", "#DFE4EA", "#161C26"):
+        assert value in src, f"section 10.1 value {value} is missing from hall.html"
+
+
+def the_root_route_serves_the_hall():
+    """S40 - AC4. `/` is the hall and `/r/<slug>` stays the existing board. Skips - never
+    fails - without node, because a suite that passes silently proves nothing."""
+    if not shutil.which("node"):
+        print("SKIP S40 - no node on PATH; the / route was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        root = os.path.join(home, "pipelines", "hall-route", "pipeline")
+        run(root, "init", "--feature", "Hall route", "--slug", "hall-route",
+            env={"AGENT_ORCHESTRATION_HOME": home})
+        with Server(home) as s:
+            code, body = http_json(s.port, "/")
+            assert code == 200 and 'id="hall"' in body, \
+                f"/ does not serve ui/hall.html: {code} {body[:200]}"
+            code, body = http_json(s.port, "/r/hall-route")
+            assert code == 200 and 'id="feed"' in body, \
+                f"/r/<slug> must keep serving the existing board: {code} {body[:200]}"
+
+
+CAST = ["planner", "coder", "tester", "reviewer", "orch"]
+# Section 10.3, verbatim. Hair is the layer that gives each agent a face, so its colours
+# are literals rather than theme tokens - they are the same in both themes.
+HAIR_COLOURS = ["#CFCBC2", "#E2DFD8", "#5B4636", "#4A382B", "#6B5544",
+                "#8A4B2F", "#7A4129", "#9A573A", "#3A2E22", "#4A3B2C", "#4A4258"]
+
+
+def every_character_has_both_hair_layers():
+    """S41 - AC4, section 10.3. Two hair layers per character: the front one caps the head
+    and leaves room for a face, the back one fills the whole skull because from behind
+    there is no face to leave room for. Omitting the back layer is what made the near pair
+    render as blank heads - a bare scalp with a fringe balanced on it - and it was the last
+    bug fixed in the mockup. This is the guard that stops it coming back."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    for role in CAST:
+        for sid in (f"hair-{role}", f"hair-{role}-back"):
+            assert re.search(rf'<symbol[^>]+id="{sid}"', src), \
+                f"the cast has no <symbol id=\"{sid}\"> - that seat renders as a blank head"
+
+    body = re.search(r"function sprite\(.*?\n\}", src, re.S)
+    assert body, "hall.html has no sprite() - nothing appends the back layer"
+    assert '-back' in body.group(0), "sprite() never reaches for the -back layer"
+    assert 'sleep' in body.group(0), \
+        "sprite() must never turn a sleeping agent around - there would be no shut eyes to see"
+
+    missing = [c for c in HAIR_COLOURS if c not in src]
+    assert not missing, f"section 10.3 hair colours missing: {missing}"
+
+    # Pupils: a dedicated near-black token at ~3.6 px rendered (1.6-1.7 units of the
+    # 12x18 viewBox at 27 px). At the original ~1.8 px they vanished under crispEdges.
+    assert re.search(r'width="1\.[67]"[^>]*fill="var\(--pupil\)"'
+                     r'|fill="var\(--pupil\)"[^>]*width="1\.[67]"', src), \
+        "no 1.6-1.7 unit pupil rect in --pupil - the eyes will vanish under crispEdges"
+    assert "crispEdges" in src, "the cast is not rendered with shape-rendering: crispEdges"
+
+    # Section 10.8-1: a fifth seat on the bottom edge, only when the run has an operator.
+    assert "function hasOperator(" in src, \
+        "nothing decides whether the operator's fifth seat exists - it must not always render"
+
+
+# Section 10.4's eight entries, as they appear in CSS. Baton travel is a transition
+# rather than a loop, so it has no @keyframes and is checked by its duration below.
+MOTION_KEYFRAMES = {"typing", "waiting", "sleeping", "walk-in", "table-in", "row-in",
+                    "going-quiet"}
+# Section 10.5's scrolling screen is the office's own "something is happening here". It
+# is specified separately from the inventory, and it is the only addition allowed.
+MOTION_ALLOWED = MOTION_KEYFRAMES | {"screen-scroll"}
+
+
+def the_motion_inventory_stays_at_eight():
+    """S42 - AC4, section 10.4. Eight entries and six rules: if this list grows to twenty,
+    that is the bug. The rules are mechanical, so check them mechanically - only transform
+    and opacity ever animate (no layout, no paint), every loop is stepped, the stale team
+    freezes, and prefers-reduced-motion stops all of it."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    css = re.sub(r"/\*.*?\*/", "", src, flags=re.S)   # the rules are quoted in comments
+    names = set(re.findall(r"@keyframes\s+([\w-]+)", src))
+    assert not MOTION_KEYFRAMES - names, \
+        f"section 10.4 entries with no animation: {sorted(MOTION_KEYFRAMES - names)}"
+    assert not names - MOTION_ALLOWED, \
+        f"motion beyond the inventory: {sorted(names - MOTION_ALLOWED)} - that is the bug"
+
+    # Rule 5: transform and opacity only, so a full hall stays smooth while the page works.
+    for block in re.findall(r"@keyframes\s+[\w-]+\s*\{(.*)", src):
+        for prop in re.findall(r"([a-z-]+)\s*:", block):
+            assert prop in ("transform", "opacity"), \
+                f"@keyframes animates {prop} - that is layout or paint, not transform/opacity"
+    for value in re.findall(r"transition:([^;}]*)", css):
+        head = value.strip().split()[0].replace("!important", "")
+        assert head in ("transform", "opacity", "none"), \
+            f"transition on {head} - rule 5 forbids it"
+    assert "scale(0)" not in css, "rule 5 forbids scale(0)"
+    assert not re.search(r"ease-in(?!-out)", css), "rule 5 forbids ease-in"
+
+    # Rule 1: stepped, never eased. The snap is what makes a sprite look drawn.
+    assert "steps(1)" in src and "steps(4)" in src, "the sprite loops are not stepped"
+    for duration in ("280ms", "340ms", "3.4s", "3.6s", "440ms", "260ms", "240ms", "2.6s"):
+        assert duration in src, f"section 10.4 has an entry at {duration}; hall.html has none"
+
+    # Rule 4: stillness is the alarm - a stale team freezes mid-keystroke and dims.
+    assert re.search(r"animation-play-state:\s*paused", src), \
+        "nothing freezes when a run goes quiet - in a hall where working things move, that is the signal"
+
+    # Rule 6: every loop stops and the resting pose stays.
+    rm = re.search(r"@media \(prefers-reduced-motion:\s*reduce\)\s*\{(.*?)\n  \}", src, re.S)
+    assert rm and "animation:none" in rm.group(1) and "transition:none" in rm.group(1), \
+        "prefers-reduced-motion does not stop every loop"
+
+
+def js_literal(src, name):
+    """The JSON-shaped literal assigned to `const <name> = ...;` in hall.html. The office
+    geometry is data, so the guard reads the data rather than the drawing code."""
+    m = re.search(rf"const {name}\s*=\s*(\[.*?\]|\{{.*?\}})\s*;", src, re.S)
+    assert m, f"hall.html declares no {name} - the office geometry cannot be checked"
+    return json.loads(re.sub(r"//[^\n]*", "", m.group(1)))
+
+
+# Section 10.5: desk islands occupy these bands, so the walkable space is the two
+# vertical aisles and the horizontal ones between and around them.
+ISLAND_X = [(18, 174), (212, 368), (406, 562)]
+ISLAND_Y = [(16, 134), (168, 286)]
+
+
+def the_corridor_graph_never_cuts_a_corner():
+    """S43 - AC4, section 10.5. Walkers move one axis at a time: every edge in NODES /
+    EDGES is purely horizontal or vertical, and its constant coordinate sits in an aisle.
+    That is the whole reason the graph exists - a diagonal edge walks someone straight
+    through a desk. Also pins the facing-pair offsets, which were chosen so that no agent
+    is ever in front of a screen."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+    nodes, edges = js_literal(src, "NODES"), js_literal(src, "EDGES")
+
+    def in_aisle(v, bands):
+        return all(not (lo <= v <= hi) for lo, hi in bands)
+
+    for a, b in edges:
+        assert a in nodes and b in nodes, f"edge {a}-{b} names a node that does not exist"
+        (ax, ay), (bx, by) = nodes[a], nodes[b]
+        assert (ax == bx) != (ay == by), \
+            f"edge {a}-{b} is diagonal ({ax},{ay})->({bx},{by}) - it cuts through a desk"
+        if ax == bx:
+            assert in_aisle(ax, ISLAND_X), f"vertical edge {a}-{b} runs at x={ax}, inside an island"
+        else:
+            assert in_aisle(ay, ISLAND_Y), f"horizontal edge {a}-{b} runs at y={ay}, inside an island"
+    for name, (x, y) in nodes.items():
+        assert in_aisle(x, ISLAND_X) or in_aisle(y, ISLAND_Y), \
+            f"node {name} at ({x},{y}) stands on a desk island"
+
+    pod = {p["role"]: p for p in js_literal(src, "POD")}
+    expect = {"planner": (26, 4, 12, 34), "coder": (96, 4, 82, 34),
+              "tester": (26, 120, 12, 86), "reviewer": (96, 120, 82, 86)}
+    for role, (x, y, dx, dy) in expect.items():
+        got = pod.get(role)
+        assert got and (got["x"], got["y"], got["dx"], got["dy"]) == (x, y, dx, dy), \
+            f"{role}'s facing-pair offset drifted from section 10.5: {got}"
+    assert pod["tester"]["back"] and pod["reviewer"]["back"], \
+        "the bottom pair must be back: true - bodies sit on the outer edges"
+    assert not pod["planner"]["back"] and not pod["coder"]["back"]
+
+    # Section 10.8-2: the floor grows and off-screen pods stop animating. Capping it
+    # would hide exactly the stalled pipelines the floor exists to surface.
+    assert "IntersectionObserver" in src, \
+        "nothing pauses off-screen pods; at twelve teams that is ~24 sprite loops"
+    assert "566" in src and "418" in src, "the building is not the fixed 566x418 of 10.5"
+    assert "2.5" in src and "0.5" in src, "the zoom range is not 0.5-2.5"
+
+
+def the_hall_boots_from_the_bus_not_the_fixture():
+    """S40 - AC4/AC5, the wiring. The hall existed for three agent attempts as a fully
+    built, fully styled page rendering a hard-coded FIXTURE: it looked finished while
+    showing four pipelines that were never real, which is the worst thing a dashboard can
+    do. Assert the boot path reaches the bus, that the fixture is reachable only behind an
+    explicit opt-in, and that a served / actually carries the wiring. Skips - never fails
+    - without node, because a suite that quietly passes without it proves nothing."""
+    src = open(HALL_HTML, encoding="utf-8").read()
+
+    for needle, why in [("/api/hall", "the hall never fetches the scan"),
+                        ("EventSource", "the hall never subscribes to /events"),
+                        ("/api/gate", "the gate buttons write nowhere")]:
+        assert needle in src, f"{why} - {needle} absent from hall.html"
+
+    # The fixture must not be the boot. Every render(FIXTURE) has to sit inside the demo
+    # opt-in; an unguarded one is precisely the defect this scenario exists to catch.
+    calls = [m.start() for m in re.finditer(r"render\(FIXTURE\)", src)]
+    assert calls, "the fixture is gone - ?demo=1 is how this page gets reviewed offline"
+    guard = src.find('has("demo")')
+    assert guard != -1, "no ?demo= opt-in guards the fixture"
+    for at in calls:
+        assert guard < at < guard + 400, \
+            "render(FIXTURE) sits outside the ?demo= branch - the hall can boot on fake data"
+
+    if not shutil.which("node"):
+        print("SKIP S40 - no node on PATH; / was not served")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "hall-boot", "pipeline")
+        run(root, "init", "--feature", "Hall boot", "--slug", "hall-boot", env=env)
+        with Server(home) as s:
+            code, body = http_json(s.port, "/")
+            assert code == 200, f"/ returned {code}"
+            assert 'id="conn-txt"' in body, "/ did not serve hall.html in scan mode"
+            for needle in ("/api/hall", "EventSource", "/api/gate"):
+                assert needle in body, f"the served hall is missing {needle}"
+            code, body = http_json(s.port, "/api/hall")
+            assert code == 200 and "hall-boot" in body, (code, body[:200])
+
+
+def slug_derivation_strips_decoration_at_either_end():
+    """S41 - section 9. Decoration leads as well as trails, and stacks. A document
+    carries a kind prefix and a date because documents need them; a branch name needs
+    neither. GoTrust's real spec is SPEC-2026-09-21-entra-hold-and-deny.md, and leaving
+    the prefix on produced the slug spec-2026-09-21-entra-hold-and-deny - a second branch
+    beside the real one, whose first symptom is a deploy that ships nothing."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        env = {"AGENT_ORCHESTRATION_HOME": os.path.join(tmp, "aohome")}
+        root = os.path.join(tmp, "bus")
+        for path, want in {
+            "SPEC-2026-09-21-entra-hold-and-deny.md": "entra-hold-and-deny",
+            "docs/SPEC-2026-09-21-entra-hold-and-deny.md": "entra-hold-and-deny",
+            "docs/specs/entra-hold-and-deny-spec.md": "entra-hold-and-deny",
+            "2026-09-18-multi-pipeline-engine.md": "multi-pipeline-engine",
+            "RFC-2026-01-02-token-rotation.md": "token-rotation",
+        }.items():
+            got = run(root, "slug", "--spec", path, env=env).strip()
+            assert got == want, f"{path} derived {got!r}, expected {want!r}"
+
+
+def a_later_wave_lands_on_the_same_branch():
+    """S42 - section 3.3, and the contract derive_slug's own docstring states: a later
+    wave re-derives the slug and must land on the same string. The old rule suffixed on
+    ANY collision with a live workstream, so wave 2 silently became <slug>-2 - a second
+    branch in every repo, and a finish that merges the wrong half. The spec path decides:
+    same document attaches, a different document that derives the same name is a real
+    collision, and a bus too old to say stops rather than guessing a branch."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        docs = os.path.join(tmp, "docs")
+        os.makedirs(docs, exist_ok=True)
+        spec = os.path.join(docs, "auth-v2.md")
+        open(spec, "w", encoding="utf-8").write("# spec\n")
+
+        root = os.path.join(home, "pipelines", "auth-v2", "pipeline")
+        run(root, "init", "--slug", "auth-v2", "--spec", spec,
+            "--feature", "Auth v2", env=env)
+        rec = json.loads(open(os.path.join(root, "run.json"), encoding="utf-8").read())
+        assert rec.get("specPath"), "init did not record which spec the workstream came from"
+
+        assert run(root, "slug", "--spec", spec, env=env).strip() == "auth-v2", \
+            "a wave of the same document must attach to the same slug, not suffix"
+
+        other = os.path.join(tmp, "archive")
+        os.makedirs(other, exist_ok=True)
+        other_spec = os.path.join(other, "auth-v2.md")
+        open(other_spec, "w", encoding="utf-8").write("# different feature\n")
+        assert run(root, "slug", "--spec", other_spec, env=env).strip() == "auth-v2-2", \
+            "a different document deriving the same name is a real collision"
+
+        # A bus from before specPath existed cannot be told apart. Suffixing stays the
+        # default there - two different live workstreams must not share a branch - but it
+        # must not happen silently, and --wave has to be offered as the way to attach.
+        legacy = os.path.join(home, "pipelines", "legacy-ws", "pipeline")
+        run(legacy, "init", "--slug", "legacy-ws", "--feature", "Legacy", env=env)
+        lspec = os.path.join(docs, "legacy-ws.md")
+        open(lspec, "w", encoding="utf-8").write("# spec\n")
+        out = run(legacy, "slug", "--spec", lspec, env=env).strip()
+        assert out == "legacy-ws-2", \
+            f"an undecidable collision must still suffix, exactly as it always did: {out!r}"
+        assert run(legacy, "slug", "--spec", lspec, "--wave", env=env).strip() == "legacy-ws", \
+            "--wave must attach to the live workstream instead of suffixing"
+
+
+def an_inherited_failure_needs_evidence_not_a_smaller_number():
+    """S48 - qa-check used to fail on any non-zero `failed`, so a correct run that
+    inherited two pre-existing reds was gated red anyway, and the cheapest way to green it
+    was to edit the number down. That is an incentive to falsify the record, not a
+    friction. An inherited failure can be declared - with evidence - and anything beyond
+    the declared ones is new by definition."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Baseline reds")
+        run(root, "task", "add", "--id", "T1", "--title", "only task")
+        run(root, "task", "update", "--id", "T1", "--status", "done")
+        os.makedirs(os.path.join(root, "review"), exist_ok=True)
+        os.makedirs(os.path.join(root, "test"), exist_ok=True)
+        rev = os.path.join(root, "review", "review.json")
+        res = os.path.join(root, "test", "results.json")
+        open(rev, "w", encoding="utf-8").write(json.dumps({"findings": []}))
+
+        def results(payload):
+            open(res, "w", encoding="utf-8").write(json.dumps(payload))
+
+        results({"failed": 2})
+        out = run(root, "qa-check", expect=1)
+        assert "failing test" in out, out
+
+        # Declared, with proof, and nothing else red: the gate is green.
+        results({"failed": 2, "baselineFailures": [
+            {"test": "a", "evidence": "fails on base 1cbf13f"},
+            {"test": "b", "evidence": "fails on base 1cbf13f"}]})
+        run(root, "qa-check")
+
+        # One more red than declared is new, whatever the declarations say.
+        results({"failed": 3, "baselineFailures": [
+            {"test": "a", "evidence": "fails on base 1cbf13f"},
+            {"test": "b", "evidence": "fails on base 1cbf13f"}]})
+        out = run(root, "qa-check", expect=1)
+        assert "1 new failing test" in out, out
+
+        # A declaration without evidence is a claim, not a baseline.
+        results({"failed": 1, "baselineFailures": [{"test": "a"}]})
+        out = run(root, "qa-check", expect=1)
+        assert "no evidence" in out, out
+
+
+def heartbeat_keeps_a_long_command_from_looking_dead():
+    """S47 - the watchdog kills an agent after ~600s of silent output, and a ten-minute
+    build is silent for its whole duration. Five agents across two estates have died that
+    way. The wrapper has to do three things or it is not worth running: tick while the
+    command lives, exit with the command's own code, and break a lock whose owner is gone
+    rather than waiting out an age-based timeout - a hard kill never runs a shell trap."""
+    hb = os.path.join(os.path.dirname(PIPE), "heartbeat.py")
+    assert os.path.isfile(hb), "scripts/heartbeat.py is missing"
+
+    def hbrun(*args):
+        r = subprocess.run([sys.executable, hb, *args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120)
+        return r.returncode, r.stdout + r.stderr
+
+    code, _ = hbrun("--", sys.executable, "-c", "import sys; sys.exit(7)")
+    assert code == 7, f"the wrapped command's exit code must survive; got {code}"
+
+    code, out = hbrun("--tick", "1", "--",
+                      sys.executable, "-c", "import time; time.sleep(3)")
+    assert code == 0, code
+    assert "[heartbeat]" in out, \
+        f"nothing was printed while the command ran - the stream stays silent:\n{out}"
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        # A lock whose owner is long gone must not cost the next build its timeout.
+        locks = os.path.join(os.path.expanduser("~"), ".agent-orchestration", "locks")
+        os.makedirs(locks, exist_ok=True)
+        name = "test-" + os.path.basename(tmp)
+        lock = os.path.join(locks, name + ".lock")
+        open(lock, "w", encoding="utf-8").write("999999")
+        try:
+            code, out = hbrun("--lock", name, "--", sys.executable, "-c", "pass")
+            assert code == 0, f"a dead owner's lock blocked the run: {out}"
+            assert "breaking" in out, f"the steal must say so:\n{out}"
+            assert not os.path.exists(lock), "the lock was not released on exit"
+        finally:
+            if os.path.exists(lock):
+                os.unlink(lock)
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -843,6 +1542,26 @@ SCENARIOS = [
     ("S29", a_service_name_cannot_escape_its_container),
     ("S30", an_explicit_empty_service_is_not_the_flat_layout),
     ("S31", a_mid_loop_merge_failure_names_the_half_shipped_repos),
+    ("S32", ls_reports_branch_drift_and_orphan_containers),
+    ("S33", prune_lists_before_it_removes),
+    ("S34", the_gate_round_trips_beside_the_bus),
+    ("S35", a_previous_runs_gate_does_not_release_this_one),
+    ("S36", the_gate_endpoint_is_the_security_boundary),
+    ("S37", both_gate_writers_agree_on_the_format),
+    ("S38", the_listen_call_is_explicit_about_loopback),
+    ("S39", the_hall_carries_its_palette_and_needs_no_network),
+    ("S40", the_hall_boots_from_the_bus_not_the_fixture),
+    ("S41", slug_derivation_strips_decoration_at_either_end),
+    ("S42", a_later_wave_lands_on_the_same_branch),
+    ("S47", heartbeat_keeps_a_long_command_from_looking_dead),
+    ("S48", an_inherited_failure_needs_evidence_not_a_smaller_number),
+    ("S40", the_root_route_serves_the_hall),
+    ("S41", every_character_has_both_hair_layers),
+    ("S42", the_motion_inventory_stays_at_eight),
+    ("S43", the_corridor_graph_never_cuts_a_corner),
+    ("S44", the_operator_is_gated_and_reports_evidence),
+    ("S45", the_planner_is_granted_the_graph_it_is_told_to_query),
+    ("S46", every_agent_carries_a_bounded_cheatsheet),
 ]
 
 

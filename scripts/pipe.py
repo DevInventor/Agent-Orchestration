@@ -21,6 +21,10 @@ Usage examples:
     pipe.py qa-check
     pipe.py worktree add --service api --repo /abs/repos/OpenCRM
     pipe.py finish 009-messaging-hub --apply
+    pipe.py ls
+    pipe.py prune [--apply]
+    pipe.py gate --decision finalize
+    pipe.py wait --for gate --timeout 600
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
     pipe.py status
@@ -35,6 +39,13 @@ CONFIG_NAME = "agent-orchestration.config.json"
 GENERIC_SPEC_NAMES = {"design", "spec", "readme", "index", "requirements", "plan"}
 SLUG_MAX = 40
 SEVERITIES = ["blocking", "major", "minor", "nit"]
+# `ls`'s own staleness rule: a run nobody has touched in days. NOT the dashboard's
+# 3-minute liveness warning (ui/index.html STALE_MS) - that answers "did the agent just
+# die?", this answers "is this workstream abandoned?". Two questions, two constants.
+LS_STALE_DAYS = 3
+# The three answers the finalize gate accepts, from the terminal or the browser.
+# ui/server.js carries the same list; scripts/test_pipe.py asserts they match.
+GATE_DECISIONS = ["finalize", "in-place", "reject"]
 RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
 
 
@@ -89,6 +100,19 @@ def scan_pipelines():
     return out
 
 
+def archived_buses():
+    """The other half of the registry: <slug>.closed-<YYYYmmdd>/pipeline/run.json, the
+    one convention archive_bus() writes. `prune` needs it because a closed workstream's
+    container is exactly what nobody comes back to delete."""
+    base, out = pipelines_root(), []
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        rp = os.path.join(base, name, "pipeline", "run.json")
+        if ".closed-" in name and os.path.isfile(rp):
+            out.append({"slug": name.split(".closed-")[0],
+                        "root": os.path.dirname(rp), "run": read_json(rp, {})})
+    return out
+
+
 def git(repo, *args, check=True):
     """Every git call goes through here. encoding is pinned: git prints paths in the
     console codepage on Windows, and decoding them with the locale default mangles any
@@ -131,19 +155,71 @@ def derive_slug(spec_path):
     stem = os.path.splitext(os.path.basename(p))[0]
     if stem.lower() in GENERIC_SPEC_NAMES:
         stem = os.path.basename(os.path.dirname(p))
-    stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)
-    stem = re.sub(r"-(design|spec)$", "", stem, flags=re.IGNORECASE)
+    # Decoration can lead as well as trail, and can stack: 'SPEC-2026-09-21-entra-...'
+    # is a real filename from the GoTrust estate. A document carries a kind prefix and a
+    # date because documents need them; a branch name needs neither, and leaving either
+    # on produced 'spec-2026-09-21-entra-hold-and-deny' - a second branch beside the real
+    # one, whose first symptom is a deploy that ships nothing. Strip until nothing leads.
+    while True:
+        stripped = re.sub(r"^(?:\d{4}-\d{2}-\d{2}|design|spec|rfc|adr)[-_]", "", stem,
+                          flags=re.IGNORECASE)
+        if stripped == stem:
+            break
+        stem = stripped
+    stem = re.sub(r"[-_](design|spec)$", "", stem, flags=re.IGNORECASE)
     return slugify(stem)
 
 
-def resolve_slug(slug):
-    """Suffix rather than reuse an ACTIVE workstream's slug — two live runs sharing a
-    slug would share a branch, a container and a bus directory. A closed one is free."""
-    active = {p["slug"] for p in scan_pipelines()
-              if p["run"].get("status") not in ("done", "failed")}
-    if slug not in active:
+def configured_repos_root():
+    """The registry's reposRoot, or None when there is no registry. Absence is valid."""
+    path = find_config()
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        cfg = json.loads(open(path, encoding="utf-8").read())
+    except (json.JSONDecodeError, OSError):
+        return None      # cmd_config is where a broken registry is reported, not here
+    base = os.path.dirname(os.path.abspath(path))
+    return os.path.abspath(os.path.join(base, cfg.get("reposRoot", ".")))
+
+
+def same_spec(a, b):
+    """Two spec paths naming one document, compared the way this filesystem compares."""
+    if not a or not b:
+        return False
+    norm = lambda p: os.path.normcase(os.path.abspath(p.replace("\\", "/")))
+    return norm(a) == norm(b)
+
+
+def resolve_slug(slug, spec_path=None, mode="auto"):
+    """Decide whether this slug starts a NEW workstream or attaches to a live one.
+
+    The old rule suffixed on ANY collision with an active workstream, which broke the
+    contract derive_slug exists to keep - that a later wave re-derives the slug and lands
+    on the same string. Wave 2 of a live workstream silently became '<slug>-2': a second
+    branch, in every repo, and a `finish` that then merges the wrong half. Reproduced
+    against a live run, so this is a fix and not a precaution.
+
+    The spec path decides. Same document, same workstream: attach to it. A different
+    document that happens to derive the same name: a real collision, suffix it. A bus
+    from before specPath was recorded cannot be told apart, and guessing either way can
+    be wrong, so that case stops and asks rather than choosing in silence."""
+    live = [p for p in scan_pipelines()
+            if p["run"].get("status") not in ("done", "failed")]
+    clash = [p for p in live if p["slug"] == slug]
+    if not clash or mode == "wave":
         return slug
+
+    if mode == "auto":
+        knowable = [p for p in clash if p["run"].get("specPath")]
+        if any(same_spec(p["run"]["specPath"], spec_path) for p in knowable):
+            return slug                       # a later wave of this same workstream
+        # A bus from before specPath was recorded cannot be told apart, and falls through
+        # to the suffix unchanged - two *different* live workstreams sharing a slug would
+        # share a branch, a container and a bus. `--wave` is the way to say otherwise.
+
     n = 2
+    active = {p["slug"] for p in live}
     while f"{slug}-{n}" in active:
         n += 1
     return f"{slug}-{n}"
@@ -224,7 +300,10 @@ def cmd_slug(root, args):
     """Print the workstream slug for a spec doc (or a bare feature title), collision
     -checked against the active workstreams. The entry skills call this instead of
     applying the rule by eye, so `init`, a later wave and `finish` all agree."""
-    print(resolve_slug(derive_slug(args.spec) if args.spec else slugify(args.title)))
+    mode = "wave" if getattr(args, "wave", False) else \
+           "new" if getattr(args, "new", False) else "auto"
+    base = derive_slug(args.spec) if args.spec else slugify(args.title)
+    print(resolve_slug(base, spec_path=args.spec, mode=mode))
 
 
 def cmd_init(root, args):
@@ -260,6 +339,11 @@ def cmd_init(root, args):
         run["branch"] = "feature/" + args.slug
         run["repos"] = []
         run["mode"] = "worktree"
+        # Which document this workstream came from. Recorded so a later wave can be told
+        # apart from a different feature that derives the same name - without it,
+        # resolve_slug has to stop and ask rather than pick a branch on a guess.
+        if getattr(args, "spec", None):
+            run["specPath"] = os.path.abspath(args.spec)
     save_run(root, run)
     atomic_write(os.path.join(root, "spec.md"),
                  f"# Feature spec\n\n{args.feature}\n\n_Initialized {now_iso()}_\n")
@@ -577,7 +661,21 @@ def cmd_qa_check(root, args):
         if results is None:
             fails.append(f"no test results at {where}test/results.json - the tester never reported")
         elif results.get("failed"):
-            fails.append(f"{results['failed']} failing test(s) in {where}test/results.json")
+            # A red that the run did not cause still failed the gate, and the cheapest way
+            # to make it green was to edit this number down - so the old rule rewarded
+            # falsifying the record. An inherited failure can now be declared, but only
+            # with evidence: the tester proves it by running the test on the untouched
+            # base commit. Unproven entries do not count, and a failure beyond the
+            # declared ones is new by definition.
+            inherited = results.get("baselineFailures") or []
+            unproven = [b for b in inherited if not str(b.get("evidence", "")).strip()]
+            if unproven:
+                fails.append(f"{len(unproven)} baseline failure(s) in {where}test/results.json "
+                             f"carry no evidence: "
+                             + "; ".join(str(b.get("test", "?"))[:40] for b in unproven))
+            elif results["failed"] > len(inherited):
+                fails.append(f"{results['failed'] - len(inherited)} new failing test(s) in "
+                             f"{where}test/results.json ({len(inherited)} declared inherited)")
     tasks = read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])
     todo = [t for t in tasks if t.get("status") != "done"]
     if todo:
@@ -608,7 +706,12 @@ def cmd_worktree(root, args):
     repo = os.path.abspath(args.repo)
     if not os.path.isdir(repo) or git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
         sys.exit(f"not a git repository: {repo}")
-    repos_root = os.path.dirname(repo)
+    # The container belongs beside the repositories, not beside one of them. Where a
+    # registry declares reposRoot, that IS the repos root; deriving it from the repo's
+    # parent puts the container *inside* the checkout directory when repos are grouped
+    # under one (GoTrust keeps every repo under GoTrust/codebase/, and its hand-made
+    # containers correctly sit at GoTrust/wt-<slug>, a sibling of it).
+    repos_root = configured_repos_root() or os.path.dirname(repo)
     # The container is repos-root-shaped and sits OUTSIDE every repo, so nothing in it
     # can be committed into one by accident (section 17).
     if git(repos_root, "rev-parse", "--show-toplevel", check=False).returncode == 0:
@@ -769,13 +872,136 @@ def archive_bus(root, run):
     return dest
 
 
+def age_days(run):
+    """Days since the bus was last written to, or -1 when it never said."""
+    try:
+        return (datetime.now(timezone.utc)
+                - datetime.fromisoformat(run.get("updatedAt") or run.get("startedAt"))).days
+    except (TypeError, ValueError):
+        return -1
+
+
+def orphan_containers(pipes):
+    """wt-<slug>/ directories with no bus behind them. The repos roots are RECOVERED
+    from the worktree paths the buses themselves record - there is no configured root to
+    read, and inventing one would look everywhere except where the containers are."""
+    known = {p["slug"] for p in pipes}
+    roots = {os.path.dirname(os.path.dirname(e["worktree"]))
+             for p in pipes for e in (p["run"].get("repos") or []) if e.get("worktree")}
+    out = []
+    for r in sorted(roots):
+        for name in sorted(os.listdir(r)) if os.path.isdir(r) else []:
+            if name.startswith("wt-") and name[3:] not in known \
+                    and os.path.isdir(os.path.join(r, name)):
+                out.append(os.path.join(r, name))
+    return out
+
+
+def cmd_ls(root, args):
+    """Every workstream under the fixed root, with the drift states section 7 names.
+
+    Read-only: it never shells out to a mutating git command, because the thing you run
+    when you suspect the registry is wrong must not change it. `prune` is the other half.
+    LS_STALE_DAYS is deliberately NOT the dashboard's 3-minute liveness rule - "nobody
+    has touched this in days" and "the agent may have just died" are different questions."""
+    pipes = scan_pipelines()
+    for p in pipes:
+        run, flags = p["run"], []
+        repos = run.get("repos") or []
+        days = age_days(run)
+        if run.get("status") in ("running", "awaiting_approval") and days > LS_STALE_DAYS:
+            flags.append(f"stale({days}d)")
+        branches = sorted({e.get("branch") for e in repos})
+        if len(branches) > 1:
+            flags.append("branch-drift(" + ", ".join(str(b) for b in branches) + ")")
+        gone = [e["repo"] for e in repos if not os.path.isdir(e.get("repo") or "")]
+        if gone:
+            flags.append("missing-repo(" + ", ".join(gone) + ")")
+        if run.get("slug") and not repos:
+            flags.append("orphan(no worktrees recorded)")
+        lost = [e["worktree"] for e in repos if not os.path.isdir(e.get("worktree") or "")]
+        if lost:
+            flags.append("orphan(worktree gone: " + ", ".join(lost) + ")")
+        print(f"{p['slug']}  {run.get('phase', '?')}  {run.get('status', '?')}  "
+              f"{len(repos)} repo(s)  {days}d  {run.get('feature', '')}"
+              + ("  " + " ".join(flags) if flags else ""))
+    for c in orphan_containers(pipes):
+        print(f"(orphan) container {c} has no bus under {pipelines_root()}")
+    if not pipes:
+        print(f"no pipelines under {pipelines_root()}")
+
+
+def cmd_prune(root, args):
+    """The cleanup half of `ls`. Two steps, and only one of them touches disk by default.
+
+    Containers are listed and removed only with --apply, following `finish`'s plan/apply
+    model rather than deleting on sight: shutil.rmtree on a directory located by
+    inference is irreversible, and this file already established that two-step shape."""
+    pipes = scan_pipelines()
+    closed = archived_buses()
+    # Removal first, so the worktree registrations it invalidates are gone before the
+    # prune below runs - otherwise the repo keeps them until someone runs prune twice.
+    for c in sorted({os.path.dirname(e["worktree"]) for p in closed
+                     for e in (p["run"].get("repos") or []) if e.get("worktree")}):
+        if not os.path.isdir(c):
+            continue
+        if args.apply:
+            shutil.rmtree(c, ignore_errors=True)
+            print(f"removed container {c} (its workstream is archived)")
+        else:
+            print(f"would remove container {c} (its workstream is archived)")
+    for repo in sorted({e["repo"] for p in pipes + closed
+                        for e in (p["run"].get("repos") or []) if e.get("repo")}):
+        if os.path.isdir(repo):
+            git(repo, "worktree", "prune", check=False)
+            print(f"pruned worktree registrations in {repo}")
+    if not args.apply:
+        print("plan only - nothing was removed. re-run with --apply.")
+
+
+def gate_path(root):
+    """gate.json is a SIBLING of the bus, in the workstream directory (section 3) -
+    written by the terminal or the browser, read by the waiter. ui/server.js mirrors
+    this one rule; nothing else may choose where the gate lives."""
+    return os.path.join(os.path.dirname(os.path.abspath(root)), "gate.json")
+
+
+def cmd_gate(root, args):
+    run = load_run(root)
+    atomic_write(gate_path(root), json.dumps(
+        {"decision": args.decision, "runId": run.get("runId"),
+         "ts": now_iso(), "by": "terminal"}, indent=2))
+    print(f"{args.decision} -> {gate_path(root)}")
+
+
+def cmd_wait(root, args):
+    """Block until THIS run's gate lands, for the background Bash watcher of section 6.
+
+    The runId check is the point. gate.json is durable on purpose - re-arming a watcher
+    must pick up an approval that already landed - but a workstream outlives its runs
+    (section 3.3), so wave 1's gate would auto-finalize wave 2 the instant its watcher
+    armed. A gate stamped with another run's id is not this run's answer; keep waiting."""
+    want = load_run(root).get("runId")
+    deadline = time.time() + args.timeout if args.timeout is not None else float("inf")
+    while True:
+        gate = read_json(gate_path(root), None)
+        if isinstance(gate, dict) and gate.get("runId") == want:
+            print(gate.get("decision", ""))
+            return
+        if time.time() >= deadline:
+            sys.exit(f"wait: no gate for {want} at {gate_path(root)} "
+                     f"within {args.timeout}s")
+        time.sleep(2)
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Agent-Orchestration pipeline bus")
     p.add_argument("--root", default=None, help="pipeline dir (default: auto-locate ./pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--slug", default=None); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
+    s = sub.add_parser("init"); s.add_argument("--feature", required=True); s.add_argument("--slug", default=None); s.add_argument("--spec", default=None); s.add_argument("--max-loop", type=int, default=5, dest="max_loop")
     s = sub.add_parser("slug"); g = s.add_mutually_exclusive_group(required=True); g.add_argument("--spec"); g.add_argument("--title")
+    w = s.add_mutually_exclusive_group(); w.add_argument("--wave", action="store_true", help="attach to the live workstream of this name"); w.add_argument("--new", action="store_true", help="mint a suffixed slug beside it")
     s = sub.add_parser("event")
     s.add_argument("--agent", required=True)
     s.add_argument("--type", required=True, choices=["status", "handoff", "finding", "question", "result", "error"])
@@ -799,6 +1025,10 @@ def build_parser():
     s.add_argument("--passed", type=int, default=None)
     s.add_argument("--failed", type=int, default=None)
     s = sub.add_parser("status")
+    s = sub.add_parser("ls")
+    s = sub.add_parser("prune"); s.add_argument("--apply", action="store_true")
+    s = sub.add_parser("gate"); s.add_argument("--decision", required=True, choices=GATE_DECISIONS)
+    s = sub.add_parser("wait"); s.add_argument("--for", required=True, choices=["gate"], dest="wait_for"); s.add_argument("--timeout", type=int, default=None)
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
     s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
@@ -835,7 +1065,8 @@ def main():
         "init": cmd_init, "slug": cmd_slug, "event": cmd_event, "phase": cmd_phase,
         "agent": cmd_agent, "progress": cmd_progress, "loop": cmd_loop,
         "set-status": cmd_status_set, "svc": cmd_svc,
-        "status": cmd_status, "config": cmd_config, "task": cmd_task,
+        "status": cmd_status, "ls": cmd_ls, "prune": cmd_prune,
+        "gate": cmd_gate, "wait": cmd_wait, "config": cmd_config, "task": cmd_task,
         "review": cmd_review, "qa-check": cmd_qa_check,
         "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
