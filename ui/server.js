@@ -26,6 +26,9 @@ const SINGLE = args.includes("--pipeline") || process.env.PIPELINE_DIR
 const PORT = parseInt(opt("--port", process.env.PORT || "4600"), 10);
 const HTML = path.join(__dirname, "index.html");
 const HALL = path.join(__dirname, "hall.html");
+// Section 10.6's three-pane board. index.html stays as the fallback so a bus served in
+// single-run mode, and any older install, still renders something.
+const BOARD = path.join(__dirname, "board.html");
 
 function readJSON(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, "utf8")); }
@@ -298,7 +301,7 @@ const server = http.createServer((req, res) => {
   if (board) {
     // The slug is checked against the scan list, never joined to a path.
     return findPipeline(decodeURIComponent(board[1]))
-      ? serveHTML(res, HTML)
+      ? serveHTML(res, BOARD, HTML)
       : (res.writeHead(404), res.end("no such run"));
   }
   if (url.pathname === "/api/gate" && req.method === "POST") return apiGate(req, res);

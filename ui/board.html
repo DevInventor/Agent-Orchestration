@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent-Orchestration · the board</title>
+<style>
+  /* Section 10.1 tokens. Duplicated from hall.html rather than shared: the server is
+     stdlib and adding a stylesheet route to keep one copy costs more than the copy.
+     S39 asserts both files carry the same palette, so drift fails the suite. */
+  :root{
+    --ink:#F5F6F9; --panel:#FFFFFF; --sunk:#ECEEF3; --raise:#FFFFFF;
+    --line:#DCE0E7; --line-2:#C2C9D4;
+    --text:#3A424F; --bright:#0E131B; --muted:#6B7585; --faint:#98A1AF;
+    --planner:#9A6B10; --coder:#1A6CA8; --tester:#A33468; --reviewer:#1B7A52; --orch:#6B4FA8;
+    --ok:#1B7A52; --warn:#9A6B10; --bad:#B03A34;
+    --mono:"Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:"Fira Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --ease-out:cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+      --line:#1D2531; --line-2:#2C3644;
+      --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+      --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+      --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+    --line:#1D2531; --line-2:#2C3644;
+    --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+    --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+    --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:14px;
+    line-height:1.5;display:flex;flex-direction:column;height:100vh;-webkit-font-smoothing:antialiased}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+
+  header{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:11px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .back{font-family:var(--mono);font-size:11px;color:var(--text);text-decoration:none;
+    border:1px solid var(--line);border-radius:3px;padding:4px 11px}
+  .back:hover{border-color:var(--line-2);color:var(--bright)}
+  .b-name{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--bright)}
+  .chip{font-family:var(--mono);font-size:10px;color:var(--muted);border:1px solid var(--line);
+    border-radius:3px;padding:2px 8px;background:var(--sunk);white-space:nowrap}
+  .chip.br{color:var(--coder);border-color:color-mix(in srgb,var(--coder) 38%,var(--line))}
+  .pill{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+    padding:2px 7px;border-radius:3px;border:1px solid var(--line);color:var(--muted)}
+  .pill.run{color:var(--coder);border-color:color-mix(in srgb,var(--coder) 42%,var(--line))}
+  .pill.gate{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,var(--line))}
+  .pill.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 42%,var(--line))}
+  .pill.stale{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
+  .seats{display:flex;gap:5px;margin-left:auto}
+  .seats .s{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--faint)}
+  .seats .s.planner{color:var(--planner)} .seats .s.coder{color:var(--coder)}
+  .seats .s.tester{color:var(--tester)} .seats .s.reviewer{color:var(--reviewer)}
+  .seats .s.on{background:currentColor;border-color:currentColor;
+    box-shadow:0 0 0 3px color-mix(in srgb,currentColor 20%,transparent)}
+  .seats .s.did{background:currentColor;border-color:currentColor;opacity:.55}
+
+  .board{flex:1 1 auto;display:flex;background:var(--line);min-height:0}
+  .pane{background:var(--panel);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .ph{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid var(--line);
+    background:var(--sunk);flex:0 0 auto}
+  .ph .c{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .pmin{background:none;border:1px solid transparent;color:var(--muted);cursor:pointer;
+    padding:1px 6px;border-radius:3px;font-family:var(--mono);font-size:12px;line-height:1.1}
+  .pmin:hover{color:var(--bright);border-color:var(--line-2)}
+  .pbody{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;overflow:auto}
+  .vlabel{display:none;border:0;cursor:pointer;background:var(--sunk);flex:1 1 auto;
+    writing-mode:vertical-rl;transform:rotate(180deg);font-family:var(--mono);font-size:10px;
+    letter-spacing:.15em;text-transform:uppercase;color:var(--muted);padding:14px 0;
+    align-items:center;justify-content:center}
+  .pane.min{cursor:pointer}
+  .pane.min .ph,.pane.min .pbody{display:none}
+  .pane.min .vlabel{display:flex}
+  .gutter{flex:0 0 5px;background:var(--line);cursor:col-resize;position:relative;touch-action:none}
+  .gutter::before{content:"";position:absolute;top:50%;left:1px;width:3px;height:26px;margin-top:-13px;
+    border-radius:2px;background:var(--line-2)}
+  .gutter:hover::before{background:var(--coder)}
+  .gutter.off{cursor:default;pointer-events:none}
+  .gutter.off::before{opacity:0}
+  .board.dragging{user-select:none}
+
+  /* left: the conversation */
+  .ev{display:flex;flex-wrap:wrap;gap:0 8px;padding:9px 13px;border-bottom:1px solid var(--line);font-size:13px}
+  .ev:last-child{border-bottom:0}
+  .ev .t{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .ev .who{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase}
+  .ev .tx{flex:1 1 100%;color:var(--text);margin-top:3px;overflow-wrap:anywhere}
+  .w-planner{color:var(--planner)} .w-coder{color:var(--coder)} .w-tester{color:var(--tester)}
+  .w-reviewer{color:var(--reviewer)} .w-orchestrator{color:var(--orch)} .w-operator{color:var(--orch)}
+
+  /* centre: the flow */
+  .kan{display:flex;gap:9px;padding:11px;overflow-x:auto;align-items:flex-start;flex:1 1 auto}
+  .kcol{flex:0 0 172px;display:flex;flex-direction:column;gap:7px;min-width:0}
+  .kch{display:flex;align-items:center;gap:6px;padding:0 2px 6px;border-bottom:1.5px solid var(--line-2)}
+  .kch .nm{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kch .ct{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .kch.o-coder{border-bottom-color:var(--coder)} .kch.o-coder .nm{color:var(--coder)}
+  .kch.o-tester{border-bottom-color:var(--tester)} .kch.o-tester .nm{color:var(--tester)}
+  .kch.o-reviewer{border-bottom-color:var(--reviewer)} .kch.o-reviewer .nm{color:var(--reviewer)}
+  .kch.o-done{border-bottom-color:var(--ok)} .kch.o-done .nm{color:var(--ok)}
+  .card{background:var(--sunk);border:1px solid var(--line);border-radius:5px;padding:9px 10px;
+    display:flex;flex-direction:column;gap:6px;transition:border-color .16s var(--ease-out)}
+  .card:hover{border-color:var(--line-2)}
+  .card.flag{border-left:2px solid var(--bad)}
+  .ctop{display:flex;align-items:center;gap:6px}
+  .cid{font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+  .csvc{font-family:var(--mono);font-size:9px;color:var(--muted);margin-left:auto;
+    border:1px solid var(--line);border-radius:2px;padding:1px 5px;max-width:96px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ct{font-size:12.5px;line-height:1.38;color:var(--text)}
+  .cb{display:flex;gap:5px;flex-wrap:wrap}
+  .badge{font-family:var(--mono);font-size:8.5px;letter-spacing:.05em;text-transform:uppercase;
+    border:1px solid var(--line);border-radius:2px;padding:1px 5px;color:var(--muted)}
+  .badge.ac{color:var(--planner);border-color:color-mix(in srgb,var(--planner) 34%,var(--line))}
+  .badge.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 42%,var(--line))}
+  .kempty{font-family:var(--mono);font-size:10px;color:var(--faint);padding:8px 2px}
+
+  /* right: the state */
+  .mx{padding:11px 12px;display:flex;flex-direction:column;gap:5px}
+  .mxr{display:grid;grid-template-columns:1fr repeat(4,30px);gap:4px;align-items:center}
+  .mxr.h .lbl,.mxr.h .cell{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted)}
+  .mxr.h .cell{text-align:center}
+  .mxr .lbl{font-family:var(--mono);font-size:10.5px;color:var(--text);overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .mxr.tot{border-top:1px solid var(--line);padding-top:6px;margin-top:2px}
+  .mxr.tot .lbl{color:var(--bright);font-weight:600}
+  .mcell{height:26px;border:1px solid var(--line);border-radius:3px;position:relative;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--sunk)}
+  .mcell .fill{position:absolute;inset:auto 0 0 0;background:currentColor;opacity:.2}
+  .mcell .n{position:relative;font-family:var(--mono);font-size:9.5px;font-variant-numeric:tabular-nums}
+  .m-code{color:var(--coder)} .m-qa{color:var(--tester)} .m-rev{color:var(--reviewer)} .m-done{color:var(--ok)}
+  .mcell.full{border-color:currentColor}
+  .sub{border-top:1px solid var(--line);padding:11px 12px;display:flex;flex-direction:column;gap:8px}
+  .bud{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px}
+  .bud .nm{color:var(--text);flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bud .track{flex:0 0 46px;height:4px;background:var(--sunk);border:1px solid var(--line);
+    border-radius:2px;overflow:hidden}
+  .bud .track i{display:block;height:100%;background:var(--warn)}
+  .bud .v{color:var(--muted);flex:0 0 auto;font-variant-numeric:tabular-nums}
+  .crit{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4}
+  .crit .m{flex:0 0 auto;font-family:var(--mono)}
+  .crit.ok .m{color:var(--ok)} .crit.part .m{color:var(--warn)} .crit.no .m{color:var(--faint)}
+  .crit .tx{color:var(--muted);min-width:0}
+  .crit b{color:var(--text);font-weight:600}
+  .empty{color:var(--faint);font-size:13px;padding:30px 14px;font-family:var(--mono)}
+  /* The review rig. Not product: it exists so motion can be reviewed without a live run,
+     and it mutates this page only - nothing it does reaches the bus. Opt in with ?demo=1. */
+  .rig{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);padding:11px 18px}
+  .rig-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .rig button{font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:4px;
+    border:1px solid var(--line-2);background:var(--sunk);color:var(--text);cursor:pointer}
+  .rig button:hover{border-color:var(--coder);color:var(--bright)}
+  .rig .note{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:8px}
+
+  @media (max-width:980px){
+    .board{flex-direction:column}
+    .gutter{display:none}
+    .pane{flex:1 1 auto!important;width:auto!important}
+    .pane.min .ph,.pane.min .pbody{display:flex}
+    .pane.min .vlabel{display:none}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="/">&larr; Hall</a>
+  <span class="b-name" id="b-name">&hellip;</span>
+  <span class="chip br" id="b-branch"></span>
+  <span class="chip" id="b-repos"></span>
+  <span class="pill" id="b-pill"></span>
+  <span class="seats" id="b-seats"></span>
+</header>
+
+<div class="board" id="board"></div>
+<footer class="rig" id="rig" hidden></footer>
+
+<script>
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const SLUG=decodeURIComponent(location.pathname.replace(/^\/r\//,"").replace(/\/$/,""));
+const AGENTS=["planner","coder","tester","reviewer"];
+
+/* Six columns, in the order work moves through them (section 10.6), each headed in the
+   colour of the agent that owns it. `own` is that owner, not the task's assignee. */
+const COLS=[
+  {k:"todo",    n:"To do",        own:null},
+  {k:"coding",  n:"Coding",       own:"coder"},
+  {k:"readyqa", n:"Ready for QA", own:null},
+  {k:"qa",      n:"QA",           own:"tester"},
+  {k:"review",  n:"Review",       own:"reviewer"},
+  {k:"done",    n:"Done",         own:"done"},
+];
+const CIX=Object.fromEntries(COLS.map((c,i)=>[c.k,i]));
+const STAGES=[["Code",1,"m-code"],["QA",3,"m-qa"],["Rev",4,"m-rev"],["Done",5,"m-done"]];
+
+/* The bus records three task states - todo, in_progress, done - so the column is that
+   state plus whose turn it is. The columns the vocabulary cannot reach stay empty rather
+   than being faked; a card only ever sits where the bus actually puts it. */
+function column(t){
+  if(t.status==="done") return "done";
+  if(t.status!=="in_progress") return "todo";
+  return {coder:"coding",tester:"qa",reviewer:"review"}[t.owner] || "coding";
+}
+
+let S={run:{},plan:{},tasks:[],messages:[]};
+let PW={l:250,r:250}, PMIN={l:false,m:false,r:false};
+
+function cardState(r){
+  if(r.status==="done") return "done";
+  if(r.status==="awaiting_approval") return "gate";
+  if(r.status==="blocked"||r.status==="failed") return "stale";
+  return "run";
+}
+
+function head(){
+  const r=S.run||{};
+  document.getElementById("b-name").textContent=r.feature||SLUG;
+  document.getElementById("b-branch").textContent=r.branch||("feature/"+SLUG);
+  const repos=(r.repos||[]).map(x=>x.service||x).join(" · ");
+  document.getElementById("b-repos").textContent=repos||SLUG;
+  const st=cardState(r);
+  const pill=document.getElementById("b-pill");
+  pill.className="pill "+st; pill.textContent=r.status||"—";
+  const RAIL=["spec","plan","implement","test","review","done"];
+  const cur=RAIL.indexOf(r.phase);
+  const STAGE={planner:1,coder:2,tester:3,reviewer:4};
+  document.getElementById("b-seats").innerHTML=AGENTS.map(a=>{
+    const on=r.activeAgent===a, did=!on && cur>STAGE[a];
+    return `<span class="s ${a}${on?" on":did?" did":""}" title="${a}"></span>`;
+  }).join("");
+  document.title=`${SLUG} · the board`;
+}
+
+function pane(key,title,count,build){
+  const p=document.createElement("div");
+  p.className="pane"+(PMIN[key]?" min":"");
+  p.dataset.pane=key;
+  const h=document.createElement("div"); h.className="ph";
+  h.innerHTML=`<span class="eyebrow">${esc(title)}</span><span class="c">${esc(count)}</span>`;
+  const b=document.createElement("button");
+  b.className="pmin"; b.type="button"; b.textContent="−";
+  b.setAttribute("aria-label","Minimise "+title);
+  b.onclick=e=>{e.stopPropagation();PMIN[key]=true;draw();};
+  h.append(b);
+  const v=document.createElement("button");
+  v.className="vlabel"; v.type="button"; v.textContent=title;
+  v.onclick=()=>{PMIN[key]=false;draw();};
+  const body=document.createElement("div"); body.className="pbody";
+  build(body);
+  p.append(h,v,body);
+  return p;
+}
+
+function comms(body){
+  const ms=(S.messages||[]).slice().reverse();
+  if(!ms.length){ body.innerHTML=`<div class="empty">no events yet</div>`; return; }
+  body.innerHTML=ms.map(m=>{
+    const t=(m.ts||"").slice(11,16);
+    return `<div class="ev"><span class="t">${esc(t)}</span>
+      <span class="who w-${esc(m.agent)}">${esc(m.agent)}</span>
+      <span class="tx">${esc(m.summary)}</span></div>`;
+  }).join("");
+}
+
+function flow(body){
+  const ts=S.tasks||[];
+  const kan=document.createElement("div"); kan.className="kan";
+  kan.innerHTML=COLS.map(c=>{
+    const items=ts.filter(t=>column(t)===c.k);
+    return `<div class="kcol">
+      <div class="kch${c.own?" o-"+c.own:""}"><span class="nm">${esc(c.n)}</span>
+        <span class="ct">${items.length}</span></div>
+      ${items.length?items.map(t=>`<div class="card${t.flag?" flag":""}">
+          <span class="ctop"><span class="cid">#${esc(t.id)}</span>
+            ${t.service?`<span class="csvc">${esc(t.service)}</span>`:""}</span>
+          <span class="ct">${esc(t.title||"")}</span>
+          <span class="cb">${(t.criteriaRef||[]).map(a=>
+            `<span class="badge ac">${esc(a)}</span>`).join("")}
+            ${t.owner?`<span class="badge">${esc(t.owner)}</span>`:""}</span>
+        </div>`).join(""):`<div class="kempty">&mdash;</div>`}
+    </div>`;
+  }).join("");
+  body.append(kan);
+}
+
+const reached=(list,min)=>list.filter(t=>CIX[column(t)]>=min).length;
+
+function state(body){
+  const ts=S.tasks||[], plan=S.plan||{};
+  // Cumulative on purpose: a cell counts tasks that have REACHED a stage or gone past it,
+  // so the gap between two columns is the work in flight at that stage - the bottleneck.
+  const cell=(list,min,cls)=>{
+    const v=reached(list,min), tot=list.length;
+    return `<div class="mcell ${cls}${v===tot&&tot?" full":""}">
+      <span class="fill" style="height:${tot?Math.round(v/tot*100):0}%"></span>
+      <span class="n">${v}/${tot}</span></div>`;
+  };
+  const svcs=[...new Set(ts.map(t=>t.service).filter(Boolean))];
+  const mx=document.createElement("div"); mx.className="mx";
+  mx.innerHTML=`<div class="mxr h"><span class="lbl">service</span>
+      ${STAGES.map(([n])=>`<span class="cell">${n}</span>`).join("")}</div>`
+    + svcs.map(s=>{
+        const list=ts.filter(t=>t.service===s);
+        return `<div class="mxr"><span class="lbl">${esc(s)}</span>
+          ${STAGES.map(([,m,c])=>cell(list,m,c)).join("")}</div>`;
+      }).join("")
+    + `<div class="mxr tot"><span class="lbl">all</span>
+        ${STAGES.map(([,m,c])=>cell(ts,m,c)).join("")}</div>`;
+  body.append(mx);
+
+  const loop=(S.run||{}).loop||{};
+  const per=(S.run||{}).services||null;
+  const budgets=per?Object.entries(per).map(([k,v])=>[k,(v.loop||{}).count||0,(v.loop||{}).max||5])
+                   :[[svcs[0]||SLUG,loop.count||0,loop.max||5]];
+  const sub=document.createElement("div"); sub.className="sub";
+  sub.innerHTML=`<span class="eyebrow">fix budget</span>`
+    + budgets.map(([n,c,m])=>`<div class="bud"><span class="nm">${esc(n)}</span>
+        <span class="track"><i style="width:${Math.min(100,c/m*100)}%"></i></span>
+        <span class="v">${c}/${m}</span></div>`).join("");
+  body.append(sub);
+
+  const crit=plan.acceptanceCriteria||[];
+  if(crit.length){
+    const ids=crit.map(c=>String(typeof c==="string"?c:(c.id||"")).match(/^\s*(AC\d+(?:\([a-z]\))?)/));
+    const s2=document.createElement("div"); s2.className="sub";
+    s2.innerHTML=`<span class="eyebrow">acceptance criteria</span>`
+      + crit.map((c,i)=>{
+          const id=ids[i]?ids[i][1]:("AC"+(i+1));
+          const text=String(typeof c==="string"?c:(c.text||c.id||"")).replace(/^\s*AC\d+(?:\([a-z]\))?\s*-\s*/,"");
+          const mine=(S.tasks||[]).filter(t=>(t.criteriaRef||[]).includes(id));
+          const st=!mine.length?"no":mine.every(t=>column(t)==="done")?"ok"
+                   :mine.some(t=>CIX[column(t)]>0)?"part":"no";
+          return `<div class="crit ${st}"><span class="m">${st==="ok"?"✓":st==="part"?"◐":"○"}</span>
+            <span class="tx"><b>${esc(id)}</b> ${esc(text)}</span></div>`;
+        }).join("");
+    body.append(s2);
+  }
+}
+
+function gutter(forKey){
+  const g=document.createElement("div");
+  g.className="gutter"; g.dataset.for=forKey;
+  g.setAttribute("role","separator"); g.setAttribute("aria-orientation","vertical");
+  return g;
+}
+
+/* The task flow absorbs the slack, so shrinking a side pane widens the board rather than
+   opening a gap. If the flow itself is minimised, the first open pane takes that role. */
+function layout(board){
+  const keys=["l","m","r"];
+  const grower=PMIN.m?(keys.find(k=>!PMIN[k])||"m"):"m";
+  keys.forEach(k=>{
+    const p=board.querySelector(`[data-pane="${k}"]`);
+    if(!p) return;
+    p.style.flex=PMIN[k]?"0 0 36px":k===grower?"1 1 0":"0 0 "+(PW[k]||250)+"px";
+  });
+  board.querySelectorAll(".gutter").forEach(g=>{
+    const k=g.dataset.for;
+    g.classList.toggle("off",PMIN[k]||k===grower);
+  });
+}
+
+function wireDrag(board){
+  board.querySelectorAll(".gutter").forEach(g=>{
+    g.onpointerdown=e=>{
+      if(g.classList.contains("off")) return;
+      e.preventDefault();
+      const k=g.dataset.for, p=board.querySelector(`[data-pane="${k}"]`);
+      const r=p.getBoundingClientRect();
+      board.classList.add("dragging"); g.setPointerCapture(e.pointerId);
+      const move=ev=>{
+        const w=k==="l"?ev.clientX-r.left:r.right-ev.clientX;
+        PW[k]=Math.max(150,Math.min(520,Math.round(w)));
+        p.style.flex="0 0 "+PW[k]+"px";
+      };
+      const up=()=>{
+        board.classList.remove("dragging");
+        g.removeEventListener("pointermove",move);
+        g.removeEventListener("pointerup",up);
+        g.removeEventListener("pointercancel",up);
+      };
+      g.addEventListener("pointermove",move);
+      g.addEventListener("pointerup",up);
+      g.addEventListener("pointercancel",up);
+    };
+  });
+}
+
+function draw(){
+  head();
+  const board=document.getElementById("board");
+  board.innerHTML="";
+  const ts=S.tasks||[];
+  const done=ts.filter(t=>column(t)==="done").length;
+  board.append(
+    pane("l","Team comms",(S.messages||[]).length+" events",comms), gutter("l"),
+    pane("m","Task flow",done+" / "+ts.length+" done",flow), gutter("r"),
+    pane("r","Completion","reached",state));
+  layout(board);
+  wireDrag(board);
+}
+
+function conn(live){ /* the header pill already carries run state; nothing else to show */ }
+
+/* The board is the task record, the plan is where each task's criteria live - tasks.json
+   carries none. Joining them by id is what makes the AC badges and the criteria column
+   mean anything; without it every criterion reads "not started" on a finished run. */
+function joinPlan(s){
+  const refs={};
+  for(const t of ((s.plan||{}).tasks)||[]) if(t.id) refs[t.id]=t.criteriaRef||[];
+  for(const t of s.tasks||[]) if(!t.criteriaRef) t.criteriaRef=refs[t.id]||[];
+  return s;
+}
+
+async function pull(){
+  const r=await fetch("/api/state?run="+encodeURIComponent(SLUG),{cache:"no-store"});
+  if(!r.ok) throw new Error("/api/state returned "+r.status);
+  S=joinPlan(await r.json()); draw();
+}
+function listen(){
+  const es=new EventSource("/events?run="+encodeURIComponent(SLUG));
+  es.onmessage=e=>{try{S=joinPlan(JSON.parse(e.data));draw();}catch(err){}};
+}
+/* ---- review rig -------------------------------------------------------------------
+   Not part of the product, and deliberately not wired to the bus: every button mutates
+   the page's own copy of the state. Advancing a phase or firing a handoff over HTTP
+   would be a browser moving a run forward outside the gate, which is the one thing
+   section 14 exists to prevent. Opt in with ?demo=1, the same way the hall's fixture does. */
+const RIG=[
+  ["Fire a handoff", ()=>{
+    const order=["planner","coder","tester","reviewer"];
+    const i=order.indexOf(S.run.activeAgent);
+    S.run.activeAgent=order[Math.min(order.length-1,i+1)]||"coder";
+    const t=(S.tasks||[]).find(t=>t.status!=="done");
+    if(t){ t.status="in_progress"; t.owner=S.run.activeAgent; }
+  }],
+  ["Advance a phase", ()=>{
+    const RAIL=["spec","plan","implement","test","review","qa","done"];
+    S.run.phase=RAIL[Math.min(RAIL.length-1,RAIL.indexOf(S.run.phase)+1)];
+  }],
+  ["Let it go quiet", ()=>{ S.run.status="blocked"; }],
+  ["Reset", ()=>{ pull(); }],
+];
+if(new URLSearchParams(location.search).has("demo")){
+  const rig=document.getElementById("rig");
+  rig.hidden=false;
+  rig.innerHTML=`<div class="rig-row"><span class="eyebrow">review rig</span></div>
+    <div class="note">Not part of the product &mdash; it exists so motion can be reviewed,
+      and nothing here is written to the bus.</div>`;
+  const row=rig.querySelector(".rig-row");
+  RIG.forEach(([label,fn])=>{
+    const b=document.createElement("button");
+    b.type="button"; b.textContent=label;
+    b.onclick=()=>{ fn(); draw(); };
+    row.append(b);
+  });
+}
+
+pull().then(listen).catch(e=>{
+  document.getElementById("board").innerHTML=
+    `<div class="empty">cannot reach the dashboard server &mdash; ${esc(e.message)}</div>`;
+  listen();
+});
+</script>
+</body>
+</html>

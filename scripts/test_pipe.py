@@ -1129,6 +1129,32 @@ SECTION_10_1_TOKENS = [
 ]
 
 
+def the_board_matches_the_hall_and_needs_no_network():
+    """S49 - section 10.6. board.html duplicates the section 10.1 tokens rather than
+    sharing a stylesheet route, which is only defensible while something stops the two
+    copies drifting. Every role and status colour must be byte-identical to the hall's,
+    and the board must render with no network for the same reason the hall must."""
+    board = os.path.join(REPO, "ui", "board.html")
+    assert os.path.isfile(board), "ui/board.html is missing - /r/<slug> has no board"
+    b = open(board, encoding="utf-8").read()
+    h = open(HALL_HTML, encoding="utf-8").read()
+
+    assert "fonts.googleapis" not in b and not re.search(r"<link[^>]+href=[\"']https?:", b), \
+        "board.html reaches the network for type"
+
+    for tok in ("planner", "coder", "tester", "reviewer", "orch", "ok", "warn", "bad"):
+        hv = re.findall(rf"--{tok}\s*:\s*(#[0-9A-Fa-f]{{6}})", h)
+        bv = re.findall(rf"--{tok}\s*:\s*(#[0-9A-Fa-f]{{6}})", b)
+        assert bv, f"board.html declares no --{tok}"
+        assert set(bv) <= set(hv), \
+            f"--{tok} has drifted from the hall: board {sorted(set(bv))} vs hall {sorted(set(hv))}"
+
+    # Section 10.6's own claims: six columns in order, and the matrix counts cumulatively.
+    for col in ("To do", "Coding", "Ready for QA", "QA", "Review", "Done"):
+        assert col in b, f"the task flow is missing the {col!r} column"
+    assert "reached" in b.lower(), "the completion matrix must count what has reached a stage"
+
+
 def the_hall_carries_its_palette_and_needs_no_network():
     """S39 - AC4, section 10.1. Two themes resolved three ways, and a page that renders
     with no network: ui/server.js is dependency-free and serves localhost, so a webfont
@@ -1161,10 +1187,10 @@ def the_hall_carries_its_palette_and_needs_no_network():
 
 
 def the_root_route_serves_the_hall():
-    """S40 - AC4. `/` is the hall and `/r/<slug>` stays the existing board. Skips - never
+    """S50 - AC4. `/` is the hall and `/r/<slug>` stays the existing board. Skips - never
     fails - without node, because a suite that passes silently proves nothing."""
     if not shutil.which("node"):
-        print("SKIP S40 - no node on PATH; the / route was not exercised")
+        print("SKIP S50 - no node on PATH; the / route was not exercised")
         return
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         home = os.path.join(tmp, "aohome")
@@ -1176,8 +1202,10 @@ def the_root_route_serves_the_hall():
             assert code == 200 and 'id="hall"' in body, \
                 f"/ does not serve ui/hall.html: {code} {body[:200]}"
             code, body = http_json(s.port, "/r/hall-route")
-            assert code == 200 and 'id="feed"' in body, \
-                f"/r/<slug> must keep serving the existing board: {code} {body[:200]}"
+            # The finalize gate scoped this to the OLD board; the user reversed that after
+            # seeing it, so /r/<slug> is now section 10.6's three-pane board.
+            assert code == 200 and 'id="board"' in body, \
+                f"/r/<slug> must serve ui/board.html: {code} {body[:200]}"
 
 
 CAST = ["planner", "coder", "tester", "reviewer", "orch"]
@@ -1188,7 +1216,7 @@ HAIR_COLOURS = ["#CFCBC2", "#E2DFD8", "#5B4636", "#4A382B", "#6B5544",
 
 
 def every_character_has_both_hair_layers():
-    """S41 - AC4, section 10.3. Two hair layers per character: the front one caps the head
+    """S51 - AC4, section 10.3. Two hair layers per character: the front one caps the head
     and leaves room for a face, the back one fills the whole skull because from behind
     there is no face to leave room for. Omitting the back layer is what made the near pair
     render as blank heads - a bare scalp with a fringe balanced on it - and it was the last
@@ -1231,7 +1259,7 @@ MOTION_ALLOWED = MOTION_KEYFRAMES | {"screen-scroll"}
 
 
 def the_motion_inventory_stays_at_eight():
-    """S42 - AC4, section 10.4. Eight entries and six rules: if this list grows to twenty,
+    """S52 - AC4, section 10.4. Eight entries and six rules: if this list grows to twenty,
     that is the bug. The rules are mechanical, so check them mechanically - only transform
     and opacity ever animate (no layout, no paint), every loop is stepped, the stale team
     freezes, and prefers-reduced-motion stops all of it."""
@@ -1330,7 +1358,7 @@ def the_corridor_graph_never_cuts_a_corner():
 
 
 def the_hall_boots_from_the_bus_not_the_fixture():
-    """S40 - AC4/AC5, the wiring. The hall existed for three agent attempts as a fully
+    """S50 - AC4/AC5, the wiring. The hall existed for three agent attempts as a fully
     built, fully styled page rendering a hard-coded FIXTURE: it looked finished while
     showing four pipelines that were never real, which is the worst thing a dashboard can
     do. Assert the boot path reaches the bus, that the fixture is reachable only behind an
@@ -1354,7 +1382,7 @@ def the_hall_boots_from_the_bus_not_the_fixture():
             "render(FIXTURE) sits outside the ?demo= branch - the hall can boot on fake data"
 
     if not shutil.which("node"):
-        print("SKIP S40 - no node on PATH; / was not served")
+        print("SKIP S50 - no node on PATH; / was not served")
         return
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         home = os.path.join(tmp, "aohome")
@@ -1372,7 +1400,7 @@ def the_hall_boots_from_the_bus_not_the_fixture():
 
 
 def slug_derivation_strips_decoration_at_either_end():
-    """S41 - section 9. Decoration leads as well as trails, and stacks. A document
+    """S51 - section 9. Decoration leads as well as trails, and stacks. A document
     carries a kind prefix and a date because documents need them; a branch name needs
     neither. GoTrust's real spec is SPEC-2026-09-21-entra-hold-and-deny.md, and leaving
     the prefix on produced the slug spec-2026-09-21-entra-hold-and-deny - a second branch
@@ -1392,7 +1420,7 @@ def slug_derivation_strips_decoration_at_either_end():
 
 
 def a_later_wave_lands_on_the_same_branch():
-    """S42 - section 3.3, and the contract derive_slug's own docstring states: a later
+    """S52 - section 3.3, and the contract derive_slug's own docstring states: a later
     wave re-derives the slug and must land on the same string. The old rule suffixed on
     ANY collision with a live workstream, so wave 2 silently became <slug>-2 - a second
     branch in every repo, and a finish that merges the wrong half. The spec path decides:
@@ -1550,9 +1578,10 @@ SCENARIOS = [
     ("S37", both_gate_writers_agree_on_the_format),
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
-    ("S40", the_hall_boots_from_the_bus_not_the_fixture),
-    ("S41", slug_derivation_strips_decoration_at_either_end),
-    ("S42", a_later_wave_lands_on_the_same_branch),
+    ("S49", the_board_matches_the_hall_and_needs_no_network),
+    ("S50", the_hall_boots_from_the_bus_not_the_fixture),
+    ("S51", slug_derivation_strips_decoration_at_either_end),
+    ("S52", a_later_wave_lands_on_the_same_branch),
     ("S47", heartbeat_keeps_a_long_command_from_looking_dead),
     ("S48", an_inherited_failure_needs_evidence_not_a_smaller_number),
     ("S40", the_root_route_serves_the_hall),

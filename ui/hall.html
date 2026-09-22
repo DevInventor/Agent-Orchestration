@@ -103,8 +103,12 @@
 
   /* ---- layout: head table left, the hall (or the office) right ---- */
   main{flex:1 1 auto;display:grid;grid-template-columns:288px 1fr;gap:1px;background:var(--line);min-height:0}
-  .head-table{background:var(--panel);overflow-y:auto;padding:16px 16px 22px;display:flex;
-    flex-direction:column;gap:18px;min-height:0;grid-column:1;grid-row:1}
+  /* The sidebar scrolls on its own: a registry with a dozen services must not push the
+     Index button off the page, and must not scroll the hall with it. */
+  .head-table{background:var(--panel);overflow-y:auto;overscroll-behavior:contain;
+    padding:16px 16px 22px;display:flex;flex-direction:column;gap:18px;
+    min-height:0;height:100%;grid-column:1;grid-row:1}
+  .head-table>*{flex:0 0 auto}
   /* Both views are placed in the SAME cell on purpose. main is a two-column grid with
      three children, so an auto-placed third child wraps to row 2 column 1 - the bottom
      left corner - the instant hall and office are visible together. Stacking them here
@@ -897,12 +901,17 @@ function applyView(){
 function renderOffice(){
   const host=document.getElementById("office");
   if(host.hidden) return;                      // the hall is the working view
-  const ps=HALL.pipelines, rows=Math.max(2,Math.ceil(ps.length/3));
+  // The conductor occupies a cell like any team, so it has to be counted when the floor
+  // is sized - otherwise it is placed in a column the building has no room for and hangs
+  // off the right edge. The 566x418 of section 10.5 is the floor's *minimum*: three
+  // columns of 158 starting at x=18 need more than that once the border is counted.
+  const ps=HALL.pipelines, cells=ps.length+1, rows=Math.max(2,Math.ceil(cells/3));
   const shell=rows+"|"+ps.map(p=>p.slug).join(",");
   let floor=host.querySelector(".floor");
   if(!floor||host.dataset.shell!==shell){
     host.dataset.shell=shell;
     const h=BUILDING_H+Math.max(0,rows-2)*POD_DY;
+    const w=Math.max(BUILDING_W, POD_XS[Math.min(2,cells-1)]+158+26);
     host.innerHTML=`<div class="fbar">
         <span class="fbar-l">Floor</span>
         <button class="ghost" data-z="out">&minus;</button>
@@ -911,7 +920,7 @@ function renderOffice(){
         <button class="ghost" data-z="fit">Fit</button>
         <span class="fbar-hint">ctrl + scroll to zoom &middot; drag to pan</span>
       </div>
-      <div class="floor" style="width:${BUILDING_W}px;height:${h}px">
+      <div class="floor" style="width:${w}px;height:${h}px">
       ${ps.map(podHTML).join("")}${orchHTML(ps)}
       <div class="plant" style="left:184px;top:${h-56}px"><i></i><b></b></div>
       <div class="plant" style="left:${BUILDING_W-46}px;top:24px"><i></i><b></b></div></div>`;
