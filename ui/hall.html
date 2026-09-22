@@ -303,6 +303,11 @@
     border-color:color-mix(in srgb,var(--warn) 50%,var(--line))}
   .pod.s-stale .rug{background:color-mix(in srgb,var(--bad) 16%,var(--floor-2));
     border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
+  /* Finished reads as finished rather than as the default: without its own rule a done
+     team was simply whatever a pod looks like with no state, which is the one thing the
+     rug is supposed to say at a glance. */
+  .pod.s-done .rug{background:color-mix(in srgb,var(--ok) 7%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--ok) 30%,var(--line))}
   .pod.s-done .rug{opacity:.4}
   .pod-name{position:absolute;left:0;right:0;top:-24px;text-align:center;font-family:var(--mono);
     font-size:9px;letter-spacing:.06em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -332,7 +337,7 @@
 
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   /* floor toolbar - the reader zooms, the floor never stretches itself */
-  .fbar{display:flex;align-items:center;gap:7px;margin-bottom:12px;font-family:var(--mono);font-size:10.5px}
+  .fbar{display:flex;align-items:center;gap:7px;margin:0 2px 12px;font-family:var(--mono);font-size:10.5px;flex-wrap:wrap}
   .fbar-l{letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
   .fbar .ghost{padding:2px 9px;min-width:30px}
   #zoom-pct{color:var(--text);min-width:40px;text-align:center}
@@ -966,10 +971,19 @@ document.getElementById("view-seg").addEventListener("click",e=>{
   setView(b.dataset.view);
 });
 setView("hall");
+/* An explicit choice wins in both directions, and it has to survive a reload: the toggle
+   was resetting to the OS preference on every navigation, so choosing a theme lasted
+   exactly as long as the page did. Storage can throw or come back empty (a private
+   window, cleared site data), and the page must render correctly either way. */
+try{
+  const saved=localStorage.getItem("ao-theme");
+  if(saved==="dark"||saved==="light") document.documentElement.dataset.theme=saved;
+}catch(e){}
 document.getElementById("theme").onclick=()=>{
   const r=document.documentElement;
   const dark=r.dataset.theme?r.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
-  r.dataset.theme=dark?"light":"dark";   // an explicit toggle wins in both directions
+  r.dataset.theme=dark?"light":"dark";
+  try{ localStorage.setItem("ao-theme",r.dataset.theme); }catch(e){}
 };
 document.getElementById("reg-add").addEventListener("submit",e=>{
   e.preventDefault();
