@@ -87,6 +87,16 @@
   .ghost{background:transparent;border:1px solid var(--line);border-radius:3px;color:var(--muted);
     font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
   .ghost:hover{border-color:var(--line-2);color:var(--text)}
+  /* The cast, named once, so a colour in a card never has to be decoded. */
+  .legend{display:flex;align-items:center;gap:13px;margin-left:8px}
+  .legend span{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .legend .who{width:15px;height:auto}
+  .legend .l-planner{color:var(--planner)} .legend .l-coder{color:var(--coder)}
+  .legend .l-tester{color:var(--tester)} .legend .l-reviewer{color:var(--reviewer)}
+  .hcount{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-right:4px}
+  .hcount b{color:var(--bright);font-weight:600}
+  @media (max-width:900px){ .legend{display:none} }
   .conn{font-family:var(--mono);font-size:10px;color:var(--faint);display:flex;align-items:center;gap:5px}
   .conn .led{width:6px;height:6px;border-radius:50%;background:var(--faint)}
   .conn.live .led{background:var(--ok);box-shadow:0 0 6px var(--ok)}
@@ -300,6 +310,14 @@
   .pod.s-stale .who{animation-play-state:paused}
 
   .empty{color:var(--faint);font-size:13px;padding:36px 4px;font-family:var(--mono)}
+  /* floor toolbar - the reader zooms, the floor never stretches itself */
+  .fbar{display:flex;align-items:center;gap:7px;margin-bottom:12px;font-family:var(--mono);font-size:10.5px}
+  .fbar-l{letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .fbar .ghost{padding:2px 9px;min-width:30px}
+  #zoom-pct{color:var(--text);min-width:40px;text-align:center}
+  .fbar-hint{margin-left:auto;color:var(--faint)}
+  .pod.orch .rug{background-color:color-mix(in srgb,var(--orch) 22%,var(--floor-2))}
+  .pod.orch .pod-name{color:var(--orch);border-color:color-mix(in srgb,var(--orch) 55%,var(--line))}
   /* A refused gate has to read as refused, not as a button that went quiet. */
   .gate-err{font-family:var(--mono);font-size:10px;color:var(--bad);align-self:center}
   ::-webkit-scrollbar{width:9px;height:9px}
@@ -418,7 +436,9 @@
   <div class="seg" id="view-seg">
     <button data-view="hall" class="sel">Hall</button><button data-view="office">Office</button>
   </div>
+  <span class="legend" id="legend"></span>
   <span class="spacer"></span>
+  <span class="hcount" id="hcount"></span>
   <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
   <button class="ghost" id="theme">theme</button>
 </header>
@@ -510,10 +530,13 @@ let EXTRA_REPOS=[];   // repos you registered here; the payload owns the rest
 let NEW_REPO=null;    // the one row that just arrived - entry 7 animates only that one
 
 function repoRows(){
-  // One row per repo any workstream touches, plus the ones registered in this view.
+  // The service registry is what the project owns; run.repos[] is only what a workstream
+  // has so far created worktrees for, and is empty for the whole of an in-place run - so
+  // reading only that left this panel permanently empty.
   const seen=new Map();
+  for(const s of (HALL.registry||[])) seen.set(s.name,{name:s.name,path:s.path});
   for(const p of HALL.pipelines) for(const r of (p.repos||[])) if(!seen.has(r)) seen.set(r,{name:r});
-  for(const r of EXTRA_REPOS) if(!seen.has(r)) seen.set(r,{name:r,fresh:false});
+  for(const r of EXTRA_REPOS) if(!seen.has(r)) seen.set(r,{name:r});
   return [...seen.values()];
 }
 function renderHeadTable(){
@@ -537,14 +560,23 @@ function renderHeadTable(){
   document.getElementById("reg").innerHTML=rows.length?rows.map(r=>{
     // fresh / drift (HEAD moved) / none (never indexed) - whatever the payload carries.
     const st=r.index||"none",n=r.nodes;
-    return `<div class="repo${r.name===NEW_REPO?" enter":""}"><span class="repo-name">${esc(r.name)}</span>
+    return `<div class="repo${r.name===NEW_REPO?" enter":""}" title="${esc(r.path||r.name)}"><span class="repo-name">${esc(r.name)}</span>
       <span class="ix ${esc(st)}">${esc(st)}</span>
       <span class="repo-nodes">${n==null?"—":esc(n)+" nodes"}</span></div>`;
-  }).join(""):`<div class="reg-note">no repository registered yet</div>`;
+  }).join(""):`<div class="reg-note">no <code>agent-orchestration.config.json</code> found above this
+      server's working directory, and no workstream has recorded a repo yet</div>`;
   NEW_REPO=null;
 
-  document.getElementById("foot").innerHTML=
-    `<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
+  const tally=`<b>${ps.length}</b> team${ps.length===1?"":"s"} · <b>${awaiting}</b> awaiting you · <b>${quiet}</b> quiet`;
+  document.getElementById("foot").innerHTML=tally;
+  document.getElementById("hcount").innerHTML=tally;
+
+  // The cast named once in the chrome, so a role colour inside a card never needs decoding.
+  const LEGEND=[["planner","plan"],["coder","code"],["tester","test"],["reviewer","review"]];
+  const lg=document.getElementById("legend");
+  if(!lg.childElementCount)
+    lg.innerHTML=LEGEND.map(([role,label])=>
+      `<span class="l-${role}">${sprite(role,{px:15})}${label}</span>`).join("");
 }
 
 /* Four seats at the corners of the felt in pipeline order clockwise. The near pair face
@@ -727,6 +759,22 @@ function podHTML(p,i){
     ${desks}${people}</div>`;
 }
 
+/* The conductor sits apart, on its own rug, because it does a different job: it owns the
+   things that belong to the project rather than to any one feature. A floor that shows
+   four teams and hides what is directing them hides the decision-maker. */
+function orchHTML(ps){
+  const i=ps.length, x=POD_XS[i%3], y=POD_Y0+Math.floor(i/3)*POD_DY;
+  const live=ps.filter(p=>cardState(p)!=="done").length;
+  return `<div class="pod orch" style="left:${x}px;top:${y}px">
+    <div class="rug"></div>
+    <div class="pod-name">orchestrator &middot; ${live} live</div>
+    <div class="desk work" style="left:47px;top:60px"><div class="scr"><i></i></div></div>
+    <div class="chair" style="left:65px;top:104px"></div>
+    <div class="body" style="left:63px;top:98px">${
+      sprite("orch",{back:true,state:live?"work":"idle",seated:true,px:24})}</div>
+  </div>`;
+}
+
 /* Two walkers, on the graph, one axis at a time. They are the only thing in the room
    that means nothing, and they are grey for exactly that reason. */
 function startWalkers(floor,rows){
@@ -769,6 +817,27 @@ function observePods(floor){
 /* Zoom and pan over real DOM, not a canvas rewrite: every agent keeps its tooltip, its
    CSS animation and its theme tokens. Ctrl+wheel anchors on the pointer; drag pans. */
 let Z=1,PX=24,PY=24;
+/* The floor stays at its own size and does NOT stretch to the viewport: a fixed building
+   keeps every pod the same size run to run, which is what makes it scannable. Fit is a
+   control the reader reaches for, not something that happens to them. */
+function fitView(){
+  const host=document.getElementById("office"), f=host.querySelector(".floor");
+  if(!f || !host.clientWidth) return;
+  const pad=16;
+  Z=Math.max(0.5,Math.min(2.5,
+    Math.min((host.clientWidth-pad*2)/f.offsetWidth,(host.clientHeight-pad*2)/f.offsetHeight)));
+  PX=Math.max(pad,(host.clientWidth-f.offsetWidth*Z)/2);
+  PY=pad;
+  applyView(); showZoom();
+}
+function showZoom(){
+  const el=document.getElementById("zoom-pct");
+  if(el) el.textContent=Math.round(Z*100)+"%";
+}
+function setZoom(z){
+  Z=Math.max(0.5,Math.min(2.5,Math.round(z*100)/100));
+  applyView(); showZoom();
+}
 function applyView(){
   const f=document.querySelector("#office .floor");
   if(f) f.style.transform=`translate(${PX}px,${PY}px) scale(${Z})`;
@@ -802,13 +871,25 @@ function renderOffice(){
   if(!floor||host.dataset.shell!==shell){
     host.dataset.shell=shell;
     const h=BUILDING_H+Math.max(0,rows-2)*POD_DY;
-    host.innerHTML=`<div class="floor" style="width:${BUILDING_W}px;height:${h}px">
-      ${ps.map(podHTML).join("")}
+    host.innerHTML=`<div class="fbar">
+        <span class="fbar-l">Floor</span>
+        <button class="ghost" data-z="out">&minus;</button>
+        <span id="zoom-pct">100%</span>
+        <button class="ghost" data-z="in">+</button>
+        <button class="ghost" data-z="fit">Fit</button>
+        <span class="fbar-hint">ctrl + scroll to zoom &middot; drag to pan</span>
+      </div>
+      <div class="floor" style="width:${BUILDING_W}px;height:${h}px">
+      ${ps.map(podHTML).join("")}${orchHTML(ps)}
       <div class="plant" style="left:184px;top:${h-56}px"><i></i><b></b></div>
       <div class="plant" style="left:${BUILDING_W-46}px;top:24px"><i></i><b></b></div></div>`;
     floor=host.querySelector(".floor");
     ps.forEach(p=>POD_SIG[p.slug]=podSig(p));
-    applyView(); startWalkers(floor,rows);
+    host.querySelector(".fbar").addEventListener("click",e=>{
+      const b=e.target.closest("button"); if(!b) return;
+      if(b.dataset.z==="fit") fitView(); else setZoom(Z*(b.dataset.z==="in"?1.15:1/1.15));
+    });
+    applyView(); showZoom(); startWalkers(floor,rows);
   }else{
     // Patch only the pod that changed, or the whole floor's loops restart - including
     // the walkers, who would teleport back to where they started.
