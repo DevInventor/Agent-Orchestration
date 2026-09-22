@@ -94,8 +94,13 @@
   /* ---- layout: head table left, the hall (or the office) right ---- */
   main{flex:1 1 auto;display:grid;grid-template-columns:288px 1fr;gap:1px;background:var(--line);min-height:0}
   .head-table{background:var(--panel);overflow-y:auto;padding:16px 16px 22px;display:flex;
-    flex-direction:column;gap:18px;min-height:0}
-  .view{background:var(--ink);overflow:auto;min-height:0;padding:18px 20px 24px}
+    flex-direction:column;gap:18px;min-height:0;grid-column:1;grid-row:1}
+  /* Both views are placed in the SAME cell on purpose. main is a two-column grid with
+     three children, so an auto-placed third child wraps to row 2 column 1 - the bottom
+     left corner - the instant hall and office are visible together. Stacking them here
+     makes that state unrepresentable instead of merely unlikely. */
+  .view{background:var(--ink);overflow:auto;min-height:0;padding:18px 20px 24px;
+    grid-column:2;grid-row:1}
   .view[hidden]{display:none}
 
   /* head table: the orchestrator, exactly three counts, and the repo registry. Anything
@@ -821,15 +826,24 @@ function renderOffice(){
 
 function render(h){HALL=h||HALL;renderHeadTable();renderHall();renderOffice();}
 
-/* ---- view + theme ---- */
+/* ---- view + theme ----
+   One function owns which view is showing, and it is exhaustive: every view is set on
+   every call, so no path can leave two of them visible at once. The segmented control
+   and the initial paint both go through it rather than each setting flags themselves. */
+const VIEWS=["hall","office"];
+let VIEW="hall";
+function setView(v){
+  VIEW=VIEWS.includes(v)?v:"hall";
+  for(const k of VIEWS) document.getElementById(k).hidden=k!==VIEW;
+  document.querySelectorAll("#view-seg button")
+    .forEach(b=>b.classList.toggle("sel",b.dataset.view===VIEW));
+  if(VIEW==="office") renderOffice();   // it skips itself while hidden
+}
 document.getElementById("view-seg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
-  const v=b.dataset.view;
-  document.querySelectorAll("#view-seg button").forEach(x=>x.classList.toggle("sel",x===b));
-  document.getElementById("hall").hidden=v!=="hall";
-  document.getElementById("office").hidden=v!=="office";
-  if(v==="office") renderOffice();
+  setView(b.dataset.view);
 });
+setView("hall");
 document.getElementById("theme").onclick=()=>{
   const r=document.documentElement;
   const dark=r.dataset.theme?r.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
