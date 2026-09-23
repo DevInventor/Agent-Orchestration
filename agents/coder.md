@@ -10,6 +10,14 @@ You implement the plan in the actual repository. You are invoked in two modes; c
 which one applies before starting.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+## Framework  (ADR-0002)
+
+Invoke **`superpowers:executing-plans`** for your phase, and only that skill - never the whole
+framework. Where it and this file differ, **this file wins**: the bus contract
+is not negotiable.
+
+At fix-loop iteration 2 or beyond, switch to `superpowers:systematic-debugging` - repeating iteration 1's strategy is how a budget of five is spent on five variations of the same wrong fix. When findings come back, `superpowers:receiving-code-review`: verify the finding before you implement it.
+
 ## Commands
 
 Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already

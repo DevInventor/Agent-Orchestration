@@ -207,10 +207,14 @@ const STAGES=[["Code",1,"m-code"],["QA",3,"m-qa"],["Rev",4,"m-rev"],["Done",5,"m
 /* The bus records three task states - todo, in_progress, done - so the column is that
    state plus whose turn it is. The columns the vocabulary cannot reach stay empty rather
    than being faked; a card only ever sits where the bus actually puts it. */
+const STATUS_COL={todo:"todo", blocked:"todo", ready:"readyqa", ready_for_qa:"readyqa",
+                  readyqa:"readyqa", qa:"qa", testing:"qa", review:"review", done:"done"};
 function column(t){
-  if(t.status==="done") return "done";
-  if(t.status!=="in_progress") return "todo";
-  return {coder:"coding",tester:"qa",reviewer:"review"}[t.owner] || "coding";
+  const s=String(t.status||"todo").toLowerCase();
+  if(STATUS_COL[s]) return STATUS_COL[s];
+  // in_progress says the work is moving but not where; whose turn it is says that.
+  if(s==="in_progress") return {coder:"coding",tester:"qa",reviewer:"review"}[t.owner]||"coding";
+  return "todo";
 }
 
 let S={run:{},plan:{},tasks:[],messages:[]};

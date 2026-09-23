@@ -1,11 +1,11 @@
----
+﻿---
 name: pipeline-protocol
 description: The shared coordination contract for the Agent-Orchestration pipeline. Consult whenever an agent (planner, coder, tester, reviewer, or the orchestrator) needs to read from or write to the ./pipeline bus, emit a status/handoff event, update the phase or progress bar, or understand the file layout every agent shares. Use this before touching any file under ./pipeline.
 ---
 
 # Pipeline protocol
 
-All four agents are stateless subagents. They never talk to each other directly —
+All four agents are stateless subagents. They never talk to each other directly â€”
 they coordinate **only** through files under `<repo>/pipeline`. Treat this directory
 as a shared message bus. Always mutate it through the `pipe.py` CLI so writes stay
 atomic and the message log never corrupts under concurrent agents.
@@ -17,24 +17,24 @@ atomic and the message log never corrupts under concurrent agents.
 
 ```
 pipeline/
-├── run.json          # single source of truth for the dashboard header
-├── spec.md           # normalized feature spec (orchestrator writes)
-├── index.md          # planner's lightweight codebase index (shared understanding)
-├── plan.md           # planner output, human-readable
-├── plan.json         # planner output, structured: tasks, files, acceptance criteria
-├── tasks.json        # the task board  -> right panel
-├── messages.jsonl    # append-only event log  -> left panel (agent comms)
-├── code/
-│   ├── changes.json  # coder: {summary, files:[...], notes}
-│   └── diff.patch    # coder: unified diff of the change (git diff)
-├── test/
-│   ├── scenarios.json# tester: use-case + dataflow scenarios
-│   └── results.json  # tester: {iteration, passed, failed, failures:[...]}
-├── review/
-│   ├── review.md     # rendered from review.json by `pipe.py review --from`
-│   └── review.json   # reviewer findings: [{severity, file, line, note, planRef}]
-└── status/
-    └── summary.md     # QA/orchestrator: completed + current task  -> right panel
+â”œâ”€â”€ run.json          # single source of truth for the dashboard header
+â”œâ”€â”€ spec.md           # normalized feature spec (orchestrator writes)
+â”œâ”€â”€ index.md          # planner's lightweight codebase index (shared understanding)
+â”œâ”€â”€ plan.md           # planner output, human-readable
+â”œâ”€â”€ plan.json         # planner output, structured: tasks, files, acceptance criteria
+â”œâ”€â”€ tasks.json        # the task board  -> right panel
+â”œâ”€â”€ messages.jsonl    # append-only event log  -> left panel (agent comms)
+â”œâ”€â”€ code/
+â”‚   â”œâ”€â”€ changes.json  # coder: {summary, files:[...], notes}
+â”‚   â””â”€â”€ diff.patch    # coder: unified diff of the change (git diff)
+â”œâ”€â”€ test/
+â”‚   â”œâ”€â”€ scenarios.json# tester: use-case + dataflow scenarios
+â”‚   â””â”€â”€ results.json  # tester: {iteration, passed, failed, failures:[...]}
+â”œâ”€â”€ review/
+â”‚   â”œâ”€â”€ review.md     # rendered from review.json by `pipe.py review --from`
+â”‚   â””â”€â”€ review.json   # reviewer findings: [{severity, file, line, note, planRef}]
+â””â”€â”€ status/
+    â””â”€â”€ summary.md     # QA/orchestrator: completed + current task  -> right panel
 ```
 
 ### Multi-service runs (>1 service): per-service artifact namespace
@@ -46,9 +46,9 @@ so concurrent same-batch subagents never clobber a shared file:
 
 ```
 pipeline/services/<service>/
-├── code/{changes.json,diff.patch}
-├── test/{scenarios.json,results.json}
-└── review/{review.md,review.json}
+â”œâ”€â”€ code/{changes.json,diff.patch}
+â”œâ”€â”€ test/{scenarios.json,results.json}
+â””â”€â”€ review/{review.md,review.json}
 ```
 
 `run.json`, `tasks.json`, and `messages.jsonl` stay **shared** (one board, one log):
@@ -84,12 +84,12 @@ per-service path.
 ```
 
 `slug`, `branch`, `repos` and `mode` are present only when the bus was created with
-`init --slug` — the workstream half of the record. `branch` is fixed at `init` and is the
+`init --slug` â€” the workstream half of the record. `branch` is fixed at `init` and is the
 same string in every repository; only `worktree add` writes `repos[]`, and it takes no
 branch argument, so nothing can introduce a second name.
 
 `status: awaiting_approval` is the finalize gate (plan done, waiting for the user).
-`services` is present only in a multi-service run — one entry per service, written by
+`services` is present only in a multi-service run â€” one entry per service, written by
 `pipe.py svc`. The header `phase`/`progressPct`/`loop` stay the **macro** run; each
 service's granular phase and fix-loop live under its `services` entry.
 
@@ -104,12 +104,12 @@ service's granular phase and fix-loop live under its `services` entry.
   "detail":"optional longer text", "ref":"pipeline/plan.md" }
 ```
 
-`runId` is stamped by `pipe.py` — never write it yourself. It exists because this log is
+`runId` is stamped by `pipe.py` â€” never write it yourself. It exists because this log is
 **append-only and never rotated**: one long-lived bus accumulates every run it has ever
 seen, and without the stamp the dashboard cannot tell this run's events from the previous
 feature's. The dashboard filters the feed to the active `runId`.
 
-Keep `summary` to one line — it is what a human skims in the dashboard. Put anything
+Keep `summary` to one line â€” it is what a human skims in the dashboard. Put anything
 long in `detail` or in a referenced file via `ref`.
 
 ## The CLI you will actually call
@@ -122,7 +122,7 @@ $PIPE phase plan                           # advance the phase (recomputes progr
 $PIPE agent coder                          # set the active agent
 $PIPE progress 60                          # optional manual progress override
 $PIPE loop --count 2 --max 5               # coder<->tester loop counter (single-service)
-$PIPE set-status awaiting_approval         # run-level status (finalize gate, blocked, running…)
+$PIPE set-status awaiting_approval         # run-level status (finalize gate, blocked, runningâ€¦)
 $PIPE task add --id T1 --title "..." --owner coder [--service oauth_v3.8.0]
 $PIPE task update --id T1 --status done [--service oauth_v3.8.0]
 $PIPE event --agent coder --type handoff --summary "..." [--detail "..."] [--ref path] [--service oauth_v3.8.0]
@@ -143,7 +143,7 @@ retypes findings on its behalf.
 `--service` and `svc` are **optional/additive**: omit them and behavior is identical to
 the original single-service pipeline. Use them only in a multi-service run.
 
-## Optional service registry — `agent-orchestration.config.json`
+## Optional service registry â€” `agent-orchestration.config.json`
 
 A user may drop a `agent-orchestration.config.json` at their repos root declaring the services
 they work with and where those repos live locally. `$PIPE config` walks up to find it,
@@ -156,9 +156,9 @@ validates it, and prints normalized JSON:
 ```
 
 When absent it prints `{"configured": false, "services": []}` (exit 0) and the pipeline
-falls back to discovering service dirs by indexing — so the registry is **purely
+falls back to discovering service dirs by indexing â€” so the registry is **purely
 optional** and single-service `/ship` is unaffected. When present it is the
-authoritative map of service `name` → local `path` (+ optional `test`/`build` command
+authoritative map of service `name` â†’ local `path` (+ optional `test`/`build` command
 and default `dependsOnServices`) that the planner and orchestrator use instead of
 guessing.
 
@@ -167,8 +167,18 @@ guessing.
 1. **Emit an event at every meaningful step.** Start of work, key decision, handoff,
    blocker, completion. The dashboard is only as good as the events you emit.
 2. **One line per summary.** Humans read summaries, not diffs.
-3. **Never hand-write run.json or messages.jsonl** — always go through `pipe.py`.
+3. **Never hand-write run.json or messages.jsonl** â€” always go through `pipe.py`.
 4. **Reference, don't paste.** Large output (plans, diffs, findings) goes into its
    own pipeline file; the event carries a `ref` to it.
-5. **Phase order is fixed:** spec → plan → implement → test → review → qa → done.
+5. **Phase order is fixed:** spec â†’ plan â†’ implement â†’ test â†’ review â†’ qa â†’ done.
    Only the orchestrator advances the phase.
+
+## Framework bindings
+
+Each phase invokes one named skill and only that one - the table is in
+`docs/orchestration-runbook.md` and the reasoning in `docs/adr/0002-framework-adoption.md`.
+The framework supplies the method; the agent definition supplies this project's flavour,
+and **where they differ the local rule wins** - this bus contract is not negotiable.
+
+Never load the framework wholesale. `superpowers` is pinned at 6.4.1 and the suite fails
+if the installed version differs.

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 pipe.py - the shared coordination bus for the Agent-Orchestration multi-agent pipeline.
 
@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
 RUN_STATUSES = ["running", "awaiting_approval", "blocked", "done", "failed"]
 CONFIG_NAME = "agent-orchestration.config.json"
-# A spec doc named one of these says nothing about the workstream — its parent dir does.
+# A spec doc named one of these says nothing about the workstream â€” its parent dir does.
 GENERIC_SPEC_NAMES = {"design", "spec", "readme", "index", "requirements", "plan"}
 SLUG_MAX = 40
 SEVERITIES = ["blocking", "major", "minor", "nit"]
@@ -90,7 +90,7 @@ def pipelines_root():
 
 def scan_pipelines():
     """Every bus under the fixed root: [{slug, root, run}]. The directory IS the
-    registry — nothing to register, nothing to keep in sync, self-healing when one is
+    registry â€” nothing to register, nothing to keep in sync, self-healing when one is
     deleted. `slug` collision-checks against it and `finish` resolves a slug through it."""
     base, out = pipelines_root(), []
     for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
@@ -147,7 +147,7 @@ def require_path_segment(value, flag):
 
 def derive_slug(spec_path):
     """The workstream's name, from its spec doc's path. It has to be *derived* rather
-    than chosen, because a later wave re-derives it and must land on the same string —
+    than chosen, because a later wave re-derives it and must land on the same string â€”
     that is what keeps one workstream on one branch. A plain basename yields 'design'
     for 3 of 7 real spec paths and a plain parent yields 'specs'/'docs' for 4, so the
     rule uses the basename unless it is generic, then strips date/kind decoration."""
@@ -237,7 +237,7 @@ def atomic_write(path, text):
 class Lock:
     """Portable advisory lock (WSL2 + native Windows) via O_CREAT|O_EXCL lockfile.
     Wrap read-modify-write of run.json / tasks.json so parallel service teams
-    don't lose updates. NOT used for messages.jsonl — single-line appends <4KB
+    don't lose updates. NOT used for messages.jsonl â€” single-line appends <4KB
     are atomic, and locking the log would serialize events and kill parallelism.
     ponytail: spin-wait with stale-steal; fine for a handful of concurrent
     subagents. Swap for fcntl/msvcrt if contention ever gets heavy."""
@@ -481,7 +481,7 @@ def cmd_status(root, args):
 def cmd_config(root, args):
     """Load + validate the optional agent-orchestration.config.json service registry.
 
-    Prints {"configured": false, "services": []} (exit 0) when no config exists —
+    Prints {"configured": false, "services": []} (exit 0) when no config exists â€”
     absence is valid; the pipeline then falls back to indexing. On a present-but-broken
     config it exits non-zero with a clear message (trust-boundary validation)."""
     path = args.file or find_config()
@@ -1043,14 +1043,18 @@ def build_parser():
         t.add_argument("--id", required=True)
         t.add_argument("--title", default=None)
         t.add_argument("--owner", default=None)
-        t.add_argument("--status", default=None, choices=["todo", "in_progress", "done", "blocked"])
+        # Section 10.6's board has six columns; the vocabulary has to be able to reach all
+        # of them. "ready" is the gap: work the coder has finished that QA has not picked
+        # up. Without it "Ready for QA" is a column no run can ever put a card in.
+        t.add_argument("--status", default=None,
+                       choices=["todo", "in_progress", "ready", "done", "blocked"])
         t.add_argument("--service", default=None)
     return p
 
 
 def main():
     args = build_parser().parse_args()
-    # `init` creates ./pipeline in the CURRENT dir — it must never walk up, or a run
+    # `init` creates ./pipeline in the CURRENT dir â€” it must never walk up, or a run
     # started in a subdir would hijack/overwrite a parent's existing pipeline (data
     # loss). Every other command walks up to locate the active bus.
     if args.cmd == "init":

@@ -19,6 +19,14 @@ and how you persist through `pipe.py`, not a licence to author files. You never 
 feature code; if the fix is a code change, say so and hand it back.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+## Framework  (ADR-0002)
+
+Invoke **`superpowers:verification-before-completion`** for your phase, and only that skill - never the whole
+framework. Where it and this file differ, **this file wins**: the bus contract
+is not negotiable.
+
+Report evidence - command, exit code, what changed, what to verify - and never a verdict.
+
 ## Commands
 
 Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already

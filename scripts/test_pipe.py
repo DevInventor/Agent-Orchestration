@@ -1547,6 +1547,63 @@ def heartbeat_keeps_a_long_command_from_looking_dead():
                 os.unlink(lock)
 
 
+SUPERPOWERS_PIN = "6.4.1"          # ADR-0002. Bump deliberately, never incidentally.
+
+
+def superpowers_skills():
+    """The skill ids the installed superpowers actually ships, or None if it is absent."""
+    base = os.path.join(os.path.expanduser("~"), ".claude", "plugins", "cache",
+                        "claude-plugins-official", "superpowers", SUPERPOWERS_PIN, "skills")
+    if not os.path.isdir(base):
+        return None
+    return {d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))}
+
+
+def every_agent_names_a_skill_that_exists():
+    """S53 - ADR-0002. The binding of a phase to a framework skill is the kind of thing
+    that rots in prose: the runbook carried 'if superpowers is installed, prefer delegating
+    to it' for weeks and no agent ever invoked anything. A named skill that does not exist
+    is the same failure as a command named in an agent file but missing from pipe.py's
+    parser, and is caught the same way. Skips - never fails - when superpowers is absent,
+    because the pipeline still runs each phase natively without it."""
+    bound = {}
+    for name in ("planner", "coder", "tester", "reviewer", "operator"):
+        path = os.path.join(REPO, "agents", name + ".md")
+        if not os.path.isfile(path):
+            continue
+        src = open(path, encoding="utf-8").read()
+        assert "## Framework" in src, f"agents/{name}.md names no framework skill (ADR-0002)"
+        found = re.findall(r"`(superpowers:[a-z-]+)`", src)
+        bound[name] = set(found)
+
+    assert bound.get("planner"), "the planner is bound to no superpowers skill"
+    assert bound.get("tester"), "the tester is bound to no superpowers skill"
+
+    have = superpowers_skills()
+    if have is None:
+        print(f"SKIP S53 - superpowers {SUPERPOWERS_PIN} is not installed; "
+              f"bindings were checked for shape only")
+        return
+
+    for agent, skills in bound.items():
+        for s in skills:
+            short = s.split(":", 1)[1]
+            assert short in have, \
+                f"agents/{agent}.md invokes '{s}', which superpowers {SUPERPOWERS_PIN} " \
+                f"does not ship. Known: {sorted(have)}"
+
+    # The version is pinned because an upstream change alters how every agent works, and
+    # this project has been served a stale cached build three times without noticing.
+    root = os.path.dirname(os.path.dirname(
+        os.path.join(os.path.expanduser("~"), ".claude", "plugins", "cache",
+                     "claude-plugins-official", "superpowers", SUPERPOWERS_PIN, "x")))
+    installed = sorted(d for d in os.listdir(root)
+                       if re.fullmatch(r"\d+\.\d+\.\d+", d))
+    assert installed and installed[-1] == SUPERPOWERS_PIN, \
+        (f"superpowers {installed[-1] if installed else 'none'} is installed but ADR-0002 "
+         f"pins {SUPERPOWERS_PIN}. Re-read the changed skills, then bump the pin.")
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1579,6 +1636,7 @@ SCENARIOS = [
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S49", the_board_matches_the_hall_and_needs_no_network),
+    ("S53", every_agent_names_a_skill_that_exists),
     ("S50", the_hall_boots_from_the_bus_not_the_fixture),
     ("S51", slug_derivation_strips_decoration_at_either_end),
     ("S52", a_later_wave_lands_on_the_same_branch),

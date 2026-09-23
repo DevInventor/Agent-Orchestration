@@ -51,14 +51,35 @@ Then begin at the Plan phase.
 > status is still `running` as **stale**. If a subagent is doing long work, have it emit a
 > `status` event as it goes rather than only on completion.
 
-## Map onto the superpowers workflow
+## Framework bindings  (ADR-0002)
 
-This pipeline is the spec â†’ plan â†’ subagent-driven development â†’ testing â†’
-test-driven bug-fixing â†’ QA â†’ done loop. **If the `superpowers` plugin is installed**
-(check the available skills/commands), prefer delegating the matching stage to its
-workflow and let this orchestrator handle the agent hand-offs and the pipeline bus
-around it. If it is not installed, run each phase natively with the agents below.
-Either way the phase names and the bus contract stay the same.
+Each phase invokes **one named skill**, and only that one. The framework supplies the
+method; the agent definition supplies this project's flavour, and **where they differ the
+local rule wins** — the bus contract is not negotiable.
+
+| Phase | Who | Skill |
+|---|---|---|
+| spec gate | you + orchestrator | `grilling` (`grill-with-docs` when the decision deserves an ADR) |
+| plan | planner | `superpowers:writing-plans` |
+| finalize gate | you + orchestrator | `grilling` |
+| implement | coder | `superpowers:executing-plans` |
+| test | tester | `superpowers:test-driven-development` |
+| fix loop at K≥2 | coder | `superpowers:systematic-debugging` |
+| review | reviewer | `ponytail` review skill |
+| findings returned | coder | `superpowers:receiving-code-review` |
+| qa gate | orchestrator | `superpowers:verification-before-completion` |
+| finish | orchestrator | `superpowers:finishing-a-development-branch` |
+| the whole run | orchestrator | `superpowers:subagent-driven-development` |
+
+`subagent-driven-development` is **yours alone** — it is the largest skill in the set and
+the most duplicative of this runbook, so it loads once per run, never once per spawn.
+
+**Never load the framework wholesale.** Invoke the skill bound to the phase you are
+entering, at the moment you enter it. `superpowers` is pinned at **6.4.1**; the suite fails
+if the installed version differs, because an upstream change alters how every agent works.
+
+If a skill is genuinely unavailable, run the phase natively with the agent below and say so
+in an event — the phase names and the bus contract are unchanged either way.
 
 ## The run, phase by phase
 

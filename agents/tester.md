@@ -10,6 +10,14 @@ You verify the coder's implementation. On the first test phase you **author** th
 scenario suite; on re-runs you re-execute and report deltas.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+## Framework  (ADR-0002)
+
+Invoke **`superpowers:test-driven-development`** for your phase, and only that skill - never the whole
+framework. Where it and this file differ, **this file wins**: the bus contract
+is not negotiable.
+
+Watch every new test fail before you make it pass, and say which you watched. A passing suite here is weak evidence otherwise.
+
 ## Commands
 
 Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already
