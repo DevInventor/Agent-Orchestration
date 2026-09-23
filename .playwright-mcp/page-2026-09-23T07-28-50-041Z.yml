@@ -1,4 +1,0 @@
-- banner [ref=e2]:
-  - link "← Hall" [ref=e3] [cursor=pointer]:
-    - /url: /
-  - generic [ref=e4]: …
