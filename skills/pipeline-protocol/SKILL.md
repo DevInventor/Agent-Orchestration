@@ -1,4 +1,4 @@
-﻿---
+---
 name: pipeline-protocol
 description: The shared coordination contract for the Agent-Orchestration pipeline. Consult whenever an agent (planner, coder, tester, reviewer, or the orchestrator) needs to read from or write to the ./pipeline bus, emit a status/handoff event, update the phase or progress bar, or understand the file layout every agent shares. Use this before touching any file under ./pipeline.
 ---

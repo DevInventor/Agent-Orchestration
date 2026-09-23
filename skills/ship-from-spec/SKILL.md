@@ -1,4 +1,4 @@
-﻿---
+---
 name: ship-from-spec
 description: Ship a feature end-to-end with the 4-agent pipeline (plan -> implement -> test -> review -> QA) from an existing spec doc. Use whenever the user runs /ship-from-spec or already has a written spec/requirements doc and wants the planner/coder/tester/reviewer team to build it. The spec doc path is passed as the argument. If there is no spec doc yet, use ship instead. Also use when a run needs to be resumed or inspected.
 argument-hint: <path to spec doc>

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 pipe.py - the shared coordination bus for the Agent-Orchestration multi-agent pipeline.
 
@@ -459,12 +459,20 @@ def cmd_svc(root, args):
             svc["activeAgent"] = args.agent
         if args.status is not None:
             svc["status"] = args.status
-        if args.loop_count is not None or args.loop_max is not None:
+        if args.loop_count is not None or args.loop_max is not None or args.bump_loop:
             loop = svc.setdefault("loop", {"count": 0, "max": 5})
-            if args.loop_count is not None:
-                loop["count"] = args.loop_count
             if args.loop_max is not None:
                 loop["max"] = args.loop_max
+            if args.loop_count is not None:
+                loop["count"] = args.loop_count
+            if args.bump_loop:
+                # P1. The budget was a number the orchestrator wrote and then trusted
+                # itself to compare against max - nothing in code stopped a miscount from
+                # looping past 5. Incrementing here, and returning the verdict rather than
+                # the number, moves the guardrail out of prose and into the one place that
+                # owns the state. `blocked` is the answer; the count is just evidence.
+                loop["count"] = loop.get("count", 0) + 1
+            svc["blocked"] = loop["count"] >= loop.get("max", 5)
         if args.passed is not None:
             svc["passed"] = args.passed
         if args.failed is not None:
@@ -589,6 +597,164 @@ def render_review(data):
     if not data["findings"]:
         out += ["_no findings_", ""]
     return "\n".join(out + ["## Recommendation", "", data["recommendation"], ""])
+
+
+def criteria_ids(plan):
+    """The AC ids a plan declares. Entries are either "AC4 - text" or {"id": "AC4"}."""
+    out = []
+    for c in plan.get("acceptanceCriteria") or []:
+        s = c.get("id", "") if isinstance(c, dict) else str(c)
+        m = re.match(r"\s*(AC\d+(?:\([a-z]\))?)", s)
+        out.append(m.group(1) if m else s.strip())
+    return out
+
+
+def cmd_validate_plan(root, args):
+    """Fail loudly on a plan the rest of the pipeline cannot use.
+
+    plan.json is the only bus artefact pipe.py never writes - the planner authors it
+    free-hand - and it is the one everything downstream reads: the coder takes its tasks,
+    the board badges cards from criteriaRef, qa-check counts against its criteria, and
+    finish loops over its services. The finalize gate used to ask the orchestrator to
+    'sanity-check' it, which is an LLM judgement call standing where a check belongs.
+    Two real defects came through it: criteriaRef written as array indices, and criteria
+    the board could never match because nothing joined them to the tasks."""
+    path = args.file or os.path.join(root, "plan.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            plan = json.load(f)
+    except FileNotFoundError:
+        sys.exit(f"validate-plan: no plan at {path} - the planner never wrote one")
+    except json.JSONDecodeError as e:
+        sys.exit(f"validate-plan: invalid JSON in {path}: {e}")
+    if not isinstance(plan, dict):
+        sys.exit("validate-plan: expected a JSON object")
+
+    bad = []
+    services = plan.get("services")
+    if not isinstance(services, list) or not services:
+        bad.append("'services' must be a non-empty list")
+        names = set()
+    else:
+        names = set()
+        for i, s in enumerate(services):
+            if not isinstance(s, dict) or not s.get("name"):
+                bad.append(f"service #{i} has no 'name'")
+                continue
+            if s["name"] in names:
+                bad.append(f"duplicate service '{s['name']}'")
+            names.add(s["name"])
+            deps = s.get("dependsOnServices", [])
+            if not isinstance(deps, list):
+                bad.append(f"service '{s['name']}': dependsOnServices must be a list")
+            for d in deps if isinstance(deps, list) else []:
+                if d not in [x.get("name") for x in services if isinstance(x, dict)]:
+                    bad.append(f"service '{s['name']}' depends on unknown service '{d}'")
+
+    ids = criteria_ids(plan)
+    if not ids:
+        bad.append("'acceptanceCriteria' is empty - there is nothing to verify against")
+    for i, c in enumerate(ids):
+        if not re.fullmatch(r"AC\d+(?:\([a-z]\))?", c):
+            bad.append(f"acceptance criterion #{i} is not identified as ACn: {c!r}")
+
+    tasks = plan.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        bad.append("'tasks' must be a non-empty list")
+        tasks = []
+    seen, covered = set(), set()
+    for i, t in enumerate(tasks):
+        if not isinstance(t, dict):
+            bad.append(f"task #{i} must be an object")
+            continue
+        tid = t.get("id")
+        if not tid:
+            bad.append(f"task #{i} has no 'id'")
+        elif tid in seen:
+            bad.append(f"duplicate task id '{tid}'")
+        seen.add(tid)
+        if not t.get("title"):
+            bad.append(f"task '{tid}' has no 'title'")
+        svc = t.get("service")
+        if names and svc not in names:
+            bad.append(f"task '{tid}' names service '{svc}', which is not in services[]")
+        refs = t.get("criteriaRef") or []
+        if isinstance(refs, (str, int)):
+            refs = [refs]
+        if not refs:
+            bad.append(f"task '{tid}' references no acceptance criterion")
+        for rnum in refs:
+            # An index is what the planner wrote once already; it silently re-points the
+            # moment the criteria list is reordered, so it is refused rather than resolved.
+            if isinstance(rnum, int) or (isinstance(rnum, str) and rnum.isdigit()):
+                bad.append(f"task '{tid}' references criterion by index ({rnum!r}); "
+                           f"use the id, e.g. {ids[0] if ids else 'AC1'}")
+            elif rnum not in ids:
+                bad.append(f"task '{tid}' references unknown criterion '{rnum}'")
+            else:
+                covered.add(rnum)
+
+    for c in ids:
+        if c not in covered:
+            bad.append(f"no task implements {c}")
+
+    for b in bad:
+        print("FAIL " + b)
+    if bad:
+        sys.exit(1)
+    print(f"validate-plan: ok - {len(tasks)} task(s), {len(names)} service(s), "
+          f"{len(ids)} criteria, all covered")
+
+
+def cmd_results(root, args):
+    """Persist the tester's results the way `review --from` persists findings.
+
+    results.json was the last artefact written free-hand, and qa-check gates on it - so
+    the one file that decides whether a run ships had no shape check at all. Nothing is
+    opened for writing until the whole payload passes."""
+    try:
+        with open(args.source, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        sys.exit(f"results: no such file: {args.source}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"results: invalid JSON in {args.source}: {e}")
+    if not isinstance(data, dict):
+        sys.exit("results: expected a JSON object {total, passed, failed, failures:[...]}")
+
+    for k in ("total", "passed", "failed"):
+        if not isinstance(data.get(k), int) or data[k] < 0:
+            sys.exit(f"results: '{k}' must be a non-negative integer, got {data.get(k)!r}")
+    if data["passed"] + data["failed"] != data["total"]:
+        sys.exit(f"results: passed + failed ({data['passed']}+{data['failed']}) "
+                 f"does not equal total ({data['total']})")
+
+    failures = data.get("failures", [])
+    if not isinstance(failures, list):
+        sys.exit("results: 'failures' must be a list")
+    for i, f in enumerate(failures):
+        if not isinstance(f, dict):
+            sys.exit(f"results: failure #{i} must be an object")
+        for k in ("scenario", "expected", "actual"):
+            if not str(f.get(k, "")).strip():
+                sys.exit(f"results: failure #{i} has no '{k}' - the coder cannot act on it")
+    if data["failed"] and not failures:
+        sys.exit(f"results: {data['failed']} failing test(s) but 'failures' is empty; "
+                 f"a count the coder cannot act on is not a report")
+
+    # An inherited red is declarable, but only with proof (see qa-check).
+    for i, b in enumerate(data.get("baselineFailures") or []):
+        if not isinstance(b, dict) or not str(b.get("evidence", "")).strip():
+            sys.exit(f"results: baselineFailures[{i}] carries no evidence; prove it on the "
+                     f"untouched base commit or do not declare it")
+
+    out = svc_dir(root, args.service, "test", "results.json")
+    atomic_write(out, json.dumps(data, indent=2))
+    _event(root, "tester", "result", load_run(root).get("phase", "test"),
+           f"Tests {data['passed']}/{data['total']} passed"
+           + (f" ({data['failed']} failing)" if data["failed"] else ""),
+           None, os.path.relpath(out, root), args.service)
+    print(f"results -> {out}")
 
 
 def cmd_review(root, args):
@@ -1016,6 +1182,8 @@ def build_parser():
     s = sub.add_parser("loop"); s.add_argument("--count", type=int); s.add_argument("--max", type=int)
     s = sub.add_parser("set-status"); s.add_argument("value", choices=RUN_STATUSES)
     s = sub.add_parser("svc")
+    s.add_argument("--bump-loop", action="store_true", dest="bump_loop",
+                   help="increment this service's fix-loop count and report whether it is blocked")
     s.add_argument("--name", required=True)
     s.add_argument("--phase", default=None)
     s.add_argument("--agent", default=None)
@@ -1031,6 +1199,8 @@ def build_parser():
     s = sub.add_parser("wait"); s.add_argument("--for", required=True, choices=["gate"], dest="wait_for"); s.add_argument("--timeout", type=int, default=None)
     s = sub.add_parser("config"); s.add_argument("--file", default=None)
     s = sub.add_parser("review"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
+    s = sub.add_parser("results"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
+    s = sub.add_parser("validate-plan"); s.add_argument("--file", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
     s = sub.add_parser("worktree")
     ws = s.add_subparsers(dest="wt_cmd", required=True)
@@ -1071,7 +1241,8 @@ def main():
         "set-status": cmd_status_set, "svc": cmd_svc,
         "status": cmd_status, "ls": cmd_ls, "prune": cmd_prune,
         "gate": cmd_gate, "wait": cmd_wait, "config": cmd_config, "task": cmd_task,
-        "review": cmd_review, "qa-check": cmd_qa_check,
+        "review": cmd_review, "results": cmd_results,
+        "validate-plan": cmd_validate_plan, "qa-check": cmd_qa_check,
         "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
 

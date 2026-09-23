@@ -1,4 +1,4 @@
-﻿---
+---
 name: ship
 description: Ship a feature end-to-end with the 4-agent pipeline (plan -> implement -> test -> review -> QA), authoring the spec from the user's feature request. Use whenever the user runs /ship or asks to build a feature end-to-end with the planner/coder/tester/reviewer agent team and there is no spec doc yet. If a spec doc already exists, use ship-from-spec instead. Also use when a run needs to be resumed or inspected.
 argument-hint: <feature description>

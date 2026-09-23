@@ -1,4 +1,4 @@
-﻿# Orchestration runbook (plan â†’ QA)
+# Orchestration runbook (plan â†’ QA)
 
 Shared run-book for the `/ship` family of skills. This is a **reference doc, not an
 invocable skill** â€” `skills/ship` and `skills/ship-from-spec` each prepare the spec
@@ -89,9 +89,14 @@ in an event — the phase names and the bus contract are unchanged either way.
    the path to `pipeline/spec.md`, and the instruction to index the codebase and
    produce `plan.md` + `plan.json` + seed `tasks.json`. Its `plan.json` groups tasks
    by `service` and declares each service's `dependsOnServices`.
-3. When it returns, sanity-check that `pipeline/plan.json` exists and has tasks +
-   acceptance criteria + a `services` list. If not, re-run once with corrective
-   feedback, else mark `status: blocked` and surface to the user.
+3. When it returns, **`$PIPE validate-plan`**. This replaces the old "sanity-check that
+   plan.json has tasks + criteria + services" — that was an LLM judgement standing where a
+   check belongs, and two defects came through it (a `criteriaRef` written as an array
+   index, and criteria nothing could join to a task). It refuses a plan with duplicate
+   task ids, a task naming a service that is not in `services[]`, a criterion no task
+   implements, or a reference by index rather than id. On a non-zero exit, re-run the
+   planner once with the exact output as feedback; if it fails again, mark
+   `status: blocked` and surface it.
 
 ### 1b. FINALIZE GATE  (still phase: plan â€” do NOT add a new phase)
 The plan phase does not advance to implement until the user approves. This is a hard
@@ -134,10 +139,17 @@ loop:
   spawn tester  -> writes pipeline/test/scenarios.json + results.json
   if results.failed == 0:
       break                      # green
-  if K >= 5:
+  # Ask the bus for the verdict; do not count yourself. --bump-loop increments where
+  # the number is kept and answers `blocked`, so a miscount cannot loop past max (P1).
+  $PIPE svc --name <svc> --bump-loop      # -> {"loop":{"count":K,"max":5},"blocked":bool}
+  if blocked:
       $PIPE event --agent orchestrator --type error \
-        --summary "Reached 5 fix iterations, still N failing â€” escalating to user"
+        --summary "Fix budget spent, still N failing - escalating to user"
       mark status blocked; STOP the loop and report
+  if K >= 2:
+      # ADR-0002: iteration 2 must change strategy, not repeat iteration 1. That is how
+      # a budget of five gets spent producing five variations of the same wrong fix.
+      spawn the coder with superpowers:systematic-debugging
   # route failures back to the coder
   $PIPE agent coder
   spawn coder with pipeline/test/results.json failures -> fix only those

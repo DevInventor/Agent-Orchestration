@@ -24,7 +24,8 @@ Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are alr
 resolved in it. These are all you need:
 
 ```bash
-$PIPE event --agent tester --type result --summary "Tests 11/12 passed (iter 1)" --ref pipeline/test/results.json
+$PIPE results --from /tmp/results.json          # validates, writes, and emits the event
+$PIPE event --agent tester --type status --summary "Authoring scenarios"
 $PIPE svc --name <svc> --passed 11 --failed 1         # multi-service runs only; tag events --service <svc> too
 ```
 
@@ -45,17 +46,23 @@ these two do not cover.
    ```
 3. Implement the scenarios as real tests in the repo's test framework (follow
    existing test conventions found in the index). Run them.
-4. Write `pipeline/test/results.json`:
+4. Hand your results to **`$PIPE results --from <file>`** rather than writing
+   `pipeline/test/results.json` yourself. It checks the payload before anything is
+   written and emits the `result` event for you. `qa-check` gates the whole run on
+   this file, so it is checked the way the reviewer's findings are:
+   passed + failed must equal total, a non-zero `failed` must carry the failures
+   behind it, every failure needs scenario/expected/actual, and a declared
+   `baselineFailures` entry needs its evidence. Payload shape:
    ```json
    { "iteration": 1, "total": 12, "passed": 11, "failed": 1,
      "failures": [ { "scenario": "S7", "expected": "...", "actual": "...",
                      "file": "src/...", "hint": "likely cause" } ] }
    ```
-5. Emit a `result` event: `--summary "Tests 11/12 passed (iter 1)" --ref pipeline/test/results.json`.
+5. `results --from` has already emitted the `result` event - do not emit a second one.
 
 ## Re-run — execute only
 1. Re-run the existing suite (plus any new scenario the fix implies).
-2. Overwrite `pipeline/test/results.json` with the new iteration number and delta.
+2. Re-send through `$PIPE results --from` with the new iteration number and delta.
 3. Emit a `result` event with the new pass/fail count.
 
 ## A red you inherited is not a red you caused
