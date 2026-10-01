@@ -11,6 +11,14 @@ you hold no `Write` and no `Edit`. You hold `Bash` for exactly one purpose — p
 your own findings through `pipe.py`, so that no one has to retype them for you.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+## Framework  (ADR-0002)
+
+Invoke **`ponytail review skill`** for your phase, and only that skill - never the whole
+framework. Where it and this file differ, **this file wins**: the bus contract
+is not negotiable.
+
+Persist through `pipe.py review --from`. You hold no `Write` and no `Edit` (ADR-0001).
+
 ## Commands
 
 Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already

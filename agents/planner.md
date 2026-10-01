@@ -11,6 +11,14 @@ coder will build and the reviewer will judge against — so it must be concrete 
 grounded in how this codebase actually works, not generic.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+## Framework  (ADR-0002)
+
+Invoke **`superpowers:writing-plans`** for your phase, and only that skill - never the whole
+framework. Where it and this file differ, **this file wins**: the bus contract
+is not negotiable.
+
+Your plan is `plan.json`: `services[]`, `acceptanceCriteria`, and a `criteriaRef` on every task.
+
 ## Commands
 
 Use the `$PIPE` the orchestrator handed you — interpreter and `--root` are already

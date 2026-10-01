@@ -1547,6 +1547,183 @@ def heartbeat_keeps_a_long_command_from_looking_dead():
                 os.unlink(lock)
 
 
+def a_plan_the_pipeline_cannot_use_is_refused():
+    """S55 - P4. plan.json was the one bus artefact pipe.py never wrote and never checked,
+    and it is what everything downstream reads: tasks, criteriaRef, services, criteria.
+    The finalize gate asked the orchestrator to 'sanity-check' it, which is an LLM
+    judgement standing where a check belongs - and two real defects came through it, a
+    criteriaRef written as an array index and criteria nothing could join to a task."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Plan validation")
+        plan = os.path.join(root, "plan.json")
+
+        out = run(root, "validate-plan", expect=1)
+        assert "no plan" in out, out
+
+        def write(obj):
+            with open(plan, "w", encoding="utf-8") as fh:
+                json.dump(obj, fh)
+
+        good = {"services": [{"name": "api", "dependsOnServices": []}],
+                "acceptanceCriteria": ["AC1 - first", "AC2 - second"],
+                "tasks": [{"id": "T1", "title": "a", "service": "api", "criteriaRef": ["AC1"]},
+                          {"id": "T2", "title": "b", "service": "api", "criteriaRef": ["AC2"]}]}
+        write(good)
+        run(root, "validate-plan")
+
+        # An index silently re-points the moment the criteria list is reordered.
+        bad = json.loads(json.dumps(good))
+        bad["tasks"][0]["criteriaRef"] = [0]
+        write(bad)
+        assert "by index" in run(root, "validate-plan", expect=1)
+
+        bad = json.loads(json.dumps(good))
+        bad["tasks"][1]["id"] = "T1"
+        write(bad)
+        assert "duplicate task id" in run(root, "validate-plan", expect=1)
+
+        bad = json.loads(json.dumps(good))
+        bad["tasks"][0]["service"] = "nope"
+        write(bad)
+        assert "not in services[]" in run(root, "validate-plan", expect=1)
+
+        bad = json.loads(json.dumps(good))
+        bad["tasks"] = bad["tasks"][:1]
+        write(bad)
+        assert "no task implements AC2" in run(root, "validate-plan", expect=1)
+
+
+def test_results_are_written_through_a_check():
+    """S56 - results.json was the last artefact written free-hand, and qa-check gates the
+    run on it: the one file that decides whether work ships had no shape check at all. A
+    count with no failures behind it is not a report the coder can act on."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Results validation")
+        src = os.path.join(tmp, "r.json")
+
+        def write(obj):
+            with open(src, "w", encoding="utf-8") as fh:
+                json.dump(obj, fh)
+
+        write({"total": 10, "passed": 8, "failed": 1, "failures": []})
+        assert "does not equal total" in run(root, "results", "--from", src, expect=1)
+
+        write({"total": 2, "passed": 1, "failed": 1, "failures": []})
+        assert "'failures' is empty" in run(root, "results", "--from", src, expect=1)
+
+        write({"total": 2, "passed": 1, "failed": 1,
+               "failures": [{"scenario": "S1", "expected": "x"}]})
+        assert "no 'actual'" in run(root, "results", "--from", src, expect=1)
+
+        write({"total": 1, "passed": 0, "failed": 1,
+               "failures": [{"scenario": "S1", "expected": "x", "actual": "y"}],
+               "baselineFailures": [{"test": "S1"}]})
+        assert "no evidence" in run(root, "results", "--from", src, expect=1)
+
+        write({"iteration": 1, "total": 2, "passed": 2, "failed": 0, "failures": []})
+        run(root, "results", "--from", src)
+        written = os.path.join(root, "test", "results.json")
+        assert os.path.isfile(written), "a valid payload was not persisted"
+        assert json.loads(open(written, encoding="utf-8").read())["total"] == 2
+
+
+def the_fix_budget_is_counted_where_it_is_kept():
+    """S57 - P1. The budget was a number the orchestrator wrote and then trusted itself to
+    compare against max; nothing in code stopped a miscount from looping past five. The
+    count belongs to the state, and the answer the caller needs is `blocked`, not a number
+    it has to reason about."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Loop budget")
+        seen = []
+        for _ in range(6):
+            out = run(root, "svc", "--name", "api", "--bump-loop", "--loop-max", "3")
+            svc = json.loads(out)["api"]
+            seen.append((svc["loop"]["count"], svc["blocked"]))
+        assert [c for c, _ in seen] == [1, 2, 3, 4, 5, 6], seen
+        assert [b for _, b in seen] == [False, False, True, True, True, True], \
+            f"blocked must latch at max and stay latched: {seen}"
+
+
+def no_tracked_source_carries_a_byte_order_mark():
+    """S54 - PowerShell's `Set-Content -Encoding utf8` writes a UTF-8 BOM, and this repo is
+    edited from PowerShell. A BOM at the top of pipe.py is invisible in every editor and
+    breaks anything that reads the file as plain utf-8 - ast.parse refuses it outright.
+    Five tracked files picked one up in a single afternoon before this caught it."""
+    bom = b"\xef\xbb\xbf"
+    bad = []
+    for dirpath, dirnames, files in os.walk(REPO):
+        dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules", "pipeline")]
+        for name in files:
+            if not name.endswith((".py", ".md", ".js", ".html", ".json")):
+                continue
+            p = os.path.join(dirpath, name)
+            with open(p, "rb") as fh:
+                if fh.read(3) == bom:
+                    bad.append(os.path.relpath(p, REPO))
+    assert not bad, ("these carry a UTF-8 BOM; rewrite them without one "
+                     f"(PowerShell: -Encoding utf8NoBOM, or Python): {sorted(bad)}")
+
+
+SUPERPOWERS_PIN = "6.4.1"          # ADR-0002. Bump deliberately, never incidentally.
+
+
+def superpowers_skills():
+    """The skill ids the installed superpowers actually ships, or None if it is absent."""
+    base = os.path.join(os.path.expanduser("~"), ".claude", "plugins", "cache",
+                        "claude-plugins-official", "superpowers", SUPERPOWERS_PIN, "skills")
+    if not os.path.isdir(base):
+        return None
+    return {d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))}
+
+
+def every_agent_names_a_skill_that_exists():
+    """S53 - ADR-0002. The binding of a phase to a framework skill is the kind of thing
+    that rots in prose: the runbook carried 'if superpowers is installed, prefer delegating
+    to it' for weeks and no agent ever invoked anything. A named skill that does not exist
+    is the same failure as a command named in an agent file but missing from pipe.py's
+    parser, and is caught the same way. Skips - never fails - when superpowers is absent,
+    because the pipeline still runs each phase natively without it."""
+    bound = {}
+    for name in ("planner", "coder", "tester", "reviewer", "operator"):
+        path = os.path.join(REPO, "agents", name + ".md")
+        if not os.path.isfile(path):
+            continue
+        src = open(path, encoding="utf-8").read()
+        assert "## Framework" in src, f"agents/{name}.md names no framework skill (ADR-0002)"
+        found = re.findall(r"`(superpowers:[a-z-]+)`", src)
+        bound[name] = set(found)
+
+    assert bound.get("planner"), "the planner is bound to no superpowers skill"
+    assert bound.get("tester"), "the tester is bound to no superpowers skill"
+
+    have = superpowers_skills()
+    if have is None:
+        print(f"SKIP S53 - superpowers {SUPERPOWERS_PIN} is not installed; "
+              f"bindings were checked for shape only")
+        return
+
+    for agent, skills in bound.items():
+        for s in skills:
+            short = s.split(":", 1)[1]
+            assert short in have, \
+                f"agents/{agent}.md invokes '{s}', which superpowers {SUPERPOWERS_PIN} " \
+                f"does not ship. Known: {sorted(have)}"
+
+    # The version is pinned because an upstream change alters how every agent works, and
+    # this project has been served a stale cached build three times without noticing.
+    root = os.path.dirname(os.path.dirname(
+        os.path.join(os.path.expanduser("~"), ".claude", "plugins", "cache",
+                     "claude-plugins-official", "superpowers", SUPERPOWERS_PIN, "x")))
+    installed = sorted(d for d in os.listdir(root)
+                       if re.fullmatch(r"\d+\.\d+\.\d+", d))
+    assert installed and installed[-1] == SUPERPOWERS_PIN, \
+        (f"superpowers {installed[-1] if installed else 'none'} is installed but ADR-0002 "
+         f"pins {SUPERPOWERS_PIN}. Re-read the changed skills, then bump the pin.")
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1579,6 +1756,11 @@ SCENARIOS = [
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S49", the_board_matches_the_hall_and_needs_no_network),
+    ("S53", every_agent_names_a_skill_that_exists),
+    ("S54", no_tracked_source_carries_a_byte_order_mark),
+    ("S55", a_plan_the_pipeline_cannot_use_is_refused),
+    ("S56", test_results_are_written_through_a_check),
+    ("S57", the_fix_budget_is_counted_where_it_is_kept),
     ("S50", the_hall_boots_from_the_bus_not_the_fixture),
     ("S51", slug_derivation_strips_decoration_at_either_end),
     ("S52", a_later_wave_lands_on_the_same_branch),

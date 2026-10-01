@@ -1,7 +1,7 @@
 # Agent-Orchestration run artifacts (created wherever /ship runs)
 pipeline/
 
-# a user's own registry may contain local machine paths — keep it out of the plugin repo
+# a user's own registry may contain local machine paths â€” keep it out of the plugin repo
 agent-orchestration.config.json
 
 # OS / editor cruft
@@ -11,3 +11,6 @@ Thumbs.db
 
 # test_pipe.py imports pipe.py as a module
 __pycache__/
+# Screenshot and snapshot artefacts from browser tooling - never part of the plugin.
+.playwright-mcp/
+*.png
