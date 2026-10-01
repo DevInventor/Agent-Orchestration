@@ -40,8 +40,12 @@ the URL it printed (4600, or the next free port). If it did not â€” or if t
 start it now before planning, because nothing else will:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "<the bus path>"   # background call
+node "${CLAUDE_PLUGIN_ROOT}/ui/server.js"   # background call; scan mode — no --pipeline
 ```
+
+Scan mode serves the hall at `/` and each run's board at `/r/<slug>`; `--pipeline`
+would lock the server into the legacy single-run page. If `/api/hall` already answers
+on 4600, a dashboard is running — reuse it instead of starting another.
 
 Then begin at the Plan phase.
 

@@ -46,12 +46,16 @@ PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    it, and the server is a passive file reader: if it is not running, the entire run is
    invisible. Launch it as a **background** Bash call so it outlives this turn:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/ui/server.js" --pipeline "<the printed bus path>"
+   node "${CLAUDE_PLUGIN_ROOT}/ui/server.js"
    ```
-   A held port is not assumed to be ours — a stale dashboard from a finished run may hold it — so it steps to the next free port and prints the one it bound.
-   Pass the **absolute** bus path as shown; the server resolves `--pipeline` against its
-   own cwd, so a relative path silently watches the wrong directory.
-   Then tell the user once: **the URL the server printed** (4600 unless it was taken, in which case it steps to the next free port and says so).
+   No `--pipeline` flag: the server scans the fixed pipelines root itself and serves
+   the hall at `/` and this run's board at `/r/<slug>`. Passing `--pipeline` locks it
+   into the legacy single-run page and loses both.
+   One scan-mode server covers every pipeline, so check before launching: if
+   `http://127.0.0.1:4600/api/hall` already answers, a dashboard is running — reuse it.
+   Otherwise launch; a held port is not assumed to be ours — a stale single-run
+   dashboard may hold it — so it steps to the next free port and prints the one it bound.
+   Then tell the user once: **`<the URL the server printed>/r/<slug>`** (4600 unless it was taken, in which case it steps to the next free port and says so).
 3. Refine the raw request in `<bus>/spec.md` into crisp, testable acceptance
    criteria (a short bullet list). Overwrite the file.
 4. `$PIPE event --agent orchestrator --type status --summary "Spec normalized: N acceptance criteria"`.
