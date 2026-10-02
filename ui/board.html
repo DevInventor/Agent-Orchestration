@@ -205,15 +205,28 @@ const CIX=Object.fromEntries(COLS.map((c,i)=>[c.k,i]));
 const STAGES=[["Code",1,"m-code"],["QA",3,"m-qa"],["Rev",4,"m-rev"],["Done",5,"m-done"]];
 
 /* The bus records three task states - todo, in_progress, done - so the column is that
-   state plus whose turn it is. The columns the vocabulary cannot reach stay empty rather
-   than being faked; a card only ever sits where the bus actually puts it. */
+   state plus whose turn it is. Only the coder moves a task, so done means "written once":
+   where a done card sits is its service's stage. A green service is not yet reviewed -
+   review belongs to the run - so Done waits for the run to get past review. */
 const STATUS_COL={todo:"todo", blocked:"todo", ready:"readyqa", ready_for_qa:"readyqa",
-                  readyqa:"readyqa", qa:"qa", testing:"qa", review:"review", done:"done"};
+                  readyqa:"readyqa", qa:"qa", testing:"qa", review:"review"};
+const TURN={coder:"coding",tester:"qa",reviewer:"review"};
+function coded(t){
+  const r=S.run||{};
+  if(r.status==="done"||r.phase==="qa"||r.phase==="done") return "done";
+  if(r.phase==="review") return "review";
+  const v=(r.services||{})[t.service]||r;
+  if(v.status==="done") return "review";
+  // The coder back on a service that has been tested is a fix pass, not the first pass.
+  if(v.activeAgent==="coder") return (v.loop||{}).count>0?"coding":"readyqa";
+  return TURN[v.activeAgent]||"done";
+}
 function column(t){
   const s=String(t.status||"todo").toLowerCase();
+  if(s==="done") return coded(t);
   if(STATUS_COL[s]) return STATUS_COL[s];
   // in_progress says the work is moving but not where; whose turn it is says that.
-  if(s==="in_progress") return {coder:"coding",tester:"qa",reviewer:"review"}[t.owner]||"coding";
+  if(s==="in_progress") return TURN[t.owner]||"coding";
   return "todo";
 }
 

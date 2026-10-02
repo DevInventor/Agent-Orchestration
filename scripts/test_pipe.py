@@ -1155,6 +1155,43 @@ def the_board_matches_the_hall_and_needs_no_network():
     assert "reached" in b.lower(), "the completion matrix must count what has reached a stage"
 
 
+def a_coded_task_is_not_done_until_its_service_is():
+    """S58 - only the coder ever moves a task, so `done` means "written once". The board
+    put every such card in Done, which read a run four fix loops deep as finished. The
+    column has to follow the service's stage. Runs board.html's own column() in node."""
+    if not shutil.which("node"):
+        print("SKIP S58 - no node on PATH; board column() was not exercised")
+        return
+    src = open(os.path.join(REPO, "ui", "board.html"), encoding="utf-8").read()
+    block = re.search(r"(const STATUS_COL=.*?)\nlet S=", src, re.S)
+    assert block, "board.html no longer has STATUS_COL ... column() ahead of `let S=`"
+    svc = lambda phase, agent, count, status="running": \
+        {"phase": phase, "activeAgent": agent, "loop": {"count": count, "max": 5}, "status": status}
+    multi = lambda s, phase="implement", status="running": \
+        {"phase": phase, "status": status, "services": {"vault": s}}
+    done = {"id": "T1", "status": "done", "owner": "coder", "service": "vault"}
+    cases = [  # (run, task, column) - the multi-service rows are federated-mcp-login's
+        (multi(svc("implement", "coder", 4)), done, "coding"),     # a fix pass
+        (multi(svc("test", "tester", 4)), done, "qa"),
+        (multi(svc("implement", "coder", 0)), done, "readyqa"),    # first pass
+        (multi(svc("test", "tester", 2, "done")), done, "review"),  # green, not reviewed
+        (multi(svc("test", "tester", 2, "done"), "review"), done, "review"),
+        (multi(svc("test", "tester", 2, "done"), "qa"), done, "done"),
+        (multi(svc("test", "tester", 2, "done"), "review", "done"), done, "done"),
+        ({"phase": "test", "activeAgent": "coder", "loop": {"count": 1}}, done, "coding"),
+        ({"phase": "test", "activeAgent": "tester", "loop": {"count": 1}}, done, "qa"),
+        ({"phase": "implement", "activeAgent": "coder"}, done, "readyqa"),
+        (multi(svc("implement", "coder", 0)), {"status": "in_progress", "owner": "coder"}, "coding"),
+        (multi(svc("implement", "coder", 0)), {"status": "todo"}, "todo"),
+    ]
+    js = ("var S;\n" + block.group(1) + "\nconst bad=[];\n"
+          "for(const [run,t,want] of " + json.dumps(cases) + "){S={run};"
+          "const got=column(t); if(got!==want) bad.push(JSON.stringify({run,t,want,got}));}\n"
+          "if(bad.length){console.log(bad.join('\\n'));process.exit(1);}")
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, f"board column() put a card in the wrong column:\n{r.stdout}{r.stderr}"
+
+
 def the_hall_carries_its_palette_and_needs_no_network():
     """S39 - AC4, section 10.1. Two themes resolved three ways, and a page that renders
     with no network: ui/server.js is dependency-free and serves localhost, so a webfont
@@ -1756,6 +1793,7 @@ SCENARIOS = [
     ("S38", the_listen_call_is_explicit_about_loopback),
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S49", the_board_matches_the_hall_and_needs_no_network),
+    ("S58", a_coded_task_is_not_done_until_its_service_is),
     ("S53", every_agent_names_a_skill_that_exists),
     ("S54", no_tracked_source_carries_a_byte_order_mark),
     ("S55", a_plan_the_pipeline_cannot_use_is_refused),
