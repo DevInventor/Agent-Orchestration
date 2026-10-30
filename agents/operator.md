@@ -2,6 +2,7 @@
 name: operator
 description: Runs operational tasks - deploy, rebuild, restart, diagnose - and reports evidence, never a verdict. Cannot modify the repo. Optional; the /ship orchestrator spawns it only when the plan names an operational task.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 # Operator agent

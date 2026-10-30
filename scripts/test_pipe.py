@@ -1913,6 +1913,143 @@ def a_plan_gate_card_carries_the_plan():
             assert by["moving"]["plan"] is None, "a running card carries a plan it does not show"
 
 
+HOOKS = os.path.join(REPO, "hooks", "ao-hooks.js")
+
+
+def hook(event, env):
+    r = subprocess.run(["node", HOOKS], input=json.dumps(event), capture_output=True,
+                       text=True, encoding="utf-8", env={**os.environ, **env}, timeout=30)
+    assert r.returncode == 0, f"the hook exited {r.returncode}: {r.stderr}"
+    return json.loads(r.stdout) if r.stdout.strip() else None
+
+
+def transcript(path, main_tokens, side_tokens=0):
+    """A chat whose last main-thread reply carried main_tokens of context, and - after it -
+    a subagent reply carrying side_tokens, which must not count against the chat."""
+    def reply(n, side):
+        return json.dumps({"type": "assistant", "isSidechain": side, "message": {"usage": {
+            "input_tokens": 10, "cache_read_input_tokens": n - 110,
+            "cache_creation_input_tokens": 50, "output_tokens": 50}}})
+    write(path, "\n".join([json.dumps({"type": "user"}), reply(main_tokens, False),
+                           reply(side_tokens or 1000, True)]) + "\n")
+
+
+def ship_waits_for_a_fresh_chat_once():
+    """S63 - ADR-0003. The orchestrator re-reads its whole chat on every turn, and a real
+    run began in one already holding 492k tokens. /ship in a large chat is stopped once and
+    runs when sent again; the model calling the skill itself cannot confirm on the person's
+    behalf; a subagent's large context in the same transcript is not the chat's."""
+    if not shutil.which("node"):
+        print("SKIP S63 - no node on PATH; the /ship guard was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        env = {"AO_HOOK_STATE": tmp}
+        small, large = os.path.join(tmp, "small.jsonl"), os.path.join(tmp, "large.jsonl")
+        transcript(small, 40000, side_tokens=600000)
+        transcript(large, 492000)
+        typed = lambda tr, sid, name="ship": {"hook_event_name": "UserPromptExpansion",
+            "session_id": sid, "transcript_path": tr, "command_name": name,
+            "command_args": "add a health endpoint", "prompt": f"/{name} add a health endpoint"}
+        called = lambda tr, sid: {"hook_event_name": "PreToolUse", "session_id": sid,
+            "transcript_path": tr, "tool_name": "Skill",
+            "tool_input": {"skill": "agent-orchestration:ship"}}
+
+        assert hook(typed(small, "s1"), env) is None, "a fresh chat was stopped"
+        assert hook(typed(large, "s2", "deploy"), env) is None, "a command that is not /ship was stopped"
+        out = hook(typed(large, "s2"), env)
+        assert out and out.get("decision") == "block" and "492k" in out.get("reason", ""), out
+        out = hook(called(large, "s2"), env)
+        assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny", \
+            "the model confirmed a stopped /ship on the person's behalf"
+        assert hook(typed(large, "s2"), env) is None, "sending /ship again did not run it"
+        assert hook(called(large, "s2"), env) is None, "a typed confirmation did not reach the skill"
+        out = hook(called(large, "s3"), env)
+        assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert hook(called(small, "s4"), env) is None
+
+
+def a_usage_limit_reads_as_a_pause():
+    """S64 - ADR-0003. During a usage limit no agent writes to any bus, and the hall called
+    every running team dead. The hook marks the pause; the hall carries it until Claude Code
+    resumes or any bus moves again, and says when the reset is waiting on the person."""
+    if not shutil.which("node"):
+        print("SKIP S64 - no node on PATH; the usage-limit pause was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "paused", "pipeline")
+        run(root, "init", "--feature", "Paused", "--slug", "paused", env=env)
+        marker = os.path.join(home, "usage-limit.json")
+        limit = lambda port: json.loads(http_json(port, "/api/hall")[1])["limit"]
+
+        with Server(home) as s:
+            assert limit(s.port) is None
+            hook({"hook_event_name": "StopFailure", "error": "overloaded"}, env)
+            assert not os.path.exists(marker), "an overload is not a usage limit"
+            hook({"hook_event_name": "StopFailure", "error": "rate_limit"}, env)
+            assert limit(s.port)["state"] == "waiting", "the hall does not carry the pause"
+            hook({"hook_event_name": "Notification", "notification_type": "quota_auto_resume_stale"}, env)
+            assert limit(s.port)["state"] == "needs-you"
+            hook({"hook_event_name": "Notification", "notification_type": "quota_auto_resume_fired"}, env)
+            assert not os.path.exists(marker) and limit(s.port) is None, "a resume left the pause up"
+
+            hook({"hook_event_name": "StopFailure", "error": "rate_limit"}, env)
+            time.sleep(1.1)
+            run(root, "event", "--agent", "coder", "--type", "status", "--summary", "back", env=env)
+            assert limit(s.port) is None, "a bus that moved again still reads as paused"
+
+
+def the_next_coder_takes_at_most_two_ready_tasks():
+    """S65 - ADR-0003. One coder that carried a whole service grew to 438k tokens. `next`
+    hands the orchestrator at most --max tasks, in plan order, each with its dependencies
+    done or earlier in the same batch; a dependency cycle is named, not looped on."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Batches")
+        tasks = [{"id": "T1", "service": "api", "wave": 1},
+                 {"id": "T2", "service": "api", "wave": 2, "dependsOn": ["T1"]},
+                 {"id": "T3", "service": "api", "wave": 1},
+                 {"id": "T4", "service": "web", "wave": 1, "dependsOn": ["T2"]},
+                 {"id": "T5", "service": "api", "wave": 3, "dependsOn": ["T6"]},
+                 {"id": "T6", "service": "api", "wave": 3, "dependsOn": ["T5"]}]
+        write(os.path.join(root, "plan.json"), json.dumps({"tasks": tasks}))
+        for task in tasks:
+            run(root, "task", "add", "--id", task["id"], "--title", task["id"], "--service", task["service"])
+        nxt = lambda *a: json.loads(run(root, "next", *a))
+
+        assert nxt("--service", "api")["next"] == ["T1", "T3"], "plan order is wave, then position"
+        assert nxt("--service", "api", "--max", "3")["next"] == ["T1", "T3", "T2"], \
+            "a task whose dependency is earlier in the same batch was held back"
+        assert nxt("--service", "web")["next"] == [], "T4 ran before the task it depends on"
+        for done in ("T1", "T3", "T2"):
+            run(root, "task", "update", "--id", done, "--status", "done")
+        assert nxt("--service", "web")["next"] == ["T4"]
+        stuck = nxt("--service", "api")
+        assert stuck["next"] == [] and stuck["remaining"] == ["T5", "T6"], \
+            f"a dependency cycle must surface as nothing to do with work left: {stuck}"
+
+
+def every_role_runs_on_a_chosen_model():
+    """S66 - ADR-0003. Without `model:` the orchestrator picked Opus or Sonnet run by run.
+    Each agent names its model, the planner plans on Opus, and the plugin's hooks file
+    points at a script that exists."""
+    allowed = {"opus", "sonnet", "haiku", "fable", "inherit"}
+    for name in ("planner", "coder", "tester", "reviewer", "operator"):
+        src = open(os.path.join(REPO, "agents", name + ".md"), encoding="utf-8").read()
+        head = src.split("\n---", 1)[0]
+        m = re.search(r"^model:\s*(\S+)\s*$", head, re.M)
+        assert m and m.group(1) in allowed, f"agents/{name}.md names no model (ADR-0003)"
+        if name in ("planner", "reviewer"):
+            assert m.group(1) == "opus",                 f"the {name} decides or judges the design; it runs on opus (ADR-0003)"
+    cfg = json.load(open(os.path.join(REPO, "hooks", "hooks.json"), encoding="utf-8"))
+    for event, groups in cfg["hooks"].items():
+        for g in groups:
+            for h in g["hooks"]:
+                script = h["args"][0].replace("${CLAUDE_PLUGIN_ROOT}", REPO)
+                assert os.path.isfile(script), f"{event} hook runs {script}, which does not exist"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1950,6 +2087,10 @@ SCENARIOS = [
     ("S60", a_hide_lasts_for_the_run_it_was_made_in),
     ("S61", the_runbook_fits_what_survives_a_compaction),
     ("S62", a_plan_gate_card_carries_the_plan),
+    ("S63", ship_waits_for_a_fresh_chat_once),
+    ("S64", a_usage_limit_reads_as_a_pause),
+    ("S65", the_next_coder_takes_at_most_two_ready_tasks),
+    ("S66", every_role_runs_on_a_chosen_model),
     ("S53", every_agent_names_a_skill_that_exists),
     ("S54", no_tracked_source_carries_a_byte_order_mark),
     ("S55", a_plan_the_pipeline_cannot_use_is_refused),

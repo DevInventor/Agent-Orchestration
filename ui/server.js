@@ -180,24 +180,34 @@ function planBrief(p) {
   };
 }
 
+// hooks/ao-hooks.js writes this when Claude Code stops at a usage limit, so a quiet hall
+// reads as paused rather than dead. It is over once any bus moves again, or after a day -
+// Claude Code gives up waiting on a reset further away than that.
+const limitPath = () => path.join(path.dirname(pipelinesRoot()), "usage-limit.json");
+function usageLimit(pipelines) {
+  const l = readJSON(limitPath(), null);
+  const at = l && new Date(l.at);
+  if (!at || !(at > 0) || Date.now() - at > 864e5) return null;
+  const moved = pipelines.some((p) =>
+    [p.updatedAt, p.lastEvent && p.lastEvent.ts].some((ts) => ts && new Date(ts) > at));
+  return moved ? null : { at: l.at, state: l.state === "needs-you" ? "needs-you" : "waiting" };
+}
+
 function hall() {
-  return {
-    registry: registry(),
-    root: pipelinesRoot(),
-    pipelines: scanPipelines().map((p) => {
-      const r = p.run || {};
-      const ev = lastEvent(p.root);
-      return {
-        slug: p.slug, feature: r.feature, phase: r.phase, status: r.status,
-        activeAgent: r.activeAgent, progressPct: r.progressPct, loop: r.loop,
-        services: r.services || null,
-        repos: (r.repos || []).map((e) => e.service),
-        startedAt: r.startedAt, updatedAt: r.updatedAt, hidden: isHidden(p),
-        lastEvent: ev && { ts: ev.ts, agent: ev.agent, type: ev.type, summary: ev.summary },
-        plan: r.status === "awaiting_approval" && r.phase === "plan" ? planBrief(p) : null,
-      };
-    }),
-  };
+  const pipelines = scanPipelines().map((p) => {
+    const r = p.run || {};
+    const ev = lastEvent(p.root);
+    return {
+      slug: p.slug, feature: r.feature, phase: r.phase, status: r.status,
+      activeAgent: r.activeAgent, progressPct: r.progressPct, loop: r.loop,
+      services: r.services || null,
+      repos: (r.repos || []).map((e) => e.service),
+      startedAt: r.startedAt, updatedAt: r.updatedAt, hidden: isHidden(p),
+      lastEvent: ev && { ts: ev.ts, agent: ev.agent, type: ev.type, summary: ev.summary },
+      plan: r.status === "awaiting_approval" && r.phase === "plan" ? planBrief(p) : null,
+    };
+  });
+  return { registry: registry(), root: pipelinesRoot(), pipelines, limit: usageLimit(pipelines) };
 }
 
 // Each client records the bus it subscribed to (null = the hall stream) and receives
@@ -228,6 +238,7 @@ setInterval(() => {
       try { sig += dir + f + fs.statSync(path.join(dir, f)).mtimeMs + ";"; } catch {}
     }
   }
+  if (!SINGLE) try { sig += "limit" + fs.statSync(limitPath()).mtimeMs; } catch {}
   if (sig !== lastSig) { lastSig = sig; broadcast(); }
 }, 700);
 

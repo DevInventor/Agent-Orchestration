@@ -36,9 +36,16 @@ Re-check eligibility after every tester batch (services may have just gone `done
 ### The batched loop  (repeat until every service is `done` or `blocked`)
 1. **Coder batch.** `ACTIVE` = every service that is *eligible* and not yet
    `done`/`blocked`. For each, `$PIPE svc --name <svc> --phase implement --agent coder`.
-   **Spawn one coder per ACTIVE service, all in a single message.** First time for a
-   service = mode A (implement its task slice); a re-spawn = mode B (fix only that
-   service's failing results). Each coder is scoped to its own service dir, is handed
+   **Spawn one coder per ACTIVE service, all in a single message.** While a service
+   has unbuilt tasks it is in mode A, and its coder gets only what
+   `$PIPE next --service <svc>` names - at most two tasks; **repeat coder batches until
+   `next` is empty for every service in the batch**, then go to its tester batch. A
+   fresh coder per pair keeps each context small: one coder that carried a whole service
+   grew to 438k tokens. Empty `next` with a non-empty `remaining` means it waits on
+   another service's task; if no service in a batch gets a task, that is a dependency
+   cycle - set `status: blocked` and surface it. Once its tasks are built, a re-spawn is
+   mode B (fix only that service's failing results; from `K_svc >= 2` with
+   `model: "opus"`, ADR-0003). Each coder is scoped to its own service dir, is handed
    **that service's base branch** (from `run.json`'s `repos[]` entry, else the repo's
    current branch) so it can commit each task and write `diff.patch` as
    `git diff <base>...HEAD`, writes under `pipeline/services/<svc>/code/`, and tags

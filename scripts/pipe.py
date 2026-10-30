@@ -801,6 +801,31 @@ def cmd_review(root, args):
     print(summary)
 
 
+def cmd_next(root, args):
+    """Which tasks the next coder takes, as code rather than the orchestrator's judgement.
+
+    A coder that carries a whole service keeps one context for all of it - one grew to
+    438k tokens over five tasks on a real run, re-read on every call. So each coder gets
+    at most --max tasks and the next one starts fresh, picking up from the bus and git.
+    Plan order (wave, then position) decides; a task is eligible once every task it
+    dependsOn is done or is earlier in this same batch, which one coder does in order."""
+    plan = read_json(os.path.join(root, "plan.json"), {})
+    status = {t.get("id"): t.get("status")
+              for t in read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])}
+    tasks = [t for t in plan.get("tasks", [])
+             if args.service is None or t.get("service") == args.service]
+    order = sorted(range(len(tasks)), key=lambda i: (tasks[i].get("wave") or 0, i))
+    left = [tasks[i] for i in order if status.get(tasks[i].get("id")) != "done"]
+    take = []
+    for task in left:
+        deps = task.get("dependsOn") or []
+        if len(take) < args.max and all(status.get(d) == "done" or d in take for d in deps):
+            take.append(task.get("id"))
+    # `next` empty while `remaining` is not means every open task waits on a dependency.
+    print(json.dumps({"service": args.service, "next": take,
+                      "remaining": [x.get("id") for x in left if x.get("id") not in take]}))
+
+
 def cmd_qa_check(root, args):
     """The QA gate as an exit code rather than three files and a judgement call.
 
@@ -1244,6 +1269,7 @@ def build_parser():
     s = sub.add_parser("results"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("validate-plan"); s.add_argument("--file", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
+    s = sub.add_parser("next"); s.add_argument("--service", default=None); s.add_argument("--max", type=int, default=2)
     s = sub.add_parser("worktree")
     ws = s.add_subparsers(dest="wt_cmd", required=True)
     w = ws.add_parser("add"); w.add_argument("--service", required=True); w.add_argument("--repo", required=True)
@@ -1284,7 +1310,7 @@ def main():
         "status": cmd_status, "ls": cmd_ls, "prune": cmd_prune,
         "gate": cmd_gate, "wait": cmd_wait, "config": cmd_config, "task": cmd_task,
         "review": cmd_review, "results": cmd_results,
-        "validate-plan": cmd_validate_plan, "qa-check": cmd_qa_check,
+        "validate-plan": cmd_validate_plan, "qa-check": cmd_qa_check, "next": cmd_next,
         "worktree": cmd_worktree, "finish": cmd_finish,
     }[args.cmd](root, args)
 

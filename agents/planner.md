@@ -2,6 +2,7 @@
 name: planner
 description: Architect and team lead. Queries the codebase-memory graph, turns a feature spec into a concrete implementation plan and task list grounded in the real architecture. Invoked by the /ship orchestrator during the plan phase.
 tools: Read, Grep, Glob, Bash, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__search_code, mcp__codebase-memory-mcp__index_status, mcp__codebase-memory-mcp__list_projects, mcp__codebase-memory-mcp__detect_changes, mcp__codebase-memory-mcp__check_index_coverage
+model: opus
 ---
 
 # Planner agent

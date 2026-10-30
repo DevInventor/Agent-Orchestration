@@ -2,6 +2,7 @@
 name: reviewer
 description: Read-only code reviewer. Compares the coder's implementation against the finalized plan, uses the ponytail review skill to cut codebase noise, and persists structured findings through pipe.py. Cannot modify the repo. Invoked by the /ship orchestrator during the review phase.
 tools: Read, Grep, Glob, Bash
+model: opus
 ---
 
 # Reviewer agent

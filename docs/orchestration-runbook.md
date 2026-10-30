@@ -81,7 +81,7 @@ local rule wins** — the bus contract is not negotiable.
 | finalize gate | you + orchestrator | `grilling` |
 | implement | coder | `superpowers:executing-plans` |
 | test | tester | `superpowers:test-driven-development` |
-| fix loop at K≥2 | coder | `superpowers:systematic-debugging` |
+| fix loop at K≥2 | coder, on opus (ADR-0003) | `superpowers:systematic-debugging` |
 | review | reviewer | `ponytail` review skill |
 | findings returned | coder | `superpowers:receiving-code-review` |
 | qa gate | orchestrator | `superpowers:verification-before-completion` |
@@ -195,6 +195,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/heartbeat.py --lock build -- <command>
 It ticks while the command lives, exits with the command's own code, and `--lock`
 serialises heavy builds — §M spawns a batch concurrently, which is right for coordination
 and wrong for three JVM builds on one box.
+
+**A usage limit pauses the run; it does not end it.** Claude Code waits for the reset
+and continues by itself (`autoContinueAtUsageLimit`; ADR-0003), and the dashboard shows
+the pause rather than a team that died. A subagent cut off by the limit comes back as
+"terminated early due to an API error": resume it as below, and **do not count it as a
+fix iteration** - nothing was tried.
 
 **If an agent is killed anyway, resume it rather than re-spawning it.** Sending it a
 message restores its full context *and its uncommitted edits*, and it finishes from where

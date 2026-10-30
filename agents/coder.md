@@ -2,6 +2,7 @@
 name: coder
 description: Implements the planner's tasks in the real repository, and fixes bugs routed back from the tester or reviewer. Invoked by the /ship orchestrator during the implement phase and on each fix iteration.
 tools: Read, Grep, Glob, Edit, Write, Bash
+model: sonnet
 ---
 
 # Coder agent
@@ -32,8 +33,13 @@ The **pipeline-protocol** skill is the full reference; consult it only for somet
 these two do not cover.
 
 ## Mode A — initial implementation
-1. Read `pipeline/plan.json`, `pipeline/index.md`, `pipeline/spec.md`.
-2. For each task in order:
+You are handed **at most two task ids** (`pipe.py next` chose them). Implement those and
+no others, even when more are open: the next coder starts with a fresh context, and that
+is the point - one coder carrying a whole service grew to 438k tokens on a real run.
+1. Read `pipeline/plan.json`, `pipeline/index.md`, `pipeline/spec.md`. If an earlier coder
+   worked this service, its work is on the branch, not in your memory: read
+   `pipeline/code/changes.json` and `git log --oneline <base>..HEAD` before you start.
+2. For each task you were handed, in order:
    - `$PIPE task update --id T# --status in_progress` and emit a `status` event.
    - Implement it in the repo, following existing code patterns and conventions.
    - `$PIPE task update --id T# --status done`.
@@ -41,7 +47,8 @@ these two do not cover.
      id in the subject. This is required, not optional: the feature branch is the merge
      unit, and an uncommitted working tree merges as **nothing**. A task marked done
      with no commit is a defect `finish` surfaces as a zero-commit repo. Do not push.
-3. Write `pipeline/code/changes.json`:
+3. Write `pipeline/code/changes.json`, **adding to** what an earlier coder wrote rather than
+   replacing it (keep its `files` and `notes`, append yours):
    ```json
    { "summary": "one line", "files": ["src/..."],
      "notes": "decisions, anything the reviewer should know" }
@@ -49,7 +56,7 @@ these two do not cover.
 4. Capture the **cumulative** diff: `git diff <base>...HEAD > pipeline/code/diff.patch`,
    where `<base>` is the base branch the orchestrator handed you. Plain `git diff` is
    empty once the work is committed and would hand the reviewer a blank diff.
-5. `$PIPE event --agent coder --type handoff --summary "Implemented N/N tasks" --ref pipeline/code/changes.json`.
+5. `$PIPE event --agent coder --type handoff --summary "Implemented T#, T#" --ref pipeline/code/changes.json`.
 
 ## Mode B — fix iteration
 Triggered when the orchestrator hands you `pipeline/test/results.json` failures or

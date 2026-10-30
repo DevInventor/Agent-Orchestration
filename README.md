@@ -21,6 +21,7 @@ many at once** — coordinating through a shared `./pipeline` bus with a live lo
 - **One service or many.** A single-service feature runs the classic linear flow. A feature spanning several services fans out **phase-batched in parallel**, each service with its own fix-loop budget of 5 and its own dashboard row.
 - **Bring your own repos.** An optional `agent-orchestration.config.json` registry maps service names to their local repo paths and test commands.
 - **Watch it live.** A zero-dependency dashboard streams plan → code → test → review as it happens. Finished teams move to a Done tab, and you can hide any team from the hall and the office until its next run. The tab title counts the teams waiting on you, a dot marks what changed while you were away, an approval card shows the plan it is asking about, and the bell turns on browser notifications for gates, quiet teams and finished runs.
+- **Spends tokens where they buy something.** `/ship` asks you once before starting in a chat that is already large, each coder takes at most two tasks with a fresh context, and each agent runs on the model its job needs (Opus to plan and review, Sonnet to build and test, with Opus brought in when a fix loop gets stuck). A usage limit shows on the dashboard as a pause, and Claude Code resumes the run at the reset.
 - **Cleans up after itself.** Each run starts by removing the worktrees of finished workstreams whose branch is merged or pushed. It only touches clean trees and never deletes a branch.
 
 ## Requirements

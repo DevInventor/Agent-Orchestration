@@ -110,6 +110,13 @@
   .conn.live .led{background:var(--ok)}
 
   /* ---- layout: head table left, the hall (or the office) right ---- */
+  /* A usage limit pauses every team at once, so it is said once, above all of them. */
+  .limit{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:8px 20px;font-size:13px;
+    color:var(--text);border-bottom:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));
+    background:color-mix(in srgb,var(--warn) 10%,var(--panel))}
+  .limit b{color:var(--warn);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .limit[hidden]{display:none}
+  .c-stale.paused{color:var(--warn)}
   main{flex:1 1 auto;display:grid;grid-template-columns:288px 1fr;gap:1px;background:var(--line);min-height:0}
   /* The sidebar scrolls on its own: a registry with a dozen services must not push the
      Index button off the page, and must not scroll the hall with it. */
@@ -554,6 +561,7 @@
   <button class="ghost bell" id="alerts" type="button" aria-pressed="false"><span>Alerts off</span></button>
   <button class="ghost" id="theme">theme</button>
 </header>
+<div class="limit" id="limit" role="status" hidden></div>
 
 <main>
   <aside class="head-table">
@@ -875,7 +883,8 @@ function card(p){
     <div class="c-foot"><span>phase <b>${esc(p.phase||"—")}</b></span>
       <span>loop <b>${loop.count}/${loop.max}</b></span>
       ${t?`<span class="${t.failed?"fail":""}">tests <b>${t.passed}/${t.total}</b></span>`:""}</div>
-    ${sm?`<div class="c-stale">◉ no activity ${agoTxt(sm)} — agent may have died</div>`:""}
+    ${sm?(HALL.limit?`<div class="c-stale paused">◉ paused at the usage limit — Claude Code resumes it</div>`
+        :`<div class="c-stale">◉ no activity ${agoTxt(sm)} — agent may have died</div>`):""}
     ${st==="gate"?planHTML(p):""}
     ${st==="gate"?`<div class="gate">
       <button data-d="finalize">Finalize</button>
@@ -890,7 +899,7 @@ function card(p){
 function cardSig(p){
   return [p.status,p.phase,p.activeAgent,(p.loop||{}).count,!!staleMs(p),hasOperator(p),p.hidden,
     (p.repos||[]).join(","),p.lastEvent&&p.lastEvent.ts,JSON.stringify(p.services||null),
-    unread(p),JSON.stringify(p.plan||null)].join("|");
+    unread(p),JSON.stringify(p.plan||null),!!HALL.limit].join("|");
 }
 
 /* An empty tab says what is on the other tabs and how work gets onto this one. */
@@ -1261,14 +1270,26 @@ const canAlert=()=>"Notification" in window;
 let ALERTS=(()=>{try{return localStorage.getItem("ao-alerts");}catch(e){return null;}})();
 const alertsOn=()=>canAlert()&&Notification.permission==="granted"&&ALERTS==="on";
 let WAS=null;          // each team's card state in the previous frame
+let LIMIT_WAS=null;    // the pause's state in the previous frame
+function paintLimit(){
+  const el=document.getElementById("limit"), l=HALL.limit;
+  el.hidden=!l; if(!l) return;
+  const at=new Date(l.at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+  el.innerHTML=l.state==="needs-you"
+    ?`<b>Usage limit</b><span>The limit has reset, but Claude Code is waiting for you: press Enter in its terminal to continue.</span>`
+    :`<b>Usage limit</b><span>Every run paused at ${esc(at)}. Claude Code continues them when the limit resets; there is nothing to do.</span>`;
+}
 function attention(){
+  paintLimit();
   const live=HALL.pipelines.filter(p=>!p.hidden);
-  const need=live.filter(p=>cardState(p)==="gate"||cardState(p)==="stale").length;
+  // While a limit holds every team, a quiet one is waiting on the reset, not on you.
+  const need=live.filter(p=>cardState(p)==="gate"||(cardState(p)==="stale"&&!HALL.limit)).length
+    +(HALL.limit&&HALL.limit.state==="needs-you"?1:0);
   document.title=need?`(${need}) need you · ${BASE_TITLE}`:BASE_TITLE;
   const now={}; for(const p of HALL.pipelines) now[p.slug]=cardState(p);
   if(WAS&&alertsOn()&&!DEMO&&!looking()) for(const p of live){
     const s=now[p.slug], was=WAS[p.slug];
-    if(s===was||!NEEDS[s]||(was===undefined&&s==="done")) continue;
+    if(s===was||!NEEDS[s]||(was===undefined&&s==="done")||(s==="stale"&&HALL.limit)) continue;
     // set-status lands before the orchestrator's question, so at a gate the newest event
     // is often the previous phase's news - quote it only when it is the question itself.
     const ev=p.lastEvent, say=ev&&ev.summary&&(s!=="gate"||ev.type==="question");
@@ -1276,6 +1297,10 @@ function attention(){
       body:NEEDS[s]+(say?" · "+ev.summary.slice(0,140):""),tag:"ao-"+p.slug});
     n.onclick=()=>{window.focus();location.href="/r/"+encodeURIComponent(p.slug);n.close();};
   }
+  const ls=HALL.limit&&HALL.limit.state;
+  if(ls==="needs-you"&&LIMIT_WAS!=="needs-you"&&LIMIT_WAS!==null&&alertsOn()&&!DEMO&&!looking())
+    new Notification("Usage limit has reset",{body:"Claude Code is waiting for you - press Enter in its terminal to continue the run.",tag:"ao-limit"});
+  LIMIT_WAS=ls||"";
   WAS=now;
 }
 // Lucide's bell and bell-off (ISC).

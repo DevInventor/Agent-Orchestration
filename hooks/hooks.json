@@ -1,0 +1,20 @@
+{
+  "description": "agent-orchestration: keep /ship out of an already-large chat (ADR-0003), and show a usage-limit pause on the dashboard instead of teams that look dead",
+  "hooks": {
+    "UserPromptExpansion": [
+      { "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/ao-hooks.js"], "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Skill",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/ao-hooks.js"], "timeout": 10 }] }
+    ],
+    "StopFailure": [
+      { "matcher": "rate_limit",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/ao-hooks.js"], "timeout": 10 }] }
+    ],
+    "Notification": [
+      { "matcher": "quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/ao-hooks.js"], "timeout": 10 }] }
+    ]
+  }
+}

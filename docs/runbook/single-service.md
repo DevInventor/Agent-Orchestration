@@ -6,11 +6,17 @@ guardrails. Re-read this file at the top of every fix iteration and after any co
 
 ### 2. Implement  (phase: implement)
 1. `$PIPE phase implement && $PIPE agent coder`.
-2. Spawn the **coder** subagent (`agents/coder.md`) with the plan **and the base branch
-   it merges home to** — `run.json`'s `repos[]` entry for its service if the run has
-   one, else the repo's current branch. It implements the tasks in the actual repo,
-   **commits each completed task** (`T#: ...`), writes `pipeline/code/changes.json` and
-   `diff.patch` as `git diff <base>...HEAD`, and marks tasks `done` as it goes.
+2. **One fresh coder per two tasks.** Ask `$PIPE next`; it answers
+   `{"next": [ids], "remaining": [ids]}` in plan order with dependencies met. Spawn the
+   **coder** subagent (`agents/coder.md`) with exactly those ids, the plan, **and the base
+   branch it merges home to** — `run.json`'s `repos[]` entry for its service if the run
+   has one, else the repo's current branch. It implements them in the actual repo,
+   **commits each completed task** (`T#: ...`), adds to `pipeline/code/changes.json`,
+   writes `diff.patch` as `git diff <base>...HEAD`, and marks them `done`. Await it, then
+   ask `next` again; stop when `next` is empty. Empty `next` with a non-empty `remaining`
+   means a dependency cycle or a missing task: set `status: blocked` and surface it.
+   Never hand one coder the whole service: a coder's context is re-read on every call,
+   and one that carried five tasks grew to 438k tokens.
 
 ### 3. Test + fix loop  (phase: test)  — max 5 iterations
 This is the test-driven bug-fixing loop. Track it with `$PIPE loop --count K --max 5`.
@@ -32,7 +38,8 @@ loop:
   if K >= 2:
       # ADR-0002: iteration 2 must change strategy, not repeat iteration 1. That is how
       # a budget of five gets spent producing five variations of the same wrong fix.
-      spawn the coder with superpowers:systematic-debugging
+      # ADR-0003: and a stronger model - the coder's default is sonnet.
+      spawn the coder with superpowers:systematic-debugging and model: "opus"
   # route failures back to the coder
   $PIPE agent coder
   spawn coder with pipeline/test/results.json failures -> fix only those
