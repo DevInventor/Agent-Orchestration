@@ -163,6 +163,23 @@ function registry() {
   return [];
 }
 
+// What a gate card needs to decide on, so approving does not mean opening the plan first.
+// Only a run waiting at its plan gate carries one; every other card stays as small as it was.
+function planBrief(p) {
+  const pl = readJSON(path.join(p.root, "plan.json"), null);
+  if (!pl || typeof pl !== "object") return null;
+  const tasks = Array.isArray(pl.tasks) ? pl.tasks : [];
+  const n = (k) => (Array.isArray(pl[k]) ? pl[k].length : 0);
+  return {
+    approach: String(pl.approach || "").slice(0, 400),
+    services: (pl.services || []).map((s) => (s && s.name) || String(s)),
+    tasks: tasks.slice(0, 30).map((t) => ({
+      id: t.id, service: t.service, title: String(t.title || "").slice(0, 140) })),
+    taskCount: tasks.length,
+    criteria: n("acceptanceCriteria"), risks: n("risks"), questions: n("questions"),
+  };
+}
+
 function hall() {
   return {
     registry: registry(),
@@ -177,6 +194,7 @@ function hall() {
         repos: (r.repos || []).map((e) => e.service),
         startedAt: r.startedAt, updatedAt: r.updatedAt, hidden: isHidden(p),
         lastEvent: ev && { ts: ev.ts, agent: ev.agent, type: ev.type, summary: ev.summary },
+        plan: r.status === "awaiting_approval" && r.phase === "plan" ? planBrief(p) : null,
       };
     }),
   };

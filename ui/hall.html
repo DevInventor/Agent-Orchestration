@@ -87,6 +87,10 @@
   .ghost{background:transparent;border:1px solid var(--line);border-radius:3px;color:var(--muted);
     font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
   .ghost:hover{border-color:var(--line-2);color:var(--text)}
+  /* The bell says its state in words - on, off, blocked - so it never rides on colour. */
+  .bell{display:inline-flex;align-items:center;gap:6px}
+  .bell svg{width:13px;height:13px;flex:0 0 auto}
+  .bell[aria-pressed="true"]{color:var(--coder);border-color:color-mix(in srgb,var(--coder) 40%,var(--line))}
   /* The cast, named once, so a colour in a card never has to be decoded. */
   .legend{display:flex;align-items:center;gap:13px;margin-left:8px}
   .legend span{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px;
@@ -188,7 +192,8 @@
   #cast{position:absolute;width:0;height:0;overflow:hidden}
 
   /* ---- section 10.2, the hall: one card per workstream, and the card is a table ---- */
-  #hall{display:grid;grid-template-columns:repeat(auto-fill,minmax(314px,1fr));gap:14px;align-content:start}
+  #hall{display:grid;grid-template-columns:repeat(auto-fill,minmax(314px,1fr));gap:14px;align-content:start;
+    align-items:start}   /* a gate card grows by its plan; its row-mates keep their own height */
   .card{--st:var(--line-2);background:var(--panel);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));
     border-radius:6px;padding:11px 11px 9px;display:flex;flex-direction:column;gap:8px}
   .card.s-run{--st:var(--coder)} .card.s-gate{--st:var(--warn)}
@@ -246,8 +251,27 @@
   .c-foot b{color:var(--text);font-weight:600}
   .c-foot .fail b{color:var(--bad)}
   .c-stale{font-family:var(--mono);font-size:10px;color:var(--bad)}
-  .c-last{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .c-last b{font-family:var(--mono);font-size:10px;font-weight:400}
+  /* Why the card is in the state it is in, and how long ago it was said - right under the
+     name, because that is the question a card is opened to answer. */
+  .c-last{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:12px;color:var(--muted)}
+  .c-last b{flex:0 0 auto;font-family:var(--mono);font-size:10px;font-weight:400}
+  .c-last .msg{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+  .c-last .age{flex:0 0 auto;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums}
+  /* Something happened here while you were away; opening or clicking the card reads it. */
+  .unread{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--coder)}
+  /* The plan, beside the buttons that approve it. */
+  .c-plan{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:9px}
+  .c-plan-sum{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .c-plan-sum b{color:var(--bright);font-weight:600}
+  .c-plan-sum .q,.c-plan-sum .q b{color:var(--warn)}
+  .c-plan-why{margin:0;font-size:12px;line-height:1.5;color:var(--text);
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .c-plan summary{font-family:var(--mono);font-size:11px;color:var(--coder);cursor:pointer;width:max-content}
+  .c-plan ol{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;
+    max-height:190px;overflow:auto}
+  .c-plan li{display:flex;gap:8px;font-size:12px;line-height:1.4;color:var(--text)}
+  .c-plan li .id{flex:0 0 26px;font-family:var(--mono);font-size:10px;color:var(--muted);padding-top:1px}
+  .c-plan li.svc{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:4px}
   .gate{display:flex;gap:6px}
   .gate button{flex:1;background:var(--sunk);border:1px solid var(--line);border-radius:3px;color:var(--text);
     font-family:var(--mono);font-size:11px;padding:5px 0;cursor:pointer}
@@ -527,6 +551,7 @@
   <span class="legend" id="legend"></span>
   <span class="spacer"></span>
   <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
+  <button class="ghost bell" id="alerts" type="button" aria-pressed="false"><span>Alerts off</span></button>
   <button class="ghost" id="theme">theme</button>
 </header>
 
@@ -569,13 +594,16 @@
 <script>
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-/* Staleness, same rule as the board (ui/index.html): pipe.py stamps updatedAt on every
-   run.json write, so silence there means no agent has touched the bus. Only "running"
-   counts - awaiting_approval is supposed to sit still and done/blocked are terminal. */
+/* Staleness: pipe.py stamps updatedAt on every run.json write, but `event` writes only
+   messages.jsonl - and a status event is exactly what the runbook tells a long-working
+   agent to emit so it does not look dead. So silence is the later of the two. Only
+   "running" counts - awaiting_approval is supposed to sit still and done/blocked are
+   terminal. */
 const STALE_MS=180000; // 3 min
 function staleMs(p){
   if(!p||p.status!=="running"||!p.updatedAt) return 0;
-  const age=Date.now()-new Date(p.updatedAt);
+  const said=p.lastEvent&&p.lastEvent.ts;
+  const age=Date.now()-Math.max(new Date(p.updatedAt),said?new Date(said):0);
   return age>STALE_MS?age:0;
 }
 function agoTxt(ms){const m=Math.floor(ms/60000);return m<60?`${m}m`:`${Math.floor(m/60)}h ${m%60}m`;}
@@ -751,6 +779,61 @@ const ICON_EYE=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
 const ICON_EYE_OFF=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.73 5.08a10.74 10.74 0 0 1 11.2 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"/><path d="m2 2 20 20"/></svg>`;
 
+/* The plan the gate is asking about: its size, its approach, and its tasks by service. */
+const PLAN_OPEN=new Set();   // a Tasks list you opened stays open when the card redraws
+const plural=(n,w)=>`<b>${n}</b> ${w}${n===1?"":"s"}`;
+function planHTML(p){
+  const b=p.plan; if(!b) return "";
+  const by=new Map();
+  for(const t of b.tasks) by.set(t.service||"",[...(by.get(t.service||"")||[]),t]);
+  const rows=[...by].map(([svc,ts])=>(by.size>1?`<li class="svc">${esc(svc)}</li>`:"")
+    +ts.map(t=>`<li><span class="id">${esc(t.id)}</span><span>${esc(t.title)}</span></li>`).join("")).join("");
+  const more=b.taskCount-b.tasks.length;
+  return `<div class="c-plan">
+    <div class="c-plan-sum">${[plural(b.taskCount,"task"),plural(b.services.length,"service"),
+      `<b>${b.criteria}</b> criteria`,b.risks?plural(b.risks,"risk"):"",
+      b.questions?`<span class="q">${plural(b.questions,"open question")}</span>`:""].filter(Boolean).join(" · ")}</div>
+    ${b.approach?`<p class="c-plan-why">${esc(b.approach)}</p>`:""}
+    ${rows?`<details${PLAN_OPEN.has(p.slug)?" open":""}><summary>Tasks</summary><ol>${rows}${
+      more>0?`<li class="svc">${more} more on the board</li>`:""}</ol></details>`:""}
+  </div>`;
+}
+function since(ts){
+  const m=Math.max(0,Math.floor((Date.now()-new Date(ts))/60000));
+  return m<1?"just now":m<60?`${m}m ago`:m<2880?`${Math.floor(m/60)}h ago`:`${Math.floor(m/1440)}d ago`;
+}
+
+/* ---- new since you last looked ----
+   A team's newest event that arrives while the hall is not in front of you leaves a dot on
+   its card, and the dot survives a reload; clicking or opening the card reads it. An event
+   that lands while you are looking is already seen, and a team met for the first time
+   starts read, so a first visit is not a wall of dots. */
+const SEEN_KEY="ao-seen";
+let SEEN_AT=(()=>{try{return JSON.parse(localStorage.getItem(SEEN_KEY))||{};}catch(e){return {};}})();
+const LAST_TS={};      // each team's newest event in the previous frame
+const evTs=p=>(p.lastEvent&&p.lastEvent.ts)||"";
+const looking=()=>document.visibilityState==="visible"&&document.hasFocus();
+function unread(p){
+  return !p.hidden&&!!evTs(p)&&!!SEEN_AT[p.slug]&&new Date(evTs(p))>new Date(SEEN_AT[p.slug]);
+}
+function saveSeen(){try{localStorage.setItem(SEEN_KEY,JSON.stringify(SEEN_AT));}catch(e){}}
+function trackSeen(){
+  let dirty=false;
+  for(const p of HALL.pipelines){
+    const ts=evTs(p); if(!ts) continue;
+    const arrived=p.slug in LAST_TS&&LAST_TS[p.slug]!==ts;
+    if(!SEEN_AT[p.slug]||(arrived&&looking())){SEEN_AT[p.slug]=ts;dirty=true;}
+    LAST_TS[p.slug]=ts;
+  }
+  if(dirty) saveSeen();
+}
+function readCard(slug){
+  const p=HALL.pipelines.find(x=>x.slug===slug); if(!p||!unread(p)) return;
+  SEEN_AT[slug]=evTs(p); saveSeen();
+  document.querySelectorAll(`#hall .card[data-slug="${CSS.escape(slug)}"] .unread`).forEach(d=>d.remove());
+  CARD_SIG[slug]=cardSig(p);     // the card on screen now matches; do not redraw it for this
+}
+
 const SEEN=new Set();   // entry 6: the table entrance is first paint only, and never replays
 const HOLDER={};        // who held the work last frame, per slug - entries 1 and 5
 
@@ -779,18 +862,21 @@ function card(p){
         title="Hide from the hall and the office until its next run">${ICON_EYE_OFF}</button>`;
   return `<article class="card s-${st}${fold?" collapsed":""}${fresh?" enter":""}" data-slug="${esc(p.slug)}"${fold?" data-fold":""}>
     <div class="c-head">
-      <a class="c-name" href="/r/${encodeURIComponent(p.slug)}">${esc(name)}</a>
+      ${unread(p)?`<span class="unread" role="img" aria-label="New since you last looked"
+        title="New since you last looked"></span>`:""}<a class="c-name" href="/r/${encodeURIComponent(p.slug)}">${esc(name)}</a>
       <a class="c-open" href="/r/${encodeURIComponent(p.slug)}">open →</a>
       <span class="pill">${st}</span>${hide}</div>
     <div class="c-repos">${esc((p.repos||[]).join(" · ")||p.slug)}</div>
+    ${ev?`<div class="c-last"><b style="color:${AGENT_COLOR[ev.agent]||"var(--muted)"}">${
+        esc(ev.agent)}</b><span class="msg" title="${esc(ev.summary)}">${esc(ev.summary)}</span><span
+        class="age" data-ts="${esc(ev.ts)}">${since(ev.ts)}</span></div>`:""}
     <div class="felt">${seats}<div class="rail">${rail}</div>
       <div class="baton" data-to="translate(${tx}px,${ty}px)" style="color:${colour};transform:translate(${bx}px,${by}px)"></div></div>
     <div class="c-foot"><span>phase <b>${esc(p.phase||"—")}</b></span>
       <span>loop <b>${loop.count}/${loop.max}</b></span>
       ${t?`<span class="${t.failed?"fail":""}">tests <b>${t.passed}/${t.total}</b></span>`:""}</div>
     ${sm?`<div class="c-stale">◉ no activity ${agoTxt(sm)} — agent may have died</div>`:""}
-    ${ev?`<div class="c-last"><b style="color:${AGENT_COLOR[ev.agent]||"var(--muted)"}">${
-        esc(ev.agent)}</b> ${esc(ev.summary)}</div>`:""}
+    ${st==="gate"?planHTML(p):""}
     ${st==="gate"?`<div class="gate">
       <button data-d="finalize">Finalize</button>
       <button data-d="in-place">In place</button>
@@ -803,7 +889,8 @@ function card(p){
    moves, so only a card whose signature changed is replaced. */
 function cardSig(p){
   return [p.status,p.phase,p.activeAgent,(p.loop||{}).count,!!staleMs(p),hasOperator(p),p.hidden,
-    (p.repos||[]).join(","),p.lastEvent&&p.lastEvent.ts,JSON.stringify(p.services||null)].join("|");
+    (p.repos||[]).join(","),p.lastEvent&&p.lastEvent.ts,JSON.stringify(p.services||null),
+    unread(p),JSON.stringify(p.plan||null)].join("|");
 }
 
 /* An empty tab says what is on the other tabs and how work gets onto this one. */
@@ -855,15 +942,24 @@ function renderHall(){
   // at its destination has not travelled.
   requestAnimationFrame(()=>el.querySelectorAll(".baton[data-to]").forEach(b=>{
     b.style.transform=b.dataset.to; b.removeAttribute("data-to");}));
+  el.querySelectorAll(".c-last .age[data-ts]").forEach(a=>{
+    const s=since(a.dataset.ts); if(a.textContent!==s) a.textContent=s;});
 }
 // A folded team is still a team: clicking its row opens it back up.
 document.getElementById("hall").addEventListener("click",e=>{
-  if(e.target.closest(".gate,.c-hide,a")) return;    // those own their own clicks
+  const any=e.target.closest(".card"); if(any) readCard(any.dataset.slug);
+  if(e.target.closest(".gate,.c-hide,a,summary")) return;    // those own their own clicks
   const go=e.target.closest("[data-show]");
   if(go) return setShow(go.dataset.show);
   const c=e.target.closest(".card");
   if(c&&c.hasAttribute("data-fold")) c.classList.toggle("collapsed");
 });
+
+document.getElementById("hall").addEventListener("toggle",e=>{
+  const d=e.target; if(!d.matches||!d.matches(".c-plan details")) return;
+  const slug=d.closest(".card").dataset.slug;
+  if(d.open) PLAN_OPEN.add(slug); else PLAN_OPEN.delete(slug);
+},true);
 
 /* ---- hide / unhide ----
    Optimistic: the card leaves at once and the toast offers Undo. PENDING holds the choice
@@ -1147,8 +1243,65 @@ function renderOffice(){
 function render(h){
   HALL=h||HALL;
   for(const p of HALL.pipelines) if(p.slug in PENDING) p.hidden=PENDING[p.slug];
+  trackSeen();
   renderHeadTable();renderHall();renderOffice();
+  attention();
 }
+/* Staleness is a clock, not an event: with nothing writing to the bus the stream sends
+   nothing, so without this a run that died stayed "run" until some other team spoke. */
+setInterval(()=>{if(HALL.pipelines.length) render();},30000);
+
+/* ---- when you are needed ----
+   The tab title counts the teams waiting on you - at a gate, or gone quiet - whatever the
+   bell says. A notification fires only for a change you are not looking at, and only once
+   you turned alerts on from the bell: the page never raises the permission prompt itself. */
+const BASE_TITLE=document.title;
+const NEEDS={gate:"Waiting for your approval",stale:"Gone quiet - its agent may have died",done:"Finished"};
+const canAlert=()=>"Notification" in window;
+let ALERTS=(()=>{try{return localStorage.getItem("ao-alerts");}catch(e){return null;}})();
+const alertsOn=()=>canAlert()&&Notification.permission==="granted"&&ALERTS==="on";
+let WAS=null;          // each team's card state in the previous frame
+function attention(){
+  const live=HALL.pipelines.filter(p=>!p.hidden);
+  const need=live.filter(p=>cardState(p)==="gate"||cardState(p)==="stale").length;
+  document.title=need?`(${need}) need you · ${BASE_TITLE}`:BASE_TITLE;
+  const now={}; for(const p of HALL.pipelines) now[p.slug]=cardState(p);
+  if(WAS&&alertsOn()&&!DEMO&&!looking()) for(const p of live){
+    const s=now[p.slug], was=WAS[p.slug];
+    if(s===was||!NEEDS[s]||(was===undefined&&s==="done")) continue;
+    // set-status lands before the orchestrator's question, so at a gate the newest event
+    // is often the previous phase's news - quote it only when it is the question itself.
+    const ev=p.lastEvent, say=ev&&ev.summary&&(s!=="gate"||ev.type==="question");
+    const n=new Notification(p.feature||p.slug,{
+      body:NEEDS[s]+(say?" · "+ev.summary.slice(0,140):""),tag:"ao-"+p.slug});
+    n.onclick=()=>{window.focus();location.href="/r/"+encodeURIComponent(p.slug);n.close();};
+  }
+  WAS=now;
+}
+// Lucide's bell and bell-off (ISC).
+const ICON_BELL=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>`;
+const ICON_BELL_OFF=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/></svg>`;
+function paintBell(){
+  const b=document.getElementById("alerts");
+  if(!canAlert()){b.hidden=true;return;}
+  const blocked=Notification.permission==="denied", on=alertsOn();
+  b.setAttribute("aria-pressed",String(on));
+  b.innerHTML=(on?ICON_BELL:ICON_BELL_OFF)
+    +`<span>${blocked?"Alerts blocked":on?"Alerts on":"Alerts off"}</span>`;
+  b.title=blocked?"This browser blocks notifications from this page - allow them in its site settings"
+    :on?"Turn off notifications":"Notify me when a team waits for approval, goes quiet, or finishes";
+}
+document.getElementById("alerts").onclick=async()=>{
+  if(!canAlert()) return;
+  if(Notification.permission==="default")
+    ALERTS=(await Notification.requestPermission())==="granted"?"on":"off";
+  else if(Notification.permission==="granted") ALERTS=ALERTS==="on"?"off":"on";
+  try{localStorage.setItem("ao-alerts",ALERTS);}catch(e){}
+  paintBell();
+};
+paintBell();
 
 /* The tab is in the URL, so a link to ?show=done opens on Done and a reload keeps it. */
 function setShow(s){
@@ -1215,7 +1368,13 @@ const FIXTURE={root:"~/.agent-orchestration/pipelines",pipelines:[
    updatedAt:ago(20),lastEvent:{ts:ago(20),agent:"coder",type:"status",summary:"Wiring the felt"}},
   {slug:"009-messaging-hub",feature:"Messaging hub",phase:"plan",status:"awaiting_approval",
    activeAgent:"planner",loop:{count:0,max:5},repos:["crm","api"],updatedAt:ago(90),
-   lastEvent:{ts:ago(90),agent:"planner",type:"handoff",summary:"Plan ready: 7 tasks, 2 services"}},
+   lastEvent:{ts:ago(90),agent:"planner",type:"handoff",summary:"Plan ready: 7 tasks, 2 services"},
+   plan:{approach:"The hub owns delivery; crm only publishes events. api gains one outbox table and a worker, so a slow provider never holds a request open.",
+     services:["api","crm"],taskCount:7,criteria:9,risks:2,questions:1,tasks:[
+     {id:"T1",service:"api",title:"Outbox table and migration"},{id:"T2",service:"api",title:"Delivery worker with retry and backoff"},
+     {id:"T3",service:"api",title:"Provider adapters: email and SMS"},{id:"T4",service:"api",title:"Delivery status endpoint"},
+     {id:"T5",service:"crm",title:"Publish contact events to the outbox"},{id:"T6",service:"crm",title:"Template picker on the campaign form"},
+     {id:"T7",service:"crm",title:"Delivery status column on the contact view"}]}},
   {slug:"tenant-sso-logout",feature:"Propagate tenant SSO logout",phase:"test",status:"running",
    activeAgent:"tester",loop:{count:2,max:5},repos:["oauth","MFA_Server"],updatedAt:ago(1500),
    services:{oauth:{passed:6,failed:1},MFA_Server:{passed:4,failed:0}},

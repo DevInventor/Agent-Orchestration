@@ -12,7 +12,7 @@ local skills rather than replacing them:
 - **`grilling`** (local skill, 833 B) at the two moments a human is present — the spec gate
   and the finalize gate. `grill-with-docs` where a decision deserves an ADR, because it
   chains `domain-modeling`, which is how `CONTEXT.md` and this directory get maintained.
-- **`superpowers` 6.4.1** (official marketplace) for the unattended phases, one named skill
+- **`superpowers` 7.0.0** (official marketplace) for the unattended phases, one named skill
   per phase — never the whole set.
 - **Local agent definitions remain the extension point.** A framework skill supplies the
   method; the agent file supplies this project's flavour — the bus contract, the ponytail
@@ -88,9 +88,19 @@ Recorded so it is not claimed later:
 
 `superpowers` is a plugin we do not control, and it shipped 6.3.0 → 6.4.1 during the period
 this project has been running. Our agents resolve through a version-keyed cache that has
-silently served a stale build three times. **The version is pinned at 6.4.1 in
+silently served a stale build three times. **The version is pinned at 7.0.0 in
 `scripts/test_pipe.py`, and the suite fails when the installed version differs** — so an
 upstream change that alters how every agent works is a red test rather than a mystery.
+
+**6.4.1 → 7.0.0, re-read 2026-10-30.** 7.0.0 is what the official marketplace serves; 7.0.1
+exists upstream but is not served yet. Of the skills we bind, only `writing-plans` changed
+in substance: a plan now records the decisions the implementer cannot make (files, exact
+signatures, the spec's values, the tests that prove each task) instead of code bodies, and
+its self-review adds a *Proportion* check against a plan longer than its spec. That is the
+shape `plan.json` already has, so the planner's binding stands. Its
+`plan-document-reviewer-prompt.md` is gone; nothing here referenced it.
+`systematic-debugging` and the `executing-plans` / `subagent-driven-development` scripts
+changed only in shell portability.
 
 ## Consequences
 

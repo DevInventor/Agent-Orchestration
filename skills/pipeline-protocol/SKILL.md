@@ -180,5 +180,5 @@ Each phase invokes one named skill and only that one - the table is in
 The framework supplies the method; the agent definition supplies this project's flavour,
 and **where they differ the local rule wins** - this bus contract is not negotiable.
 
-Never load the framework wholesale. `superpowers` is pinned at 6.4.1 and the suite fails
+Never load the framework wholesale. `superpowers` is pinned at 7.0.0 and the suite fails
 if the installed version differs.

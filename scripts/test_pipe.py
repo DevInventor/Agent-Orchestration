@@ -96,7 +96,8 @@ def command_drift_check(repo=None):
     docs = (glob.glob(os.path.join(repo, "agents", "*.md"))
             + glob.glob(os.path.join(repo, "skills", "**", "SKILL.md"), recursive=True)
             + [p for p in [os.path.join(repo, "docs", "orchestration-runbook.md")]
-               if os.path.isfile(p)])
+               if os.path.isfile(p)]
+            + glob.glob(os.path.join(repo, "docs", "runbook", "*.md")))
     assert len(docs) > 5, f"found almost no agent files - the guard would pass vacuously: {docs}"
     for path in docs:
         with open(path, encoding="utf-8") as f:
@@ -1797,7 +1798,7 @@ def no_tracked_source_carries_a_byte_order_mark():
                      f"(PowerShell: -Encoding utf8NoBOM, or Python): {sorted(bad)}")
 
 
-SUPERPOWERS_PIN = "6.4.1"          # ADR-0002. Bump deliberately, never incidentally.
+SUPERPOWERS_PIN = "7.0.0"          # ADR-0002. Bump deliberately, never incidentally.
 
 
 def superpowers_skills():
@@ -1854,6 +1855,64 @@ def every_agent_names_a_skill_that_exists():
          f"pins {SUPERPOWERS_PIN}. Re-read the changed skills, then bump the pin.")
 
 
+def the_runbook_fits_what_survives_a_compaction():
+    """S61 - superpowers 7.0.1 found that a compaction re-attaches a skill cut off at 20,000
+    characters, and a session that lost its fix-loop cap ran 18 rounds. The runbook is read
+    as a file, not a skill, so it gets no re-attach at all: what keeps its rules in front of
+    the orchestrator is that each part is small enough to re-read at the step that needs it.
+    So every part stays under the limit, every part is named by the core that sends you to
+    it, and none carries the mojibake that once doubled the bytes of every dash."""
+    core = os.path.join(REPO, "docs", "orchestration-runbook.md")
+    parts = sorted(glob.glob(os.path.join(REPO, "docs", "runbook", "*.md")))
+    assert parts, "docs/runbook/ is empty - the per-path parts are gone"
+    core_text = open(core, encoding="utf-8").read()
+    for path in [core] + parts:
+        text = open(path, encoding="utf-8").read()
+        rel = os.path.relpath(path, REPO).replace(os.sep, "/")
+        assert len(text) < 20000, f"{rel} is {len(text)} chars; split it below 20,000"
+        assert not re.search("â€|Â§", text),             f"{rel} carries mojibake (a UTF-8 dash read as cp1252); rewrite it as UTF-8"
+        if path != core:
+            assert "docs/runbook/" + os.path.basename(path) in core_text,                 f"the runbook never sends the orchestrator to {rel}"
+
+
+def a_plan_gate_card_carries_the_plan():
+    """S62. Approving from the hall used to mean opening the board first, because a gate
+    card showed only that a plan existed. /api/hall now carries a brief of plan.json - its
+    size, approach and tasks - for a run waiting at its plan gate, and for nothing else, so
+    every other card stays as small as it was."""
+    if not shutil.which("node"):
+        print("SKIP S62 - no node on PATH; the hall payload was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        gated = os.path.join(home, "pipelines", "gated", "pipeline")
+        moving = os.path.join(home, "pipelines", "moving", "pipeline")
+        run(gated, "init", "--feature", "Gated", "--slug", "gated", env=env)
+        run(moving, "init", "--feature", "Moving", "--slug", "moving", env=env)
+        plan = {"approach": "a" * 900, "services": [{"name": "api"}, {"name": "web"}],
+                "acceptanceCriteria": [{"id": "AC1", "text": "x"}, {"id": "AC2", "text": "y"}],
+                "tasks": [{"id": f"T{i}", "service": "api", "title": "t" * 300} for i in range(40)],
+                "risks": ["r"], "questions": []}
+        for root in (gated, moving):
+            write(os.path.join(root, "plan.json"), json.dumps(plan))
+        run(gated, "phase", "plan", env=env)
+        run(gated, "set-status", "awaiting_approval", env=env)
+        run(moving, "phase", "implement", env=env)
+
+        with Server(home) as s:
+            code, body = http_json(s.port, "/api/hall")
+            assert code == 200, (code, body[:200])
+            by = {p["slug"]: p for p in json.loads(body)["pipelines"]}
+            b = by["gated"]["plan"]
+            assert b, "a run at its plan gate carries no plan brief"
+            assert b["taskCount"] == 40 and len(b["tasks"]) == 30, "the task list is not capped"
+            assert b["services"] == ["api", "web"] and b["criteria"] == 2 and b["risks"] == 1
+            assert len(b["approach"]) <= 400 and len(b["tasks"][0]["title"]) <= 140, \
+                "the brief carries whole fields - a gate card would carry the plan file"
+            assert by["moving"]["plan"] is None, "a running card carries a plan it does not show"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -1889,6 +1948,8 @@ SCENARIOS = [
     ("S58", a_coded_task_is_not_done_until_its_service_is),
     ("S59", prune_gives_back_a_done_workstreams_worktrees_once_its_work_has_landed),
     ("S60", a_hide_lasts_for_the_run_it_was_made_in),
+    ("S61", the_runbook_fits_what_survives_a_compaction),
+    ("S62", a_plan_gate_card_carries_the_plan),
     ("S53", every_agent_names_a_skill_that_exists),
     ("S54", no_tracked_source_carries_a_byte_order_mark),
     ("S55", a_plan_the_pipeline_cannot_use_is_refused),
