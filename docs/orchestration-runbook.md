@@ -47,6 +47,19 @@ Scan mode serves the hall at `/` and each run's board at `/r/<slug>`; `--pipelin
 would lock the server into the legacy single-run page. If `/api/hall` already answers
 on 4600, a dashboard is running — reuse it instead of starting another.
 
+**Give back finished worktrees, once per run.** A run ends at `phase done`, and nothing
+else ever removes its worktrees, so do it here, before planning:
+
+```bash
+$PIPE prune --apply
+```
+
+It removes a worktree only when its workstream is finished (`done`, or archived by
+`finish`), the tree has no uncommitted changes, and the branch is merged into its base or
+pushed to a remote. It never deletes a branch, never touches a running workstream, and
+prints why it kept anything it kept. Relay any `keeping` lines to the user in one line;
+they are not errors and do not block this run.
+
 Then begin at the Plan phase.
 
 > **Emit events or the run is invisible.** The dashboard reads only what agents write to

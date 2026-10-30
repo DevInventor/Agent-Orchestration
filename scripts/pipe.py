@@ -1086,7 +1086,7 @@ def cmd_ls(root, args):
         if run.get("slug") and not repos:
             flags.append("orphan(no worktrees recorded)")
         lost = [e["worktree"] for e in repos if not os.path.isdir(e.get("worktree") or "")]
-        if lost:
+        if lost and run.get("status") != "done":     # a done one was pruned on purpose
             flags.append("orphan(worktree gone: " + ", ".join(lost) + ")")
         print(f"{p['slug']}  {run.get('phase', '?')}  {run.get('status', '?')}  "
               f"{len(repos)} repo(s)  {days}d  {run.get('feature', '')}"
@@ -1097,25 +1097,67 @@ def cmd_ls(root, args):
         print(f"no pipelines under {pipelines_root()}")
 
 
+def landed(e):
+    """(where the work landed, None) when a finished workstream's worktree can go, or
+    (None, why it stays). It goes only when nothing in it can be lost and the work has
+    reached somewhere else: the tree is clean, and the branch is merged into its base or
+    contained in a remote branch. Removing a worktree removes a checkout, never the
+    branch, so a later wave re-adds it from the same commits."""
+    status = git(e["worktree"], "status", "--porcelain", check=False)
+    if status.returncode != 0:
+        return None, "not a working git checkout"
+    if status.stdout.strip():
+        return None, "uncommitted changes"
+    if git(e["repo"], "merge-base", "--is-ancestor", e["branch"], e["base"],
+           check=False).returncode == 0:
+        return f"merged into {e['base']}", None
+    # Remote-tracking refs only: this never fetches, so it never reaches the network.
+    if git(e["repo"], "branch", "-r", "--contains", e["branch"], check=False).stdout.strip():
+        return "pushed", None
+    return None, f"not merged into {e['base']} and not pushed"
+
+
 def cmd_prune(root, args):
     """The cleanup half of `ls`. Two steps, and only one of them touches disk by default.
 
-    Containers are listed and removed only with --apply, following `finish`'s plan/apply
-    model rather than deleting on sight: shutil.rmtree on a directory located by
-    inference is irreversible, and this file already established that two-step shape."""
+    A finished workstream - archived by `finish`, or merely `done` because nobody ran
+    `finish` - gives its worktrees back once its work has landed (see landed()). Nothing
+    is removed without --apply, following `finish`'s plan/apply model. /ship runs it with
+    --apply at start-up, which is why the rule refuses anything that could lose work:
+    `git worktree remove` without --force, never rmtree on a directory found by inference."""
     pipes = scan_pipelines()
     closed = archived_buses()
+    # scan_pipelines() also lists archived buses; closed already has them, under their slug.
+    finished = closed + [p for p in pipes if ".closed-" not in p["slug"]
+                         and p["run"].get("status") == "done"]
+    containers = set()
     # Removal first, so the worktree registrations it invalidates are gone before the
     # prune below runs - otherwise the repo keeps them until someone runs prune twice.
-    for c in sorted({os.path.dirname(e["worktree"]) for p in closed
-                     for e in (p["run"].get("repos") or []) if e.get("worktree")}):
-        if not os.path.isdir(c):
-            continue
-        if args.apply:
-            shutil.rmtree(c, ignore_errors=True)
-            print(f"removed container {c} (its workstream is archived)")
-        else:
-            print(f"would remove container {c} (its workstream is archived)")
+    for p in finished:
+        for e in p["run"].get("repos") or []:
+            wt = e.get("worktree")
+            if not wt or not os.path.isdir(wt):
+                continue
+            where, why = landed(e)
+            if why:
+                print(f"keeping {wt} ({p['slug']}): {why}")
+            elif not args.apply:
+                print(f"would remove worktree {wt} ({p['slug']}: {where})")
+            else:
+                r = git(e["repo"], "worktree", "remove", wt, check=False)
+                if r.returncode:
+                    print(f"keeping {wt} ({p['slug']}): git refused - "
+                          f"{(r.stderr or r.stdout).strip()}")
+                else:
+                    print(f"removed worktree {wt} ({p['slug']}: {where})")
+                    containers.add(os.path.dirname(wt))
+    # A container goes only once it is empty - whatever is left in it is somebody's.
+    for c in sorted(containers):
+        try:
+            os.rmdir(c)
+            print(f"removed container {c}")
+        except OSError:
+            pass
     for repo in sorted({e["repo"] for p in pipes + closed
                         for e in (p["run"].get("repos") or []) if e.get("repo")}):
         if os.path.isdir(repo):

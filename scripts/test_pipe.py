@@ -943,6 +943,54 @@ def prune_lists_before_it_removes():
             "the worktree registration outlived the directory - git worktree prune never ran"
 
 
+def prune_gives_back_a_done_workstreams_worktrees_once_its_work_has_landed():
+    """S59. A run that reaches `done` and is never `finish`ed kept its worktrees forever -
+    19 of 24 real buses were done and none archived. prune now covers them, and /ship runs
+    it with --apply, so it removes only what cannot lose work: a clean tree whose branch is
+    merged or pushed. An unlanded branch, a dirty tree and a live run all stay, and the
+    branch itself always survives. Each keep is a mutation of the one removal."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        repo = git_repo(os.path.join(tmp, "repos", "api"), "main")
+        remote = os.path.join(tmp, "remote.git")
+        git(tmp, "init", "-q", "--bare", remote)
+        git(repo, "remote", "add", "origin", remote)
+        wts = {}
+        for slug in ("pushed", "unlanded", "dirty", "live"):
+            root = os.path.join(home, "pipelines", slug, "pipeline")
+            run(root, "init", "--feature", slug, "--slug", slug, env=env)
+            run(root, "worktree", "add", "--service", "api", "--repo", repo, env=env)
+            wt = wts[slug] = read_run(root)["repos"][0]["worktree"]
+            write(os.path.join(wt, slug + ".txt"), "work\n")
+            git(wt, "add", "-A"); git(wt, "commit", "-qm", slug)
+            if slug != "live":
+                run(root, "set-status", "done", env=env)
+        git(wts["pushed"], "push", "-q", "origin", "feature/pushed")
+        git(repo, "merge", "-q", "--no-ff", "-m", "merge dirty", "feature/dirty")
+        git(repo, "merge", "-q", "--no-ff", "-m", "merge live", "feature/live")
+        write(os.path.join(wts["dirty"], "scratch.txt"), "not committed\n")
+
+        nowhere = os.path.join(tmp, "not-a-bus", "pipeline")
+        out = run(nowhere, "prune", env=env)
+        assert "would remove worktree " + wts["pushed"] in out, \
+            f"a bare prune does not name the pushed, clean, done worktree:\n{out}"
+        assert all(os.path.isdir(w) for w in wts.values()), \
+            "a bare prune removed a worktree - it must plan, like finish does"
+
+        out = run(nowhere, "prune", "--apply", env=env)
+        assert not os.path.exists(wts["pushed"]), f"--apply left the landed worktree:\n{out}"
+        assert not os.path.exists(os.path.dirname(wts["pushed"])), \
+            f"its emptied container was left behind:\n{out}"
+        assert git(repo, "rev-parse", "--verify", "feature/pushed").strip(), \
+            "prune deleted the branch - it may only remove the checkout"
+        for slug, why in (("unlanded", "not pushed"), ("dirty", "uncommitted changes")):
+            assert os.path.isdir(wts[slug]), f"prune removed the {slug} worktree:\n{out}"
+            assert why in out, f"prune kept {slug} without saying why ({why!r}):\n{out}"
+        assert os.path.isdir(wts["live"]) and wts["live"] not in out, \
+            f"prune looked at a workstream that is still running:\n{out}"
+
+
 def the_gate_round_trips_beside_the_bus():
     """S34 - AC5, the terminal half. `gate` then `wait` releases, prints the decision,
     and the file lands BESIDE the bus (section 3), not inside it - server.js mirrors
@@ -1114,6 +1162,49 @@ def the_listen_call_is_explicit_about_loopback():
     src = open(SERVER_JS, encoding="utf-8").read()
     assert 'listen(PORT, "127.0.0.1"' in src, \
         "ui/server.js binds every interface, with a git-adjacent POST endpoint behind it"
+
+
+def a_hide_lasts_for_the_run_it_was_made_in():
+    """S60. POST /api/hide is the gate's door with a boolean behind it: a slug resolved by
+    identity, a refused non-boolean, and one hidden.json beside the bus. The record names
+    its runId, so a new wave of a hidden workstream comes back by itself instead of
+    running where nobody is looking - mutate the runId and the hide must lapse."""
+    if not shutil.which("node"):
+        print("SKIP S60 - no node on PATH; the /api/hide endpoint was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "tucked", "pipeline")
+        run(root, "init", "--feature", "Tucked away", "--slug", "tucked", env=env)
+        record = os.path.join(home, "pipelines", "tucked", "hidden.json")
+
+        def hidden(port):
+            code, body = http_json(port, "/api/hall")
+            assert code == 200, (code, body[:200])
+            return [p for p in json.loads(body)["pipelines"] if p["slug"] == "tucked"][0]["hidden"]
+
+        with Server(home) as s:
+            code, body = http_json(s.port, "/api/hide", {"slug": "tucked", "hidden": "yes"})
+            assert code == 400 and "hidden" in body, (code, body)
+            code, body = http_json(s.port, "/api/hide", {"slug": "../../etc", "hidden": True})
+            assert code == 404, f"a traversal-shaped slug must resolve to nothing: {code} {body}"
+            assert hidden(s.port) is False
+
+            assert http_json(s.port, "/api/hide", {"slug": "tucked", "hidden": True})[0] == 200
+            assert os.path.isfile(record), "the hide was not written beside the bus"
+            assert not os.path.exists(os.path.join(root, "hidden.json"))
+            assert hidden(s.port) is True, "/api/hall does not report the hide"
+
+            rj = os.path.join(root, "run.json")
+            data = read_json(rj)
+            data["runId"] = "run-a-later-wave"
+            write(rj, json.dumps(data, indent=2))
+            assert hidden(s.port) is False, "a hide outlived its run - a new wave would run unseen"
+
+            assert http_json(s.port, "/api/hide", {"slug": "tucked", "hidden": True})[0] == 200
+            assert http_json(s.port, "/api/hide", {"slug": "tucked", "hidden": False})[0] == 200
+            assert not os.path.exists(record) and hidden(s.port) is False, "unhide left it hidden"
 
 
 HALL_HTML = os.path.join(REPO, "ui", "hall.html")
@@ -1345,9 +1436,11 @@ def js_literal(src, name):
 
 
 # Section 10.5: desk islands occupy these bands, so the walkable space is the two
-# vertical aisles and the horizontal ones between and around them.
+# vertical aisles and the horizontal ones between and around them. Rows sit 182 apart,
+# not the original 152: a rug overhangs its island by 34 below, and at 152 each row's
+# rug - and the gate huddle on it - ran into the next row's.
 ISLAND_X = [(18, 174), (212, 368), (406, 562)]
-ISLAND_Y = [(16, 134), (168, 286)]
+ISLAND_Y = [(16, 134), (198, 316)]
 
 
 def the_corridor_graph_never_cuts_a_corner():
@@ -1794,6 +1887,8 @@ SCENARIOS = [
     ("S39", the_hall_carries_its_palette_and_needs_no_network),
     ("S49", the_board_matches_the_hall_and_needs_no_network),
     ("S58", a_coded_task_is_not_done_until_its_service_is),
+    ("S59", prune_gives_back_a_done_workstreams_worktrees_once_its_work_has_landed),
+    ("S60", a_hide_lasts_for_the_run_it_was_made_in),
     ("S53", every_agent_names_a_skill_that_exists),
     ("S54", no_tracked_source_carries_a_byte_order_mark),
     ("S55", a_plan_the_pipeline_cannot_use_is_refused),

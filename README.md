@@ -20,7 +20,8 @@ many at once** — coordinating through a shared `./pipeline` bus with a live lo
 - **Plan first, then approve.** Nothing is coded until you reply `finalize` — you can edit scope at the gate.
 - **One service or many.** A single-service feature runs the classic linear flow. A feature spanning several services fans out **phase-batched in parallel**, each service with its own fix-loop budget of 5 and its own dashboard row.
 - **Bring your own repos.** An optional `agent-orchestration.config.json` registry maps service names to their local repo paths and test commands.
-- **Watch it live.** A zero-dependency dashboard streams plan → code → test → review as it happens.
+- **Watch it live.** A zero-dependency dashboard streams plan → code → test → review as it happens. Finished teams move to a Done tab, and you can hide any team from the hall and the office until its next run.
+- **Cleans up after itself.** Each run starts by removing the worktrees of finished workstreams whose branch is merged or pushed. It only touches clean trees and never deletes a branch.
 
 ## Requirements
 

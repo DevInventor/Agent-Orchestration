@@ -111,6 +111,15 @@ function lastEvent(dir) {
   return null;
 }
 
+// A hide is a view preference, not run state, so it lives BESIDE the bus the way gate.json
+// does: no agent reads it and pipe.py never has to. It names the runId it was made against,
+// so a new wave of a hidden workstream comes back on its own instead of running unseen.
+function hiddenPath(p) { return path.join(path.dirname(p.root), "hidden.json"); }
+function isHidden(p) {
+  const h = readJSON(hiddenPath(p), null);
+  return !!h && (h.runId || null) === ((p.run || {}).runId || null);
+}
+
 // Deliberately small: the hall shows twelve teams at once, and everything else is one
 // click away at /r/<slug>.
 // The repositories panel asks "what does this project own", which the service registry
@@ -166,7 +175,7 @@ function hall() {
         activeAgent: r.activeAgent, progressPct: r.progressPct, loop: r.loop,
         services: r.services || null,
         repos: (r.repos || []).map((e) => e.service),
-        startedAt: r.startedAt, updatedAt: r.updatedAt,
+        startedAt: r.startedAt, updatedAt: r.updatedAt, hidden: isHidden(p),
         lastEvent: ev && { ts: ev.ts, agent: ev.agent, type: ev.type, summary: ev.summary },
       };
     }),
@@ -209,7 +218,36 @@ setInterval(() => {
 // scan list, no slug or decision in the URL, a capped body, and no process ever spawned.
 // It releases a waiter - it never merges. Merging stays `pipe.py finish --apply`.
 const GATE_DECISIONS = ["finalize", "in-place", "reject"];   // == pipe.py GATE_DECISIONS
-const GATE_BODY_MAX = 4096;
+const BODY_MAX = 4096;
+
+// Both POST routes take one small JSON object and nothing else.
+function readBody(req, res, done) {
+  let body = "", over = false;
+  req.on("data", (chunk) => {
+    if (over) return;
+    body += chunk;
+    if (body.length > BODY_MAX) {
+      over = true;
+      sendJSON(res, 413, { error: `body must be under ${BODY_MAX} bytes` });
+      req.destroy();
+    }
+  });
+  req.on("end", () => {
+    if (over) return;
+    let payload;
+    try { payload = JSON.parse(body); } catch { payload = null; }
+    if (!payload || typeof payload !== "object") {
+      return sendJSON(res, 400, { error: "body must be a JSON object" });
+    }
+    done(payload);
+  });
+}
+
+// temp + rename: a reader never sees a half-written file.
+function writeAtomic(file, data) {
+  fs.writeFileSync(file + ".tmp", JSON.stringify(data, null, 2));
+  fs.renameSync(file + ".tmp", file);
+}
 
 // The one record format, written here and by pipe.py cmd_gate, read by cmd_wait.
 // Two writers of one file, kept in agreement by a test rather than by discipline
@@ -219,23 +257,7 @@ function gateRecord(runId, decision) {
 }
 
 function apiGate(req, res) {
-  let body = "", done = false;
-  req.on("data", (chunk) => {
-    if (done) return;
-    body += chunk;
-    if (body.length > GATE_BODY_MAX) {
-      done = true;
-      sendJSON(res, 413, { error: `body must be under ${GATE_BODY_MAX} bytes` });
-      req.destroy();
-    }
-  });
-  req.on("end", () => {
-    if (done) return;
-    let payload;
-    try { payload = JSON.parse(body); } catch { payload = null; }
-    if (!payload || typeof payload !== "object") {
-      return sendJSON(res, 400, { error: "body must be JSON {slug, decision}" });
-    }
+  readBody(req, res, (payload) => {
     if (!GATE_DECISIONS.includes(payload.decision)) {
       return sendJSON(res, 400, {
         error: `decision must be one of ${GATE_DECISIONS.join(", ")}`, field: "decision" });
@@ -245,15 +267,36 @@ function apiGate(req, res) {
     // dirname of the bus the SCAN recorded - mirrors pipe.py gate_path(). Nothing from
     // the request reaches this path, so there is no traversal surface to guard.
     const file = path.join(path.dirname(p.root), "gate.json");
-    const tmp = file + ".tmp";
     try {
-      fs.writeFileSync(tmp, JSON.stringify(gateRecord(p.run.runId, payload.decision), null, 2));
-      fs.renameSync(tmp, file);   // temp + rename: a waiter never reads a half-written gate
+      writeAtomic(file, gateRecord(p.run.runId, payload.decision));
     } catch (e) {
       // A bus deleted between the scan and the write must not take the dashboard down.
       return sendJSON(res, 500, { error: `could not write the gate: ${e.code || e.message}` });
     }
     sendJSON(res, 200, { ok: true, slug: p.slug, decision: payload.decision });
+  });
+}
+
+// Hide or unhide a workstream in the hall and the office. Same door as the gate - a
+// boolean, a slug resolved by identity, a capped body - and it moves no run anywhere.
+function apiHide(req, res) {
+  readBody(req, res, (payload) => {
+    if (typeof payload.hidden !== "boolean") {
+      return sendJSON(res, 400, { error: "hidden must be true or false", field: "hidden" });
+    }
+    const p = findPipeline(payload.slug);
+    if (!p) return sendJSON(res, 404, { error: "unknown slug", field: "slug" });
+    try {
+      if (payload.hidden) {
+        writeAtomic(hiddenPath(p), { runId: p.run.runId || null, ts: new Date().toISOString() });
+      } else {
+        fs.rmSync(hiddenPath(p), { force: true });
+      }
+    } catch (e) {
+      return sendJSON(res, 500, { error: `could not update the hall: ${e.code || e.message}` });
+    }
+    broadcast();   // hidden.json is not a watched bus file; every open hall hears it now
+    sendJSON(res, 200, { ok: true, slug: p.slug, hidden: payload.hidden });
   });
 }
 
@@ -305,6 +348,7 @@ const server = http.createServer((req, res) => {
       : (res.writeHead(404), res.end("no such run"));
   }
   if (url.pathname === "/api/gate" && req.method === "POST") return apiGate(req, res);
+  if (url.pathname === "/api/hide" && req.method === "POST") return apiHide(req, res);
   if (url.pathname === "/api/hall") return sendJSON(res, 200, hall());
   if (url.pathname === "/api/state") {
     const p = findPipeline(slug);
