@@ -44,7 +44,11 @@ these two do not cover.
 3. Review the changed code for: fidelity to the plan (did it build what was planned,
    in scope?), correctness, security, error handling, and consistency with existing
    patterns. Do not re-run tests — that is the tester's role; focus on what tests
-   can't catch.
+   can't catch. Judge the design against `${CLAUDE_PLUGIN_ROOT}/skills/design-rules/SKILL.md` (the repo's own rules win):
+   each design finding carries its `rule` id, and its severity follows that file's
+   "Reviewing code" section - code the diff did not touch never blocks. Read the
+   scenarios before the code, and judge the tests against `${CLAUDE_PLUGIN_ROOT}/skills/test-scenarios/SKILL.md` the same way
+   (`"rule": "T2"`).
 4. **Persist your findings yourself.** Write the JSON to a temp file with `Bash`, then
    hand it to `pipe.py`: it validates the payload, writes `review.json`, renders
    `review.md` (Summary / Plan fidelity / Findings by severity / Recommendation) from
@@ -57,7 +61,7 @@ these two do not cover.
      "planFidelity": "did it build what was planned, in scope?",
      "findings": [
        { "severity": "blocking|major|minor|nit", "file": "src/...", "line": 42,
-         "note": "what to change", "planRef": "T3" } ] }
+         "note": "what to change", "planRef": "T3", "rule": "D7" } ] }
    JSON
    $PIPE review --from /tmp/review-findings.json     # add --service <svc> in a multi-service run
    ```

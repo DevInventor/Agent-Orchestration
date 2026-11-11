@@ -30,17 +30,17 @@ context is not.
    dependencies met, as code rather than the orchestrator's judgement. The next coder
    picks up from the bus and git (`changes.json`, `git log`), not from a predecessor's
    memory.
-3. **A model per role, in each agent's frontmatter.** Opus where design is decided and
-   judged; Sonnet where it is carried out.
+3. **A model per role, in each agent's frontmatter.** Opus where design is decided, built
+   and judged; Sonnet where the work is to run and report.
    - `planner: opus`: the plan records the design - files, signatures, the tests that
      prove each use case - and everything after it follows that.
    - `reviewer: opus`: the independent check is the one place design drift is caught.
      Tests catch a wrong result, not a wrong shape, so a cheaper reviewer would weaken
      the gate this pipeline exists for. Reviews were about 10% of the measured run.
-   - `coder`, `tester`, `operator: sonnet`: they carry out a plan that already names the
-     interfaces and the cases. The fix loop spawns its coder with `model: "opus"` from
-     iteration 2, the iteration that must change strategy (ADR-0002), so a coder that is
-     struggling gets the stronger model and one that is not does not pay for it.
+   - `coder: opus` (amended 2026-10-30): the code is the product, and the coder is held
+     to the design rules as it writes. The cost lever is the fresh context per two tasks
+     (decision 2), not a cheaper model - the measured coder cost came from 430k contexts.
+   - `tester`, `operator: sonnet`: they run things and report what happened.
 
    To change a default, edit that one line.
 4. **A usage limit is a pause, not a death.** Claude Code waits for the reset and continues

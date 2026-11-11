@@ -60,7 +60,8 @@ PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    Then tell the user once: **`<the URL the server printed>/r/<slug>`** (4600 unless it was taken, in which case it steps to the next free port and says so).
 3. Write the spec into `<bus>/spec.md` (overwrite). Preserve the user's content;
    only add structure if it lacks crisp, testable acceptance criteria â€” in that case
-   distill a short bullet list of criteria at the top and keep the original below.
+   distill its criteria at the top as short Given/When/Then scenarios with ids
+   (`AC1`...), per `${CLAUDE_PLUGIN_ROOT}/skills/test-scenarios/SKILL.md`, and keep the original below.
 4. `$PIPE event --agent orchestrator --type status --summary "Spec loaded from <path>: N acceptance criteria"`.
 
 ## Then run the pipeline

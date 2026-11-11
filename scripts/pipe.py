@@ -27,10 +27,12 @@ Usage examples:
     pipe.py wait --for gate --timeout 600
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
+    pipe.py eta [--slug <slug>]
+    pipe.py complete [<slug>]
     pipe.py status
 """
 import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
 RUN_STATUSES = ["running", "awaiting_approval", "blocked", "done", "failed"]
@@ -47,6 +49,39 @@ LS_STALE_DAYS = 3
 # ui/server.js carries the same list; scripts/test_pipe.py asserts they match.
 GATE_DECISIONS = ["finalize", "in-place", "reject"]
 RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
+# Estimation rules (ADR-0006, skills/estimation-rules). The planner picks a size and a
+# complexity per task and its own minutes inside the band; everything below is arithmetic
+# on those, so tracking an estimate costs no tokens.
+SIZE_MIN = {"S": 5, "M": 10, "L": 25}
+COMPLEXITY_BAND = {"low": (1, 1), "medium": (1.5, 2), "high": (2, 3)}
+SUITE_MIN = {"fast": 2, "medium": 10, "slow": 25}
+# A silence longer than this while the run says `running` is a pause, not work: above the
+# longest normal silent build, well below an overnight gap. ui/hall.html carries the same 15.
+IDLE_MIN = 15
+WAITING = ("awaiting_approval", "blocked", "failed")
+# What a human still does once the work is completed. A project replaces the list with
+# `humanSteps` in its agent-orchestration.config.json.
+HUMAN_STEPS = ["Review and merge {branch} in {services}",
+               "Deploy to the target environment",
+               "Verify the change live",
+               "Close the workstream: pipe.py finish {slug} --apply"]
+# The rules a finding may cite - design (D#, ADR-0004) and test scenarios (T#, ADR-0005) -
+# read from the tables that define them, so a finding never points at a rule that does
+# not exist.
+SKILLS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
+RULE_TABLES = [os.path.join(SKILLS, "design-rules", "SKILL.md"),
+               os.path.join(SKILLS, "test-scenarios", "SKILL.md")]
+
+
+def design_rule_ids():
+    ids = set()
+    try:
+        for path in RULE_TABLES:
+            with open(path, encoding="utf-8") as f:
+                ids |= set(re.findall(r"^\| ([DT]\d+) \|", f.read(), re.M))
+    except OSError:
+        return None
+    return ids
 
 
 def now_iso():
@@ -231,7 +266,16 @@ def atomic_write(path, text):
     fd, tmp = tempfile.mkstemp(dir=d)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
-    os.replace(tmp, path)
+    # Windows refuses the rename while a reader (the dashboard polling run.json) holds the
+    # target open. ponytail: ~0.5 s of patience; a reader that holds longer still fails loudly.
+    for attempt in range(10):
+        try:
+            return os.replace(tmp, path)
+        except PermissionError:
+            if attempt == 9:
+                os.unlink(tmp)
+                raise
+            time.sleep(0.05)
 
 
 class Lock:
@@ -283,9 +327,142 @@ def load_run(root):
     return read_json(run_path(root), {})
 
 
+def minutes_between(a, b):
+    try:
+        return max(0.0, (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 60)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def tick(run, now):
+    """Sort the time since the last bus write into work, waiting or paused.
+
+    An accumulator rather than a log: every write already passes through save_run, so
+    the gap since the previous write is known here for free, and the status and phase
+    that gap was spent in are the ones recorded last time. Nobody reports their timing."""
+    c = run.setdefault("clock", {"work": {}, "waitMin": 0, "pausedMin": 0})
+    gap = minutes_between(c.get("at"), now) if c.get("at") else 0
+    if c.get("status") in WAITING:
+        c["waitMin"] = round(c["waitMin"] + gap, 2)
+    elif c.get("status") == "running" and gap > IDLE_MIN:
+        c["pausedMin"] = round(c["pausedMin"] + gap, 2)
+    elif c.get("status") == "running":
+        c["work"][c.get("phase")] = round(c["work"].get(c.get("phase"), 0) + gap, 2)
+    c["at"], c["status"], c["phase"] = now, run.get("status"), run.get("phase")
+
+
+def estimate(root, run, now):
+    """Minutes per phase and minutes left, from the planner's per-task figures.
+
+    None when the plan carries no estimate (a plan written before ADR-0006). Services
+    that do not depend on each other run side by side, so a phase costs its longest
+    dependency chain, not the sum - that is what puts a time on the clock.
+    ponytail: phases are costed one after another, so a service that finishes testing
+    early does not start review early. Upgrade path: cost each service's whole chain."""
+    plan = read_json(os.path.join(root, "plan.json"), None)
+    tasks = plan.get("tasks") if isinstance(plan, dict) else None
+    if not isinstance(tasks, list) or not tasks or not all(
+            isinstance(t, dict) and isinstance(t.get("minutes"), (int, float)) for t in tasks):
+        return None
+    live = {t.get("id"): t
+            for t in read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])}
+    svcs = [s for s in plan.get("services") or [] if isinstance(s, dict) and s.get("name")]
+    deps = {s["name"]: s.get("dependsOnServices") or [] for s in svcs}
+    names = list(deps) or sorted({t.get("service") for t in tasks}, key=str)
+    needed = {d for ds in deps.values() for d in ds}     # a contract someone else consumes
+
+    def chain(cost):
+        memo = {}
+
+        def go(s, seen=()):
+            if s not in memo:
+                memo[s] = cost.get(s, 0) + max(
+                    (go(d, seen + (s,)) for d in deps.get(s, []) if d not in seen), default=0)
+            return memo[s]
+        return max((go(s) for s in cost), default=0)
+
+    impl, left, test, review, extra = {}, {}, {}, {}, 0
+    for n in names:
+        mine = [t for t in tasks if t.get("service") == n]
+        high = len([t for t in mine if t.get("complexity") == "high"])
+        medium = len([t for t in mine if t.get("complexity") == "medium"])
+        suite = SUITE_MIN.get(next((s.get("suite") for s in svcs if s["name"] == n), None), 10)
+        rounds = min(3, 1 + bool(high) + (n in needed))
+        impl[n] = sum(t["minutes"] for t in mine)
+        left[n] = 0
+        for t in mine:
+            cur = live.get(t.get("id"), {})
+            if cur.get("status") == "done":
+                continue
+            spent = minutes_between(cur.get("startedAt"), now) \
+                if cur.get("status") == "in_progress" else 0
+            left[n] += max(0, t["minutes"] - spent)
+        test[n] = 15 + 5 * medium + 10 * high + suite * (1 + rounds) + 15 * rounds
+        review[n] = 10 + len(mine) + 3 * high
+        extra = max(extra, suite + 15)
+    phases = {"spec": 5, "plan": round(10 + 1.5 * len(tasks)), "implement": chain(impl),
+              "test": max(test.values()), "review": max(review.values()),
+              "qa": 10 + 5 * (len(names) - 1)}
+    idx = PHASES.index(run.get("phase")) if run.get("phase") in PHASES else 0
+    worked = (run.get("clock") or {}).get("work") or {}
+    remaining = 0
+    for i, ph in enumerate(PHASES[:-1]):
+        if i > idx:
+            remaining += phases[ph]
+        elif i == idx:
+            remaining += chain(left) if ph == "implement" \
+                else max(0, phases[ph] - worked.get(ph, 0))
+    # "Likely by": one more fix round than expected, plus a quarter of what is left.
+    likely = remaining * 1.25 + (extra if idx <= PHASES.index("test") else 0)
+    done = run.get("status") == "done"
+    return {"phases": {k: round(v) for k, v in phases.items()},
+            "totalMin": round(sum(phases.values())),
+            "leftMin": 0 if done else round(remaining),
+            "likelyMin": 0 if done else round(likely)}
+
+
 def save_run(root, run):
     run["updatedAt"] = now_iso()
+    tick(run, run["updatedAt"])
+    eta = estimate(root, run, run["updatedAt"])
+    if eta:
+        run["eta"] = eta
+    else:
+        run.pop("eta", None)    # a plan re-written without estimates stops showing the old one
     atomic_write(run_path(root), json.dumps(run, indent=2))
+
+
+def touch(root):
+    """Re-stamp the run after a write that did not go through run.json (an event, a task
+    move), so the clock and the estimate follow it."""
+    with Lock(run_path(root)):
+        run = load_run(root)
+        if run:
+            save_run(root, run)
+
+
+def complete_work(run):
+    """Work completed: QA is green. What is left is the human's - list it on the run so
+    the hall and the orchestrator's report read the same steps."""
+    now = now_iso()
+    if run.get("phase") != "done":
+        run["workCompletedAt"] = now
+    else:       # an older bus re-stamped: it finished when it was last written, not now
+        run.setdefault("workCompletedAt", run.get("updatedAt") or now)
+    run["phase"], run["status"], run["activeAgent"] = "done", "done", "orchestrator"
+    recompute_progress(run)
+    cfg = read_json(find_config() or "", {})
+    steps = cfg.get("humanSteps") if isinstance(cfg, dict) else None
+    if not (isinstance(steps, list) and steps
+            and all(isinstance(x, str) and x.strip() for x in steps)):
+        # `finish` only has something to merge once worktrees exist.
+        steps = HUMAN_STEPS if run.get("repos") else HUMAN_STEPS[:-1]
+    services = [e["service"] for e in run.get("repos") or []] or sorted(run.get("services") or {})
+    fill = {"{branch}": run.get("branch") or "the feature branch",
+            "{services}": ", ".join(services) or "its repository",
+            "{slug}": run.get("slug") or ""}
+    run["humanSteps"] = [re.sub(r"\{\w+\}", lambda m: fill.get(m.group(0), m.group(0)), x)
+                         for x in steps]
 
 
 def recompute_progress(run):
@@ -382,6 +559,7 @@ def _event(root, agent, etype, phase, summary, detail, ref, service=None, run_id
         rec["ref"] = ref
     with open(os.path.join(root, "messages.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
+    touch(root)
     return rec
 
 
@@ -398,11 +576,11 @@ def cmd_phase(root, args):
         sys.exit(f"unknown phase '{args.name}'. valid: {', '.join(PHASES)}")
     with Lock(run_path(root)):
         run = load_run(root)
-        run["phase"] = args.name
-        recompute_progress(run)
         if args.name == "done":
-            run["status"] = "done"
-            run["activeAgent"] = "orchestrator"
+            complete_work(run)
+        else:
+            run["phase"] = args.name
+            recompute_progress(run)
         save_run(root, run)
     print(f"phase -> {args.name} ({run['progressPct']}%)")
 
@@ -478,6 +656,17 @@ def cmd_svc(root, args):
         if args.failed is not None:
             svc["failed"] = args.failed
         svc["updatedAt"] = now_iso()
+        # The run's own phase follows its services once every one of them has moved on -
+        # a real run sat at "implement, 33%" with all four services through QA. Forward
+        # only, and never to done: that is qa-check's to say.
+        planned = [s.get("name") for s in read_json(os.path.join(root, "plan.json"), {})
+                   .get("services") or [] if isinstance(s, dict)] or list(services)
+        at = [PHASES.index(services.get(n, {}).get("phase"))
+              if services.get(n, {}).get("phase") in PHASES else 0 for n in planned]
+        floor = min(min(at), PHASES.index("qa"))
+        if run.get("phase") in PHASES and floor > PHASES.index(run["phase"]):
+            run["phase"] = PHASES[floor]
+            recompute_progress(run)
         save_run(root, run)
     print(json.dumps({args.name: svc}))
 
@@ -527,7 +716,12 @@ def cmd_config(root, args):
         for d in s["dependsOnServices"]:
             if d not in names:
                 sys.exit(f"config: service '{s['name']}' dependsOnServices references unknown '{d}'")
-    print(json.dumps({"configured": True, "reposRoot": repos_root, "services": norm}, indent=2))
+    steps = cfg.get("humanSteps")
+    if steps is not None and not (isinstance(steps, list) and steps
+                                  and all(isinstance(x, str) and x.strip() for x in steps)):
+        sys.exit("config: 'humanSteps' must be a non-empty list of strings")
+    print(json.dumps({"configured": True, "reposRoot": repos_root, "services": norm,
+                      **({"humanSteps": steps} if steps else {})}, indent=2))
 
 
 def cmd_task(root, args):
@@ -553,10 +747,15 @@ def cmd_task(root, args):
                     if args.status: t["status"] = args.status
                     if args.service: t["service"] = args.service
                     t["updatedAt"] = now_iso()
+                    if args.status == "in_progress":
+                        t.setdefault("startedAt", t["updatedAt"])
+                    if args.status == "done":
+                        t["doneAt"] = t["updatedAt"]
                     found = True
             if not found:
                 sys.exit(f"no task with id {args.id}")
         atomic_write(tp, json.dumps(data, indent=2))
+    touch(root)
     print(json.dumps(data, indent=2))
 
 
@@ -591,7 +790,8 @@ def render_review(data):
             loc = str(f.get("file") or "")
             if f.get("line"):
                 loc += f":{f['line']}"
-            ref = f" [{f['planRef']}]" if f.get("planRef") else ""
+            tags = " · ".join(str(f[k]) for k in ("planRef", "rule") if f.get(k))
+            ref = f" [{tags}]" if tags else ""
             out.append(f"- **{loc or 'general'}**{ref} - {str(f['note']).strip()}")
         out.append("")
     if not data["findings"]:
@@ -644,6 +844,8 @@ def cmd_validate_plan(root, args):
             if s["name"] in names:
                 bad.append(f"duplicate service '{s['name']}'")
             names.add(s["name"])
+            if s.get("suite", "medium") not in SUITE_MIN:
+                bad.append(f"service '{s['name']}': suite must be one of {', '.join(SUITE_MIN)}")
             deps = s.get("dependsOnServices", [])
             if not isinstance(deps, list):
                 bad.append(f"service '{s['name']}': dependsOnServices must be a list")
@@ -678,6 +880,21 @@ def cmd_validate_plan(root, args):
         svc = t.get("service")
         if names and svc not in names:
             bad.append(f"task '{tid}' names service '{svc}', which is not in services[]")
+        # The estimate (ADR-0006). Bounded here so an LLM's figure can be wrong by a band,
+        # never by an order of magnitude.
+        size, cx, mins = t.get("size"), t.get("complexity"), t.get("minutes")
+        if size not in SIZE_MIN or cx not in COMPLEXITY_BAND:
+            bad.append(f"task '{tid}' needs size ({'/'.join(SIZE_MIN)}) and complexity "
+                       f"({'/'.join(COMPLEXITY_BAND)}); got {size!r}, {cx!r}")
+        elif not isinstance(mins, (int, float)) or isinstance(mins, bool):
+            bad.append(f"task '{tid}' has no 'minutes' estimate")
+        else:
+            lo, hi = (SIZE_MIN[size] * f for f in COMPLEXITY_BAND[cx])
+            if not lo <= mins <= hi:
+                bad.append(f"task '{tid}': {mins} minutes is outside the {size}/{cx} band "
+                           f"({lo:g}-{hi:g}); re-size it, or split it if it is larger than L")
+            if cx != "low" and not str(t.get("reason", "")).strip():
+                bad.append(f"task '{tid}' is {cx} complexity but gives no 'reason'")
         refs = t.get("criteriaRef") or []
         if isinstance(refs, (str, int)):
             refs = [refs]
@@ -788,6 +1005,11 @@ def cmd_review(root, args):
                      f"{', '.join(SEVERITIES)}, got {f.get('severity')!r}")
         if not str(f.get("note", "")).strip():
             sys.exit(f"review: finding #{i} has an empty note - a finding nobody can act on")
+        if f.get("rule") is not None:
+            known = design_rule_ids()
+            if known is not None and f["rule"] not in known:
+                sys.exit(f"review: finding #{i} cites rule {f['rule']!r}, which neither "
+                         f"skills/design-rules nor skills/test-scenarios defines")
     data["findings"] = findings
     out = svc_dir(root, args.service, "review")
     atomic_write(os.path.join(out, "review.json"), json.dumps(data, indent=2))
@@ -872,11 +1094,26 @@ def cmd_qa_check(root, args):
     if todo:
         fails.append("task(s) not done: "
                      + ", ".join(f"{t['id']} ({t.get('status')})" for t in todo))
+    spent = [n for n, v in sorted((run.get("services") or {}).items()) if v.get("blocked")
+             and v.get("status") != "done" and args.service in (None, n)]
+    if spent:
+        fails.append("service(s) blocked with the fix budget spent: " + ", ".join(spent))
     for f in fails:
         print("FAIL " + f)
     if fails:
         sys.exit(1)
     print(f"qa-check: green - {len(tasks)} task(s) done, tests green, no blocking findings")
+    if args.service is None:
+        # Completion used to be a second command the orchestrator had to remember, and a
+        # session that ended first left the card frozen mid-run for good. The gate is the
+        # completion: green for the whole run IS work completed.
+        with Lock(run_path(root)):
+            run = load_run(root)
+            complete_work(run)
+            save_run(root, run)
+        print("work completed - the steps left are the human's:")
+        for i, step in enumerate(run["humanSteps"], 1):
+            print(f"  {i}. {step}")
 
 
 def cmd_worktree(root, args):
@@ -1192,6 +1429,68 @@ def cmd_prune(root, args):
         print("plan only - nothing was removed. re-run with --apply.")
 
 
+def fmt_min(m):
+    m = max(0, round(m))
+    return f"{m // 60}h {m % 60:02d}m" if m >= 60 else f"{m}m"
+
+
+def by_slug(root, slug):
+    if not slug:
+        return root
+    match = [p for p in scan_pipelines() if p["slug"] == slug]
+    if not match:
+        sys.exit(f"no workstream '{slug}' under {pipelines_root()}")
+    return match[0]["root"]
+
+
+def cmd_eta(root, args):
+    """The estimate, in the terminal: what the hall card shows, from the same run.json.
+    Read-only - it works out the time since the last write instead of stamping one."""
+    root = by_slug(root, args.slug)
+    run = load_run(root)
+    now = now_iso()
+    eta = estimate(root, run, now)
+    if not eta:
+        print("eta: this run's plan carries no estimate (no plan yet, or one written "
+              "before tasks had size/complexity/minutes)")
+        return
+    c = run.get("clock") or {}
+    work = c.get("work") or {}
+    gap = minutes_between(c.get("at"), now) if c.get("at") else 0
+    done = run.get("status") == "done"
+    held = run.get("status") in WAITING or (run.get("status") == "running" and gap > IDLE_MIN)
+    waited = c.get("waitMin", 0) + c.get("pausedMin", 0) + (gap if held else 0)
+    local = lambda m: (datetime.now() + timedelta(minutes=m)).strftime("%a %H:%M")
+    print(f"{run.get('slug') or run.get('feature')}   {run.get('phase')}   {run.get('status')}")
+    print(f"work left        {fmt_min(eta['leftMin'])}")
+    if not done:
+        print(f"expected         {local(eta['leftMin'])}  (local"
+              + (", if it resumes now)" if held else ")"))
+        print(f"likely by        {local(eta['likelyMin'])}  (local)")
+    print(f"waited on you    {fmt_min(waited)}" + ("  and counting" if held else ""))
+    print(f"\n{'phase':<10} {'estimate':>9} {'actual':>8}")
+    for ph, est in eta["phases"].items():
+        print(f"{ph:<10} {fmt_min(est):>9} {fmt_min(work.get(ph, 0)):>8}")
+    print(f"{'total':<10} {fmt_min(eta['totalMin']):>9} {fmt_min(sum(work.values())):>8}")
+
+
+def completed_path(root):
+    """completed.json is a sibling of the bus, like gate.json: the human's stamp that the
+    work is deployed. ui/server.js writes the same file from the hall's one button."""
+    return os.path.join(os.path.dirname(os.path.abspath(root)), "completed.json")
+
+
+def cmd_complete(root, args):
+    root = by_slug(root, args.slug)
+    run = load_run(root)
+    if run.get("status") != "done":
+        sys.exit(f"complete: the work is not completed yet (status {run.get('status')!r}); "
+                 "that happens when qa-check goes green")
+    atomic_write(completed_path(root), json.dumps(
+        {"runId": run.get("runId"), "ts": now_iso(), "by": "terminal"}, indent=2))
+    print(f"completed -> {completed_path(root)}")
+
+
 def gate_path(root):
     """gate.json is a SIBLING of the bus, in the workstream directory (section 3) -
     written by the terminal or the browser, read by the waiter. ui/server.js mirrors
@@ -1269,6 +1568,8 @@ def build_parser():
     s = sub.add_parser("results"); s.add_argument("--from", required=True, dest="source"); s.add_argument("--service", default=None)
     s = sub.add_parser("validate-plan"); s.add_argument("--file", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
+    s = sub.add_parser("eta"); s.add_argument("--slug", default=None)
+    s = sub.add_parser("complete"); s.add_argument("slug", nargs="?")
     s = sub.add_parser("next"); s.add_argument("--service", default=None); s.add_argument("--max", type=int, default=2)
     s = sub.add_parser("worktree")
     ws = s.add_subparsers(dest="wt_cmd", required=True)
@@ -1312,6 +1613,7 @@ def main():
         "review": cmd_review, "results": cmd_results,
         "validate-plan": cmd_validate_plan, "qa-check": cmd_qa_check, "next": cmd_next,
         "worktree": cmd_worktree, "finish": cmd_finish,
+        "eta": cmd_eta, "complete": cmd_complete,
     }[args.cmd](root, args)
 
 

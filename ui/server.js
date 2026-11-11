@@ -81,6 +81,7 @@ function snapshot(dir) {
   const run = readJSON(path.join(dir, "run.json"), null);
   return {
     run,
+    completed: completedAt({ root: dir, run }),
     // plan carries services[].dependsOnServices, which the dashboard uses to draw
     // dependency waves in a multi-service run.
     plan: readJSON(path.join(dir, "plan.json"), null),
@@ -118,6 +119,15 @@ function hiddenPath(p) { return path.join(path.dirname(p.root), "hidden.json"); 
 function isHidden(p) {
   const h = readJSON(hiddenPath(p), null);
   return !!h && (h.runId || null) === ((p.run || {}).runId || null);
+}
+
+// The human's stamp that finished work is deployed. Beside the bus, like the gate and the
+// hide, and written by the hall's one button or by `pipe.py complete` (completed_path()).
+// It names the run it closed, so a later wave of the same workstream starts unstamped.
+function completedPath(p) { return path.join(path.dirname(p.root), "completed.json"); }
+function completedAt(p) {
+  const c = readJSON(completedPath(p), null);
+  return c && (c.runId || null) === ((p.run || {}).runId || null) ? c.ts || null : null;
 }
 
 // Deliberately small: the hall shows twelve teams at once, and everything else is one
@@ -175,7 +185,7 @@ function planBrief(p) {
     services: (pl.services || []).map((s) => (s && s.name) || String(s)),
     tasks: tasks.slice(0, 30).map((t) => ({
       id: t.id, service: t.service, title: String(t.title || "").slice(0, 140) })),
-    taskCount: tasks.length,
+    taskCount: tasks.length, high: tasks.filter((t) => t.complexity === "high").length,
     criteria: n("acceptanceCriteria"), risks: n("risks"), questions: n("questions"),
   };
 }
@@ -203,6 +213,11 @@ function hall() {
       services: r.services || null,
       repos: (r.repos || []).map((e) => e.service),
       startedAt: r.startedAt, updatedAt: r.updatedAt, hidden: isHidden(p),
+      // The estimate and the clock are worked out by pipe.py on every bus write; the hall
+      // only adds the time since `clock.at`. Nothing here is recomputed in two places.
+      eta: r.eta || null, clock: r.clock || null, branch: r.branch || null,
+      workCompletedAt: r.workCompletedAt || null, humanSteps: r.humanSteps || null,
+      completed: completedAt(p),
       lastEvent: ev && { ts: ev.ts, agent: ev.agent, type: ev.type, summary: ev.summary },
       plan: r.status === "awaiting_approval" && r.phase === "plan" ? planBrief(p) : null,
     };
@@ -251,6 +266,15 @@ const BODY_MAX = 4096;
 
 // Both POST routes take one small JSON object and nothing else.
 function readBody(req, res, done) {
+  // A cross-site page can POST text/plain to 127.0.0.1 with no preflight: refuse anything
+  // that is not JSON, and any browser Origin that is not this server's own.
+  const origin = req.headers.origin;
+  if (origin && origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) {
+    return sendJSON(res, 403, { error: "cross-origin request refused" });
+  }
+  if (!/^application\/json\s*(;|$)/i.test(req.headers["content-type"] || "")) {
+    return sendJSON(res, 415, { error: "Content-Type must be application/json" });
+  }
   let body = "", over = false;
   req.on("data", (chunk) => {
     if (over) return;
@@ -329,6 +353,26 @@ function apiHide(req, res) {
   });
 }
 
+// The one final button: the work is deployed. Same door as the gate - a slug resolved by
+// identity, a capped body, nothing spawned - and it only stamps work that is already done.
+function apiComplete(req, res) {
+  readBody(req, res, (payload) => {
+    const p = findPipeline(payload.slug);
+    if (!p) return sendJSON(res, 404, { error: "unknown slug", field: "slug" });
+    if (p.run.status !== "done") {
+      return sendJSON(res, 409, { error: "the work is not completed yet" });
+    }
+    try {
+      writeAtomic(completedPath(p),
+        { runId: p.run.runId || null, ts: new Date().toISOString(), by: "browser" });
+    } catch (e) {
+      return sendJSON(res, 500, { error: `could not mark it completed: ${e.code || e.message}` });
+    }
+    broadcast();
+    sendJSON(res, 200, { ok: true, slug: p.slug });
+  });
+}
+
 function serveHTML(res, file, fallback) {
   fs.readFile(file, (err, buf) => {
     if (err && fallback) return serveHTML(res, fallback);
@@ -378,6 +422,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/api/gate" && req.method === "POST") return apiGate(req, res);
   if (url.pathname === "/api/hide" && req.method === "POST") return apiHide(req, res);
+  if (url.pathname === "/api/complete" && req.method === "POST") return apiComplete(req, res);
   if (url.pathname === "/api/hall") return sendJSON(res, 200, hall());
   if (url.pathname === "/api/state") {
     const p = findPipeline(slug);

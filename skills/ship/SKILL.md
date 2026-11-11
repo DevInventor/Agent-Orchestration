@@ -57,7 +57,9 @@ PIPE="$PY ${CLAUDE_PLUGIN_ROOT}/scripts/pipe.py"
    dashboard may hold it — so it steps to the next free port and prints the one it bound.
    Then tell the user once: **`<the URL the server printed>/r/<slug>`** (4600 unless it was taken, in which case it steps to the next free port and says so).
 3. Refine the raw request in `<bus>/spec.md` into crisp, testable acceptance
-   criteria (a short bullet list). Overwrite the file.
+   criteria, each one a short Given/When/Then scenario in plain domain words with an id
+   (`AC1`, `AC2`...), per `${CLAUDE_PLUGIN_ROOT}/skills/test-scenarios/SKILL.md`. They are what the user approves, so they must
+   read without code. Overwrite the file.
 4. `$PIPE event --agent orchestrator --type status --summary "Spec normalized: N acceptance criteria"`.
 
 ## Then run the pipeline

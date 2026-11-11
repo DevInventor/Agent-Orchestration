@@ -77,6 +77,27 @@ The coder↔tester cycle that runs until tests are green or the budget is spent.
 is per service, never shared.
 _Avoid_: retry loop, iteration cap
 
+**Work completed**:
+QA is green for the whole run. Set by `qa-check`, never by hand. What is left is the
+human's: merge, deploy, verify, close.
+_Avoid_: done (ambiguous), shipped, finished
+
+**Completed**:
+A human's stamp that work-completed work is deployed. One button in the hall, or
+`pipe.py complete`. No agent ever sets it.
+_Avoid_: closed (that is `finish`), released
+
+**Estimate**:
+Minutes of agent work, set per task by the planner at plan time from a size and a
+complexity, and derived per phase by the bus. Counts time on the clock: parallel services
+cost the longest chain, not the sum.
+_Avoid_: ETA (say *expected* or *likely by* for a clock time), story points
+
+**Waiting on you**:
+Time a run spent at a gate or blocked. Not work, never estimated, and it pushes the
+finish time out. *Paused* is the same for a silence over 15 minutes while running.
+_Avoid_: idle, downtime
+
 **Stale**:
 A run claiming to be running whose bus has not been written to recently. Distinct from
 *blocked* (known to be stuck) and *awaiting approval* (legitimately idle).

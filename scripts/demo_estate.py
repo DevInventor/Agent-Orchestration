@@ -134,6 +134,10 @@ ESTATE = [
 ]
 
 
+# (size, complexity, minutes), cycled over a plan's tasks; each sits inside its band
+ESTIMATES = [("S", "low", 5), ("M", "low", 10), ("L", "medium", 40), ("M", "medium", 15)]
+
+
 def build():
     made = []
     for w in ESTATE:
@@ -142,6 +146,27 @@ def build():
             shutil.rmtree(os.path.dirname(root))
         run(root, "init", "--slug", slug, "--feature", w["feature"])
 
+        # plan.json carries the criteria the board's right-hand column reads, the
+        # criteriaRef the task cards badge themselves with, and the estimate. It is written
+        # right after init so every later bus write computes run.eta from it.
+        plan_tasks = []
+        for i, t in enumerate(w["tasks"]):
+            size, cx, mins = ESTIMATES[i % len(ESTIMATES)]
+            e = {"id": t[0], "title": t[1], "service": t[2], "criteriaRef": t[5],
+                 "size": size, "complexity": cx, "minutes": mins}
+            if cx != "low":
+                e["reason"] = "Demo estimate - not a real run."
+            plan_tasks.append(e)
+        plan_path = os.path.join(root, "plan.json")
+        json.dump({
+            "approach": "Demo estate - not a real run.",
+            "services": [{"name": s, "suite": "medium", "dependsOnServices": []}
+                         for s in w["repos"]],
+            "acceptanceCriteria": w["criteria"],
+            "tasks": plan_tasks,
+        }, open(plan_path, "w", encoding="utf-8"), indent=2)
+        run(root, "validate-plan")
+
         for a, kind, summary in w["events"]:
             run(root, "event", "--agent", a, "--type", kind, "--summary", summary)
 
@@ -149,22 +174,15 @@ def build():
             run(root, "task", "add", "--id", tid, "--title", title,
                 "--service", svc, "--owner", owner)
             if status != "todo":
-                run(root, "task", "update", "--id", tid, "--status", status)
+                # the bus has no qa/review task status; in_progress plus the owner puts
+                # the card in that column (board column())
+                run(root, "task", "update", "--id", tid, "--status",
+                    "in_progress" if status in ("qa", "review") else status)
 
         run(root, "phase", w["phase"])
         run(root, "agent", w["agent"])
         run(root, "loop", "--count", str(w["loop"][0]), "--max", str(w["loop"][1]))
         run(root, "set-status", w["status"])
-
-        # plan.json carries the criteria the board's right-hand column reads, and the
-        # criteriaRef the task cards badge themselves with.
-        json.dump({
-            "approach": "Demo estate - not a real run.",
-            "services": [{"name": s, "dependsOnServices": []} for s in w["repos"]],
-            "acceptanceCriteria": w["criteria"],
-            "tasks": [{"id": t[0], "title": t[1], "service": t[2], "criteriaRef": t[5]}
-                      for t in w["tasks"]],
-        }, open(os.path.join(root, "plan.json"), "w", encoding="utf-8"), indent=2)
 
         # What no command exposes: the workstream's repos, per-service test counts, and a
         # backdated updatedAt - staleness is measured, so it cannot be asked for.

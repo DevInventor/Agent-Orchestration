@@ -32,7 +32,7 @@ pipeline/
 â”‚   â””â”€â”€ results.json  # tester: {iteration, passed, failed, failures:[...]}
 â”œâ”€â”€ review/
 â”‚   â”œâ”€â”€ review.md     # rendered from review.json by `pipe.py review --from`
-â”‚   â””â”€â”€ review.json   # reviewer findings: [{severity, file, line, note, planRef}]
+â”‚   â””â”€â”€ review.json   # reviewer findings: [{severity, file, line, note, planRef, rule}]
 â””â”€â”€ status/
     â””â”€â”€ summary.md     # QA/orchestrator: completed + current task  -> right panel
 ```
@@ -129,6 +129,8 @@ $PIPE event --agent coder --type handoff --summary "..." [--detail "..."] [--ref
 $PIPE svc --name oauth_v3.8.0 --phase test --loop-count 2 --loop-max 5 \
           --agent tester --status running --passed 8 --failed 1   # per-service header state
 $PIPE status                               # print run.json
+$PIPE eta [--slug <slug>]                  # work left, expected and likely-by (read-only)
+$PIPE complete [<slug>]                    # the HUMAN's stamp after deploying - never an agent's
 $PIPE config                               # load+validate optional agent-orchestration.config.json
 $PIPE review --from findings.json [--service oauth_v3.8.0]   # reviewer only: validate + persist
 $PIPE slug --spec docs/specs/009-messaging-hub/design.md     # the workstream's name

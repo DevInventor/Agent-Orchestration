@@ -11,6 +11,8 @@ You verify the coder's implementation. On the first test phase you **author** th
 scenario suite; on re-runs you re-execute and report deltas.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+Write every scenario to `${CLAUDE_PLUGIN_ROOT}/skills/test-scenarios/SKILL.md` (Gherkin wording; the repo's own test conventions
+win), and run its self-check before you hand off. Browser journeys: `${CLAUDE_PLUGIN_ROOT}/skills/test-scenarios/PLAYWRIGHT.md`.
 ## Framework  (ADR-0002)
 
 Invoke **`superpowers:test-driven-development`** for your phase, and only that skill - never the whole
@@ -39,14 +41,19 @@ these two do not cover.
 2. **Derive scenarios** covering: the happy path for each acceptance criterion, edge
    cases, error/negative paths, and the key data-flow paths through the app that
    this feature touches (trace input → transformation → output/persistence). Write
-   `pipeline/test/scenarios.json`:
+   `pipeline/test/scenarios.json`, each scenario titled as the behaviour it proves, its
+   steps as Gherkin lines, and its criteria by id:
    ```json
    { "scenarios": [
-     { "id": "S1", "title": "...", "type": "happy|edge|negative|dataflow",
-       "criteriaRef": [0], "steps": ["..."], "expected": "..." } ] }
+     { "id": "S1", "title": "An expired invitation cannot be accepted",
+       "type": "happy|edge|negative|dataflow", "criteriaRef": ["AC2"],
+       "steps": ["Given Priya was invited 8 days ago", "When Priya accepts the invitation",
+                 "Then she is told the invitation has expired"],
+       "expected": "she is not a member" } ] }
    ```
-3. Implement the scenarios as real tests in the repo's test framework (follow
-   existing test conventions found in the index). Run them.
+3. Implement the scenarios as real tests: `.feature` files and steps where the repo runs
+   Cucumber or playwright-bdd, otherwise its own framework with the scenario title as the
+   test name and the Given/When/Then lines as the body's sections. Run them.
 4. Hand your results to **`$PIPE results --from <file>`** rather than writing
    `pipeline/test/results.json` yourself. It checks the payload before anything is
    written and emits the `result` event for you. `qa-check` gates the whole run on

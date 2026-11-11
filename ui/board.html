@@ -126,34 +126,101 @@
   .kempty{font-family:var(--mono);font-size:10px;color:var(--faint);padding:8px 2px}
 
   /* right: the state */
-  .mx{padding:11px 12px;display:flex;flex-direction:column;gap:5px}
-  .mxr{display:grid;grid-template-columns:1fr repeat(4,30px);gap:4px;align-items:center}
-  .mxr.h .lbl,.mxr.h .cell{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;
-    text-transform:uppercase;color:var(--muted)}
-  .mxr.h .cell{text-align:center}
-  .mxr .lbl{font-family:var(--mono);font-size:10.5px;color:var(--text);overflow:hidden;
-    text-overflow:ellipsis;white-space:nowrap}
-  .mxr.tot{border-top:1px solid var(--line);padding-top:6px;margin-top:2px}
-  .mxr.tot .lbl{color:var(--bright);font-weight:600}
-  .mcell{height:26px;border:1px solid var(--line);border-radius:3px;position:relative;
-    display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--sunk)}
-  .mcell .fill{position:absolute;inset:auto 0 0 0;background:currentColor;opacity:.2}
-  .mcell .n{position:relative;font-family:var(--mono);font-size:9.5px;font-variant-numeric:tabular-nums}
-  .m-code{color:var(--coder)} .m-qa{color:var(--tester)} .m-rev{color:var(--reviewer)} .m-done{color:var(--ok)}
-  .mcell.full{border-color:currentColor}
-  .sub{border-top:1px solid var(--line);padding:11px 12px;display:flex;flex-direction:column;gap:8px}
-  .bud{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px}
-  .bud .nm{color:var(--text);flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .bud .track{flex:0 0 46px;height:4px;background:var(--sunk);border:1px solid var(--line);
-    border-radius:2px;overflow:hidden}
-  .bud .track i{display:block;height:100%;background:var(--warn)}
-  .bud .v{color:var(--muted);flex:0 0 auto;font-variant-numeric:tabular-nums}
   .crit{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4}
   .crit .m{flex:0 0 auto;font-family:var(--mono)}
   .crit.ok .m{color:var(--ok)} .crit.part .m{color:var(--warn)} .crit.no .m{color:var(--faint)}
   .crit .tx{color:var(--muted);min-width:0}
   .crit b{color:var(--text);font-weight:600}
   .empty{color:var(--faint);font-size:13px;padding:30px 14px;font-family:var(--mono)}
+
+  /* ---- the estimate band (ADR-0006): the same figures and rail as the hall card ---- */
+  .timeband{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 30px;align-items:end;
+    padding:12px 18px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .timeband[hidden]{display:none}
+  .tb-figs{display:flex;gap:26px;flex-wrap:wrap}
+  .tb-figs .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .tb-figs .v{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--bright);font-variant-numeric:tabular-nums;line-height:1.2}
+  .tb-figs .v.sm{font-size:14px;padding-top:4px}
+  .tb-figs .s{font-family:var(--mono);font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tb-figs .hold{color:var(--warn)}
+  .c-rail{display:flex;flex-direction:column;gap:4px;padding-top:10px;min-width:0}
+  .c-rail .bar{position:relative;display:flex;gap:2px;height:14px}
+  .c-rail .sg{position:relative;background:var(--sunk);border-radius:2px;overflow:hidden;min-width:0}
+  .c-rail .sg i{position:absolute;left:0;top:0;bottom:0;background:var(--c);border-radius:2px}
+  .c-rail .slack{border-radius:2px;border:1px dashed var(--line-2);min-width:0;
+    background:repeating-linear-gradient(135deg,transparent 0 4px,color-mix(in srgb,var(--line-2) 55%,transparent) 4px 5px)}
+  .c-rail .needle{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--bright);border-radius:1px}
+  .c-rail .needle::before{content:"now";position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--bright)}
+  .c-rail .lab{display:flex;gap:2px;font-family:var(--mono);font-size:8.5px;letter-spacing:.03em;color:var(--faint)}
+  .c-rail .lab span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .c-rail .lab .cur{color:var(--bright)}
+
+  /* comms filter */
+  .evf{display:flex;flex-wrap:wrap;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  .evf button{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:10px;cursor:pointer;
+    border:1px solid var(--line);background:var(--sunk);color:var(--muted)}
+  .evf button.sel{background:var(--bright);border-color:var(--bright);color:var(--panel)}
+
+  /* ---- the flow: one row per service, one column per stage, a task is one line ---- */
+  .lanes{display:grid;align-content:start;flex:1 1 auto;min-width:820px}
+  .lanes>*{border-bottom:1px solid var(--line);padding:8px;min-width:0}
+  .lh{position:sticky;top:0;z-index:1;background:var(--panel);display:flex;align-items:center;gap:6px;
+    font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+    white-space:nowrap;border-bottom:1.5px solid var(--line-2)!important}
+  .lh.o-coder{border-bottom-color:var(--coder)!important;color:var(--coder)}
+  .lh.o-tester{border-bottom-color:var(--tester)!important;color:var(--tester)}
+  .lh.o-reviewer{border-bottom-color:var(--reviewer)!important;color:var(--reviewer)}
+  .lh.o-done{border-bottom-color:var(--ok)!important;color:var(--ok)}
+  .lh .ct{margin-left:auto;color:var(--faint)}
+  .svc{display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line)}
+  .svc .nm{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--bright);overflow-wrap:anywhere}
+  .svc .s2{font-family:var(--mono);font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .svc .s2.fail{color:var(--bad)}
+  .pips{display:flex;gap:3px;align-items:center;font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+  .pips i{width:7px;height:7px;border-radius:50%;border:1px solid var(--line-2)}
+  .pips i.u{background:var(--warn);border-color:var(--warn)}
+  .cell{display:flex;flex-direction:column;gap:5px}
+  .tk{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px;text-align:left;width:100%;
+    background:var(--sunk);border:1px solid var(--line);border-radius:5px;padding:5px 7px;cursor:pointer;
+    font-family:var(--sans);font-size:12px;color:var(--text)}
+  .tk:hover{border-color:var(--line-2);background:var(--raise)}
+  .tk.sel{border-color:var(--coder);background:color-mix(in srgb,var(--coder) 10%,var(--panel))}
+  .tk .id{font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .tk .tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tk .tm{font-family:var(--mono);font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tk.live .id{color:var(--coder)}
+  .tk .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--coder);margin-right:4px}
+  .tk.late .tm{color:var(--bad)}
+  .none{font-family:var(--mono);font-size:11px;color:var(--faint)}
+
+  /* ---- the inspector ---- */
+  .tabs{display:flex;border-bottom:1px solid var(--line);flex:0 0 auto}
+  .tabs button{flex:1;border:0;background:transparent;color:var(--muted);padding:9px 6px;cursor:pointer;
+    font-family:var(--mono);font-size:11px;border-bottom:2px solid transparent}
+  .tabs button.sel{color:var(--bright);border-bottom-color:var(--coder)}
+  .tab{padding:12px;display:flex;flex-direction:column;gap:10px;font-size:12.5px}
+  .tab h3{margin:0;font-size:14px;line-height:1.35;font-weight:600;color:var(--bright)}
+  .kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 14px;margin:0}
+  .kv dt{color:var(--muted)} .kv dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+  .sz{font-family:var(--mono);font-size:9.5px;border:1px solid var(--line-2);border-radius:3px;padding:1px 6px;color:var(--muted)}
+  .sz.high{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+  .sz.medium{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+  .cmp{display:flex;flex-direction:column;gap:4px}
+  .cmp .row{display:grid;grid-template-columns:58px 1fr 70px;gap:8px;align-items:center;font-family:var(--mono);
+    font-size:10.5px;color:var(--muted)}
+  .cmp .trk{height:7px;border-radius:2px;background:var(--sunk);overflow:hidden}
+  .cmp .trk i{display:block;height:100%;border-radius:2px;background:var(--c)}
+  .cmp .row span:last-child{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+  .phr{display:grid;grid-template-columns:72px 1fr 48px 48px;gap:8px;align-items:center;padding:5px 0;
+    border-bottom:1px solid var(--line)}
+  .phr .n{font-family:var(--mono);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}
+  .phr .n.over{color:var(--bad)} .phr .n.hold{color:var(--warn)}
+  .phr.h{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .two{display:flex;flex-direction:column;gap:2px}
+  .two i{display:block;height:5px;border-radius:2px;background:var(--c)}
+  .two i.est{opacity:.3}
+  .hint{color:var(--muted);font-size:12px;line-height:1.5}
   /* The review rig. Not product: it exists so motion can be reviewed without a live run,
      and it mutates this page only - nothing it does reaches the bus. Opt in with ?demo=1. */
   .rig{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);padding:11px 18px}
@@ -164,6 +231,7 @@
   .rig .note{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:8px}
 
   @media (max-width:980px){
+    .timeband{grid-template-columns:minmax(0,1fr)}
     .board{flex-direction:column}
     .gutter{display:none}
     .pane{flex:1 1 auto!important;width:auto!important}
@@ -183,6 +251,7 @@
   <span class="seats" id="b-seats"></span>
 </header>
 
+<div class="timeband" id="timeband" hidden></div>
 <div class="board" id="board"></div>
 <footer class="rig" id="rig" hidden></footer>
 
@@ -202,7 +271,6 @@ const COLS=[
   {k:"done",    n:"Done",         own:"done"},
 ];
 const CIX=Object.fromEntries(COLS.map((c,i)=>[c.k,i]));
-const STAGES=[["Code",1,"m-code"],["QA",3,"m-qa"],["Rev",4,"m-rev"],["Done",5,"m-done"]];
 
 /* The bus records three task states - todo, in_progress, done - so the column is that
    state plus whose turn it is. Only the coder moves a task, so done means "written once":
@@ -231,7 +299,8 @@ function column(t){
 }
 
 let S={run:{},plan:{},tasks:[],messages:[]};
-let PW={l:250,r:250}, PMIN={l:false,m:false,r:false};
+let PW={l:250,r:310}, PMIN={l:false,m:false,r:false};
+let SEL=null, TAB="task", EVF="all";      // the task in the inspector, its tab, the comms filter
 
 function cardState(r){
   if(r.status==="done") return "done";
@@ -248,7 +317,8 @@ function head(){
   document.getElementById("b-repos").textContent=repos||SLUG;
   const st=cardState(r);
   const pill=document.getElementById("b-pill");
-  pill.className="pill "+st; pill.textContent=r.status||"—";
+  pill.className="pill "+st;
+  pill.textContent=r.status==="done"?(S.completed?"completed":"work completed"):(r.status||"—");
   const RAIL=["spec","plan","implement","test","review","done"];
   const cur=RAIL.indexOf(r.phase);
   const STAGE={planner:1,coder:2,tester:3,reviewer:4};
@@ -279,90 +349,203 @@ function pane(key,title,count,build){
   return p;
 }
 
+/* ---- the estimate: pipe.py's numbers plus the minutes since its last write (== hall.html) ---- */
+const IDLE_MIN=15;
+const PHASE_C={spec:"var(--orch)",plan:"var(--planner)",implement:"var(--coder)",test:"var(--tester)",
+  review:"var(--reviewer)",qa:"var(--orch)"};
+const dur=m=>{m=Math.max(0,Math.round(m));return m>=60?`${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m`:`${m}m`;};
+const mins=(a,b)=>Math.max(0,(new Date(b)-new Date(a))/60000);
+function clockAt(t){
+  const d=new Date(t), hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false});
+  return d.toDateString()===new Date().toDateString()?hm
+    :d.toLocaleDateString([],{day:"numeric",month:"short"})+" "+hm;
+}
+function etc(){
+  const r=S.run||{}, e=r.eta, c=r.clock; if(!e||!c||!c.at) return null;
+  const done=r.status==="done";
+  const gap=done?0:mins(c.at,Date.now());
+  const waiting=r.status==="awaiting_approval"||r.status==="blocked"||r.status==="failed";
+  const paused=r.status==="running"&&gap>IDLE_MIN;
+  const held=waiting||paused, spent=held?0:gap;
+  const left=Math.max(0,e.leftMin-spent), likely=Math.max(left,e.likelyMin-spent);
+  const work={...(c.work||{})}; if(spent&&r.phase) work[r.phase]=(work[r.phase]||0)+spent;
+  const worked=Object.values(work).reduce((a,b)=>a+b,0);
+  return {left,likely,held,waiting,paused,worked,total:e.totalMin,phases:e.phases,work,done,
+    waited:(c.waitMin||0)+(c.pausedMin||0)+(held?gap:0)};
+}
+function timeband(){
+  const el=document.getElementById("timeband"), r=S.run||{}, t=etc();
+  el.hidden=!t; if(!t) return;
+  const names=Object.keys(t.phases), cur=t.done?names.length:names.indexOf(r.phase);
+  const slack=Math.max(1,t.likely-t.left), now=Date.now();
+  let before=0;
+  const segs=names.map((n,i)=>{
+    const est=Math.max(1,t.phases[n]);
+    const fill=i<cur?1:i>cur?0:Math.min(1,Math.max((t.work[n]||0)/est,0.03));
+    before+=est*fill;
+    return `<div class="sg" style="flex:${est};--c:${PHASE_C[n]}"><i style="width:${Math.round(fill*100)}%"></i></div>`;
+  }).join("");
+  const lab=names.map((n,i)=>`<span style="flex:${Math.max(1,t.phases[n])}"${i===cur?' class="cur"':""}>${n} ${
+    t.work[n]?dur(t.work[n])+" of ":""}${dur(t.phases[n])}</span>`).join("");
+  const k1=t.done?"Work completed":r.status==="blocked"||r.status==="failed"?"Ready if unblocked now":t.waiting?"Ready if approved now"
+          :t.paused?"Ready if resumed now":"Work completed at";
+  el.innerHTML=`<div class="c-rail"><div class="bar">${segs}${t.done?"":`<div class="slack" style="flex:${slack}"
+      title="How late it could run"></div><span class="needle" style="left:${(before/(t.total+slack)*100).toFixed(1)}%"></span>`}</div>
+      <div class="lab">${lab}${t.done?"":`<span style="flex:${slack}">slack</span>`}</div></div>
+    <div class="tb-figs">
+      <div><div class="k">${k1}</div><div class="v">${t.done?(r.workCompletedAt?clockAt(r.workCompletedAt):"—"):clockAt(now+t.left*60000)}</div>
+        ${t.done?"":`<div class="s">likely by ${clockAt(now+t.likely*60000)}</div>`}</div>
+      ${t.done?"":`<div><div class="k">Work left</div><div class="v sm">${dur(t.left)}</div></div>`}
+      <div><div class="k">Worked so far</div><div class="v sm">${dur(t.worked)}</div><div class="s">estimate ${dur(t.total)}</div></div>
+      <div><div class="k">${t.held?(t.paused?"Paused":"Waiting on you"):"Waited on you"}</div>
+        <div class="v sm${t.held?" hold":""}">${dur(t.waited)}</div>${t.held?`<div class="s">and counting</div>`:""}</div>
+    </div>`;
+}
+
 function comms(body){
-  const ms=(S.messages||[]).slice().reverse();
-  if(!ms.length){ body.innerHTML=`<div class="empty">no events yet</div>`; return; }
-  body.innerHTML=ms.map(m=>{
-    const t=(m.ts||"").slice(11,16);
+  const all=(S.messages||[]).slice().reverse();
+  const who=["all",...new Set(all.map(m=>m.agent).filter(Boolean))];
+  if(!who.includes(EVF)) EVF="all";
+  const ms=all.filter(m=>EVF==="all"||m.agent===EVF);
+  if(!all.length){ body.innerHTML=`<div class="empty">no events yet</div>`; return; }
+  const f=document.createElement("div"); f.className="evf";
+  f.innerHTML=who.map(w=>`<button type="button" data-w="${esc(w)}"${w===EVF?' class="sel"':""}>${esc(w)}</button>`).join("");
+  f.onclick=e=>{const b=e.target.closest("button"); if(b){EVF=b.dataset.w;draw();}};
+  const list=document.createElement("div");
+  list.innerHTML=ms.map(m=>{
+    const t=m.ts?new Date(m.ts).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false}):"";
     return `<div class="ev"><span class="t">${esc(t)}</span>
       <span class="who w-${esc(m.agent)}">${esc(m.agent)}</span>
       <span class="tx">${esc(m.summary)}</span></div>`;
   }).join("");
+  body.append(f,list);
 }
 
-function flow(body){
-  const ts=S.tasks||[];
-  const kan=document.createElement("div"); kan.className="kan";
-  kan.innerHTML=COLS.map(c=>{
-    const items=ts.filter(t=>column(t)===c.k);
-    return `<div class="kcol">
-      <div class="kch${c.own?" o-"+c.own:""}"><span class="nm">${esc(c.n)}</span>
-        <span class="ct">${items.length}</span></div>
-      ${items.length?items.map(t=>`<div class="card${t.flag?" flag":""}">
-          <span class="ctop"><span class="cid">#${esc(t.id)}</span>
-            ${t.service?`<span class="csvc">${esc(t.service)}</span>`:""}</span>
-          <span class="ct">${esc(t.title||"")}</span>
-          <span class="cb">${(t.criteriaRef||[]).map(a=>
-            `<span class="badge ac">${esc(a)}</span>`).join("")}
-            ${t.owner?`<span class="badge">${esc(t.owner)}</span>`:""}</span>
-        </div>`).join(""):`<div class="kempty">&mdash;</div>`}
-    </div>`;
-  }).join("");
-  body.append(kan);
+/* What a task cost against what the planner said it would. Wall time between the coder
+   taking it and finishing it - close enough per task, and nobody has to report it. */
+function taskTime(t){
+  const est=typeof t.minutes==="number"?t.minutes:null;
+  const live=String(t.status)==="in_progress"&&t.startedAt;
+  const act=t.startedAt&&t.doneAt?mins(t.startedAt,t.doneAt):live?mins(t.startedAt,Date.now()):null;
+  return {est,act,live};
 }
-
-const reached=(list,min)=>list.filter(t=>CIX[column(t)]>=min).length;
-
-function state(body){
-  const ts=S.tasks||[], plan=S.plan||{};
-  // Cumulative on purpose: a cell counts tasks that have REACHED a stage or gone past it,
-  // so the gap between two columns is the work in flight at that stage - the bottleneck.
-  const cell=(list,min,cls)=>{
-    const v=reached(list,min), tot=list.length;
-    return `<div class="mcell ${cls}${v===tot&&tot?" full":""}">
-      <span class="fill" style="height:${tot?Math.round(v/tot*100):0}%"></span>
-      <span class="n">${v}/${tot}</span></div>`;
-  };
-  const svcs=[...new Set(ts.map(t=>t.service).filter(Boolean))];
-  const mx=document.createElement("div"); mx.className="mx";
-  mx.innerHTML=`<div class="mxr h"><span class="lbl">service</span>
-      ${STAGES.map(([n])=>`<span class="cell">${n}</span>`).join("")}</div>`
-    + svcs.map(s=>{
-        const list=ts.filter(t=>t.service===s);
-        return `<div class="mxr"><span class="lbl">${esc(s)}</span>
-          ${STAGES.map(([,m,c])=>cell(list,m,c)).join("")}</div>`;
-      }).join("")
-    + `<div class="mxr tot"><span class="lbl">all</span>
-        ${STAGES.map(([,m,c])=>cell(ts,m,c)).join("")}</div>`;
-  body.append(mx);
-
-  const loop=(S.run||{}).loop||{};
-  const per=(S.run||{}).services||null;
-  const budgets=per?Object.entries(per).map(([k,v])=>[k,(v.loop||{}).count||0,(v.loop||{}).max||5])
-                   :[[svcs[0]||SLUG,loop.count||0,loop.max||5]];
-  const sub=document.createElement("div"); sub.className="sub";
-  sub.innerHTML=`<span class="eyebrow">fix budget</span>`
-    + budgets.map(([n,c,m])=>`<div class="bud"><span class="nm">${esc(n)}</span>
-        <span class="track"><i style="width:${Math.min(100,c/m*100)}%"></i></span>
-        <span class="v">${c}/${m}</span></div>`).join("");
-  body.append(sub);
-
-  const crit=plan.acceptanceCriteria||[];
-  if(crit.length){
-    const ids=crit.map(c=>String(typeof c==="string"?c:(c.id||"")).match(/^\s*(AC\d+(?:\([a-z]\))?)/));
-    const s2=document.createElement("div"); s2.className="sub";
-    s2.innerHTML=`<span class="eyebrow">acceptance criteria</span>`
-      + crit.map((c,i)=>{
-          const id=ids[i]?ids[i][1]:("AC"+(i+1));
-          const text=String(typeof c==="string"?c:(c.text||c.id||"")).replace(/^\s*AC\d+(?:\([a-z]\))?\s*-\s*/,"");
-          const mine=(S.tasks||[]).filter(t=>(t.criteriaRef||[]).includes(id));
-          const st=!mine.length?"no":mine.every(t=>column(t)==="done")?"ok"
-                   :mine.some(t=>CIX[column(t)]>0)?"part":"no";
-          return `<div class="crit ${st}"><span class="m">${st==="ok"?"✓":st==="part"?"◐":"○"}</span>
-            <span class="tx"><b>${esc(id)}</b> ${esc(text)}</span></div>`;
-        }).join("");
-    body.append(s2);
+/* The chip's time: live "12 of 65m", done its actual, not started its estimate. */
+function chipTime(t){
+  const {est,act,live}=taskTime(t);
+  if(live&&act!=null) return est!=null?`${Math.round(act)} of ${dur(est)}`:dur(act);
+  return act!=null?dur(act):est!=null?dur(est):"";
+}
+/* What a service has left: the minutes of its unfinished tasks less what the live ones have used. */
+function svcLeft(list){
+  let any=false, left=0;
+  for(const t of list){
+    if(typeof t.minutes!=="number"||String(t.status).toLowerCase()==="done") continue;
+    any=true; const {act,live}=taskTime(t);
+    left+=Math.max(0,t.minutes-(live&&act?act:0));
   }
+  return any?left:null;
+}
+function picked(){
+  const ts=S.tasks||[];
+  return ts.find(t=>t.id===SEL)||ts.find(t=>String(t.status)==="in_progress")
+      ||ts.find(t=>column(t)!=="done")||ts[0]||null;
+}
+
+/* One row per service, one column per stage. The six stages are the same six as before;
+   every stage is the same width, so a column never changes size as work moves; a
+   narrow pane scrolls the flow sideways rather than squashing it. */
+function lanesHTML(){
+  const ts=S.tasks||[], r=S.run||{}, per=r.services||{}, sel=picked();
+  const svcs=[...new Set(ts.map(t=>t.service||""))];
+  let h=`<div class="lh">service</div>`+COLS.map(c=>`<div class="lh${c.own?" o-"+c.own:""}">${esc(c.n)}
+      <span class="ct">${ts.filter(t=>column(t)===c.k).length}</span></div>`).join("");
+  for(const s of svcs){
+    const list=ts.filter(t=>(t.service||"")===s), v=per[s]||{};
+    const loop=v.loop||(svcs.length===1?r.loop:null)||{count:0,max:5};
+    const pips=Array.from({length:loop.max||5},(_,i)=>`<i${i<(loop.count||0)?' class="u"':""}></i>`).join("");
+    const left=svcLeft(list);
+    const tests=(v.passed||v.failed)?`<span class="s2${v.failed?" fail":""}">${v.passed||0} passed${
+      v.failed?" · "+v.failed+" failing":""}</span>`:"";
+    h+=`<div class="svc"><span class="nm">${esc(s||SLUG)}</span>
+        ${left==null?"":`<span class="s2">${dur(left)} left</span>`}
+        <span class="pips" title="Fix rounds used">${pips} fix ${loop.count||0}/${loop.max||5}</span>${tests}</div>`;
+    for(const c of COLS){
+      const items=list.filter(t=>column(t)===c.k);
+      h+=`<div class="cell">${items.length?items.map(t=>{
+        const {est,act,live}=taskTime(t);
+        return `<button type="button" class="tk${sel&&t.id===sel.id?" sel":""}${live?" live":""}${
+          !live&&act!=null&&est!=null&&act>est?" late":""}" data-id="${esc(t.id)}" title="${esc(t.title||"")}">
+          <span class="id">${live?'<i class="dot"></i>':""}${esc(t.id)}</span><span class="tt">${esc(t.title||"")}</span><span class="tm">${chipTime(t)}</span></button>`;
+      }).join(""):`<span class="none">·</span>`}</div>`;
+    }
+  }
+  return {h,cols:`minmax(116px,140px) repeat(${COLS.length},minmax(112px,1fr))`};
+}
+function flow(body){
+  if(!(S.tasks||[]).length){ body.innerHTML=`<div class="empty">no tasks yet - the planner seeds them</div>`; return; }
+  const g=document.createElement("div"), l=lanesHTML(); g.className="lanes";
+  g.style.gridTemplateColumns=l.cols;
+  g.innerHTML=l.h;
+  g.onclick=e=>{const b=e.target.closest(".tk"); if(b){SEL=b.dataset.id;TAB="task";draw();}};
+  body.append(g);
+}
+
+/* The inspector: the task you picked, where the time went, and the criteria. */
+function state(body){
+  const tabs=document.createElement("div"); tabs.className="tabs";
+  tabs.innerHTML=[["task","Task"],["time","Time"],["crit","Criteria"]].map(([k,n])=>
+    `<button type="button" data-tab="${k}"${k===TAB?' class="sel"':""}>${n}</button>`).join("");
+  tabs.onclick=e=>{const b=e.target.closest("button"); if(b){TAB=b.dataset.tab;draw();}};
+  const tab=document.createElement("div"); tab.className="tab";
+  tab.innerHTML=TAB==="time"?timeTab():TAB==="crit"?critTab():taskTab();
+  body.append(tabs,tab);
+}
+function taskTab(){
+  const t=picked(); if(!t) return `<span class="hint">No task yet.</span>`;
+  const {est,act,live}=taskTime(t), col=COLS[CIX[column(t)]].n;
+  const base={S:5,M:10,L:25}[t.size], top=Math.max(est||0,act||0,1);
+  const row=(k,v)=>v?`<dt>${k}</dt><dd>${v}</dd>`:"";
+  return `<h3>${esc(t.id)} · ${esc(t.title||"")}</h3>
+    <dl class="kv">${row("Service",esc(t.service||""))}${row("Stage",esc(col)+(live?", "+esc(t.owner||"coder")+" on it now":""))}
+      ${row("Size",t.size?`<span class="sz">${esc(t.size)}</span> baseline ${base||"?"}m`:"")}
+      ${row("Complexity",t.complexity?`<span class="sz ${esc(t.complexity)}">${esc(t.complexity)}</span> ${esc(t.reason||"")}`:"")}
+      ${row("Criteria",(t.criteriaRef||[]).map(a=>`<span class="badge ac">${esc(a)}</span>`).join(" "))}
+      ${row("Files",(t.files||[]).slice(0,6).map(esc).join("<br>"))}
+      ${row("Why",esc(t.rationale||""))}</dl>
+    ${est==null?`<span class="hint">This plan was written before tasks carried an estimate.</span>`:
+    `<div class="cmp"><div class="row"><span>Estimate</span><span class="trk"><i style="width:${est/top*100}%;--c:var(--line-2)"></i></span><span>${dur(est)}</span></div>
+      <div class="row"><span>Actual</span><span class="trk"><i style="width:${(act||0)/top*100}%;--c:${act>est?"var(--bad)":"var(--coder)"}"></i></span>
+        <span>${act==null?"not started":dur(act)+(live?" so far":"")}</span></div>
+      ${!live&&act>est?`<div class="hint">${dur(act-est)} over its estimate</div>`:""}</div>`}`;
+}
+function timeTab(){
+  const t=etc(), c=(S.run||{}).clock||{};
+  if(!t) return `<span class="hint">No estimate for this run: there is no plan yet, or it was written before tasks carried a size, a complexity and minutes.</span>`;
+  const top=Math.max(...Object.keys(t.phases).map(n=>Math.max(t.phases[n],t.work[n]||0)),1);
+  return `<div><div class="phr h"><span>phase</span><span>estimate over actual</span><span class="n">est</span><span class="n">actual</span></div>
+    ${Object.keys(t.phases).map(n=>{const a=t.work[n]||0;
+      return `<div class="phr"><span>${n}</span><span class="two" style="--c:${PHASE_C[n]}"><i class="est" style="width:${t.phases[n]/top*100}%"></i><i style="width:${a/top*100}%"></i></span>
+        <span class="n">${dur(t.phases[n])}</span><span class="n${a>t.phases[n]?" over":""}">${a?dur(a):"·"}</span></div>`;}).join("")}
+    <div class="phr"><span>waiting</span><span class="hint">at a gate or blocked</span><span class="n">·</span><span class="n hold">${dur((c.waitMin||0)+(t.waiting?mins(c.at,Date.now()):0))}</span></div>
+    <div class="phr"><span>paused</span><span class="hint">silent over ${IDLE_MIN}m</span><span class="n">·</span><span class="n hold">${dur((c.pausedMin||0)+(t.paused?mins(c.at,Date.now()):0))}</span></div></div>
+    <span class="hint">Services that do not depend on each other run side by side, so a phase costs its longest chain, not the sum of its tasks.</span>`;
+}
+function critTab(){
+  const crit=(S.plan||{}).acceptanceCriteria||[];
+  if(!crit.length) return `<span class="hint">The plan lists no acceptance criteria yet.</span>`;
+  const ids=crit.map(c=>String(typeof c==="string"?c:(c.id||"")).match(/^\s*(AC\d+(?:\([a-z]\))?)/));
+  let met=0;
+  const rows=crit.map((c,i)=>{
+    const id=ids[i]?ids[i][1]:("AC"+(i+1));
+    const text=String(typeof c==="string"?c:(c.text||c.id||"")).replace(/^\s*AC\d+(?:\([a-z]\))?\s*-\s*/,"");
+    const mine=(S.tasks||[]).filter(t=>(t.criteriaRef||[]).includes(id));
+    const st=!mine.length?"no":mine.every(t=>column(t)==="done")?"ok"
+             :mine.some(t=>CIX[column(t)]>0)?"part":"no";
+    if(st==="ok") met++;
+    return `<div class="crit ${st}"><span class="m">${st==="ok"?"✓":st==="part"?"◐":"○"}</span>
+      <span class="tx"><b>${esc(id)}</b> ${esc(text)}</span></div>`;
+  }).join("");
+  return rows+`<span class="hint">${met} of ${crit.length} met</span>`;
 }
 
 function gutter(forKey){
@@ -415,15 +598,15 @@ function wireDrag(board){
 }
 
 function draw(){
-  head();
+  head(); timeband();
   const board=document.getElementById("board");
   board.innerHTML="";
   const ts=S.tasks||[];
   const done=ts.filter(t=>column(t)==="done").length;
   board.append(
-    pane("l","Team comms",(S.messages||[]).length+" events",comms), gutter("l"),
+    pane("l","Team comms",(EVF==="all"?"":(S.messages||[]).filter(m=>m.agent===EVF).length+" of ")+(S.messages||[]).length+" events",comms), gutter("l"),
     pane("m","Task flow",done+" / "+ts.length+" done",flow), gutter("r"),
-    pane("r","Completion","reached",state));
+    pane("r","Detail",(picked()||{}).id||"",state));
   layout(board);
   wireDrag(board);
 }
@@ -434,9 +617,15 @@ function conn(live){ /* the header pill already carries run state; nothing else 
    carries none. Joining them by id is what makes the AC badges and the criteria column
    mean anything; without it every criterion reads "not started" on a finished run. */
 function joinPlan(s){
-  const refs={};
-  for(const t of ((s.plan||{}).tasks)||[]) if(t.id) refs[t.id]=t.criteriaRef||[];
-  for(const t of s.tasks||[]) if(!t.criteriaRef) t.criteriaRef=refs[t.id]||[];
+  const byId={};
+  for(const t of ((s.plan||{}).tasks)||[]) if(t.id) byId[t.id]=t;
+  for(const t of s.tasks||[]){
+    const pl=byId[t.id]||{};
+    if(!t.criteriaRef) t.criteriaRef=pl.criteriaRef||[];
+    // The estimate and the reasoning live on the plan; the board shows them beside the task.
+    for(const k of ["size","complexity","minutes","reason","files","rationale"])
+      if(t[k]===undefined&&pl[k]!==undefined) t[k]=pl[k];
+  }
   return s;
 }
 
@@ -449,6 +638,19 @@ function listen(){
   const es=new EventSource("/events?run="+encodeURIComponent(SLUG));
   es.onmessage=e=>{try{S=joinPlan(JSON.parse(e.data));draw();}catch(err){}};
 }
+/* Between bus writes the clock still moves: every 30 s repaint what is derived from it (the
+   time band, live task times, the open inspector tab) in place, so the comms pane and its
+   scroll are left alone. Same 30 s as the hall. */
+setInterval(()=>{
+  timeband();
+  const by={}; for(const t of S.tasks||[]) by[t.id]=t;
+  document.querySelectorAll(".tk.live").forEach(b=>{
+    const t=by[b.dataset.id], tm=b.querySelector(".tm");
+    if(tm&&t) tm.textContent=chipTime(t);
+  });
+  const tab=document.querySelector(".pane[data-pane=r] .tab");
+  if(tab) tab.innerHTML=TAB==="time"?timeTab():TAB==="crit"?critTab():taskTab();
+},30000);
 /* ---- review rig -------------------------------------------------------------------
    Not part of the product, and deliberately not wired to the bus: every button mutates
    the page's own copy of the state. Advancing a phase or firing a handoff over HTTP

@@ -38,8 +38,7 @@ loop:
   if K >= 2:
       # ADR-0002: iteration 2 must change strategy, not repeat iteration 1. That is how
       # a budget of five gets spent producing five variations of the same wrong fix.
-      # ADR-0003: and a stronger model - the coder's default is sonnet.
-      spawn the coder with superpowers:systematic-debugging and model: "opus"
+      spawn the coder with superpowers:systematic-debugging
   # route failures back to the coder
   $PIPE agent coder
   spawn coder with pipeline/test/results.json failures -> fix only those

@@ -21,9 +21,9 @@ SECTION_9_SLUGS = [
 ]
 
 
-def run(root, *args, env=None, expect=0):
+def run(root, *args, env=None, expect=0, cwd=None):
     r = subprocess.run([sys.executable, PIPE, "--root", root, *args],
-                       capture_output=True, text=True, encoding="utf-8",
+                       capture_output=True, text=True, encoding="utf-8", cwd=cwd,
                        env={**os.environ, **env} if env else None)
     assert r.returncode == expect, \
         f"{' '.join(args)} exited {r.returncode}, expected {expect}:\n{r.stdout}{r.stderr}"
@@ -1244,7 +1244,9 @@ def the_board_matches_the_hall_and_needs_no_network():
     # Section 10.6's own claims: six columns in order, and the matrix counts cumulatively.
     for col in ("To do", "Coding", "Ready for QA", "QA", "Review", "Done"):
         assert col in b, f"the task flow is missing the {col!r} column"
-    assert "reached" in b.lower(), "the completion matrix must count what has reached a stage"
+    assert "reached review" not in b, "the lane head still counts tasks instead of the time left"
+    # AC11: the clock-derived figures repaint every 30 s between bus writes.
+    assert re.search(r"setInterval\(\(\)=>\{\s*timeband\(\);.*?\},30000\)", b, re.S),         "board.html does not repaint the time band every 30 s"
 
 
 def a_coded_task_is_not_done_until_its_service_is():
@@ -1338,40 +1340,27 @@ def the_root_route_serves_the_hall():
 
 
 CAST = ["planner", "coder", "tester", "reviewer", "orch"]
-# Section 10.3, verbatim. Hair is the layer that gives each agent a face, so its colours
-# are literals rather than theme tokens - they are the same in both themes.
-HAIR_COLOURS = ["#CFCBC2", "#E2DFD8", "#5B4636", "#4A382B", "#6B5544",
-                "#8A4B2F", "#7A4129", "#9A573A", "#3A2E22", "#4A3B2C", "#4A4258"]
 
 
 def every_character_has_both_hair_layers():
-    """S51 - AC4, section 10.3. Two hair layers per character: the front one caps the head
-    and leaves room for a face, the back one fills the whole skull because from behind
-    there is no face to leave room for. Omitting the back layer is what made the near pair
-    render as blank heads - a bare scalp with a fringe balanced on it - and it was the last
-    bug fixed in the mockup. This is the guard that stops it coming back."""
+    """S51 - AC4, section 10.3, redrawn for ADR-0006's hall. The cast is one drawn character
+    now, not a sheet of pixel symbols, but the rule it was guarding is the same: seen from
+    behind there is no face to leave room for, so the hair must fill the whole skull -
+    without that the near pair render as bare scalps with a fringe balanced on them."""
     src = open(HALL_HTML, encoding="utf-8").read()
 
-    for role in CAST:
-        for sid in (f"hair-{role}", f"hair-{role}-back"):
-            assert re.search(rf'<symbol[^>]+id="{sid}"', src), \
-                f"the cast has no <symbol id=\"{sid}\"> - that seat renders as a blank head"
-
     body = re.search(r"function sprite\(.*?\n\}", src, re.S)
-    assert body, "hall.html has no sprite() - nothing appends the back layer"
-    assert '-back' in body.group(0), "sprite() never reaches for the -back layer"
+    assert body, "hall.html has no sprite() - nothing draws the cast"
+    assert "rear" in body.group(0) and "<circle" in body.group(0), \
+        "sprite() draws no full-skull hair for an agent seen from behind"
     assert 'sleep' in body.group(0), \
         "sprite() must never turn a sleeping agent around - there would be no shut eyes to see"
 
-    missing = [c for c in HAIR_COLOURS if c not in src]
-    assert not missing, f"section 10.3 hair colours missing: {missing}"
-
-    # Pupils: a dedicated near-black token at ~3.6 px rendered (1.6-1.7 units of the
-    # 12x18 viewBox at 27 px). At the original ~1.8 px they vanished under crispEdges.
-    assert re.search(r'width="1\.[67]"[^>]*fill="var\(--pupil\)"'
-                     r'|fill="var\(--pupil\)"[^>]*width="1\.[67]"', src), \
-        "no 1.6-1.7 unit pupil rect in --pupil - the eyes will vanish under crispEdges"
-    assert "crispEdges" in src, "the cast is not rendered with shape-rendering: crispEdges"
+    # Hair is what tells the five apart, so each role has its own and it ignores the theme.
+    for role in CAST:
+        assert re.search(rf"\.who \.h-{role}\{{fill:#[0-9A-F]{{6}}\}}", src), \
+            f"the cast has no hair colour for {role} - that seat renders as a blank head"
+    assert "var(--pupil)" in src, "the eyes do not use the dedicated near-black --pupil token"
 
     # Section 10.8-1: a fifth seat on the bottom edge, only when the run has an operator.
     assert "function hasOperator(" in src, \
@@ -1384,7 +1373,10 @@ MOTION_KEYFRAMES = {"typing", "waiting", "sleeping", "walk-in", "table-in", "row
                     "going-quiet"}
 # Section 10.5's scrolling screen is the office's own "something is happening here". It
 # is specified separately from the inventory, and it is the only addition allowed.
-MOTION_ALLOWED = MOTION_KEYFRAMES | {"screen-scroll"}
+# The drawn cast (ADR-0006's hall) adds its own three - hands on the keys, a blink, a
+# sleeper's z. They ride on the typing/waiting/asleep entries rather than adding states.
+# Asking for help adds a raised hand that waves (a gate) and a shake (blocked).
+MOTION_ALLOWED = MOTION_KEYFRAMES | {"screen-scroll", "tap", "blink", "zz", "wave", "shake"}
 
 
 def the_motion_inventory_stays_at_eight():
@@ -1415,7 +1407,7 @@ def the_motion_inventory_stays_at_eight():
 
     # Rule 1: stepped, never eased. The snap is what makes a sprite look drawn.
     assert "steps(1)" in src and "steps(4)" in src, "the sprite loops are not stepped"
-    for duration in ("280ms", "340ms", "3.4s", "3.6s", "440ms", "260ms", "240ms", "2.6s"):
+    for duration in ("340ms", "3.4s", "3.6s", "440ms", "260ms", "240ms", "2.6s"):
         assert duration in src, f"section 10.4 has an entry at {duration}; hall.html has none"
 
     # Rule 4: stillness is the alarm - a stale team freezes mid-keystroke and dims.
@@ -1437,11 +1429,11 @@ def js_literal(src, name):
 
 
 # Section 10.5: desk islands occupy these bands, so the walkable space is the two
-# vertical aisles and the horizontal ones between and around them. Rows sit 182 apart,
-# not the original 152: a rug overhangs its island by 34 below, and at 152 each row's
-# rug - and the gate huddle on it - ran into the next row's.
+# vertical aisles and the horizontal ones between and around them. Rows sit 206 apart,
+# not the original 152: a rug overhangs its island by 8 above, and each island's state tag
+# (top:-31px) must clear the nameplate and bar of the row above (bottom at +170).
 ISLAND_X = [(18, 174), (212, 368), (406, 562)]
-ISLAND_Y = [(16, 134), (198, 316)]
+ISLAND_Y = [(16, 134), (222, 340)]
 
 
 def the_corridor_graph_never_cuts_a_corner():
@@ -1470,8 +1462,8 @@ def the_corridor_graph_never_cuts_a_corner():
             f"node {name} at ({x},{y}) stands on a desk island"
 
     pod = {p["role"]: p for p in js_literal(src, "POD")}
-    expect = {"planner": (26, 4, 12, 34), "coder": (96, 4, 82, 34),
-              "tester": (26, 120, 12, 86), "reviewer": (96, 120, 82, 86)}
+    expect = {"planner": (26, 4, 25, 42), "coder": (96, 4, 95, 42),
+              "tester": (26, 120, 25, 92), "reviewer": (96, 120, 95, 92)}
     for role, (x, y, dx, dy) in expect.items():
         got = pod.get(role)
         assert got and (got["x"], got["y"], got["dx"], got["dy"]) == (x, y, dx, dy), \
@@ -1484,7 +1476,15 @@ def the_corridor_graph_never_cuts_a_corner():
     # would hide exactly the stalled pipelines the floor exists to surface.
     assert "IntersectionObserver" in src, \
         "nothing pauses off-screen pods; at twelve teams that is ~24 sprite loops"
-    assert "566" in src and "418" in src, "the building is not the fixed 566x418 of 10.5"
+    assert "const MEET" not in src, "the gate huddle is gone: agents stay seated, hands up"
+    # AC10: fits on open and on resize, drags, zooms, each island carries its state tag,
+    # and a completed team's pod is empty (no sprite in the pod markup).
+    assert re.search(r"renderOffice\(\);\s*fitView\(\)", src) and         re.search(r'addEventListener\("resize",\(\)=>\{[^}]*fitView\(\)', src),         "the floor does not fit on open and on resize"
+    assert "pointermove" in src and "e.ctrlKey" in src, "the floor cannot be dragged or zoomed"
+    pod_fn = src[src.index("function podHTML"):src.index("function orchHTML")]
+    assert "podTag(p,st)" in pod_fn, "each island must show its state tag"
+    assert re.search(r"p\.completed\?\"\":POD\.map", pod_fn), "a completed pod still seats people"
+    assert "566" in src and "466" in src, "the building is not the fixed 566x466 of 10.5"
     assert "2.5" in src and "0.5" in src, "the zoom range is not 0.5-2.5"
 
 
@@ -1698,8 +1698,10 @@ def a_plan_the_pipeline_cannot_use_is_refused():
 
         good = {"services": [{"name": "api", "dependsOnServices": []}],
                 "acceptanceCriteria": ["AC1 - first", "AC2 - second"],
-                "tasks": [{"id": "T1", "title": "a", "service": "api", "criteriaRef": ["AC1"]},
-                          {"id": "T2", "title": "b", "service": "api", "criteriaRef": ["AC2"]}]}
+                "tasks": [{"id": "T1", "title": "a", "service": "api", "criteriaRef": ["AC1"],
+                           "size": "S", "complexity": "low", "minutes": 5},
+                          {"id": "T2", "title": "b", "service": "api", "criteriaRef": ["AC2"],
+                           "size": "M", "complexity": "low", "minutes": 10}]}
         write(good)
         run(root, "validate-plan")
 
@@ -1723,6 +1725,332 @@ def a_plan_the_pipeline_cannot_use_is_refused():
         bad["tasks"] = bad["tasks"][:1]
         write(bad)
         assert "no task implements AC2" in run(root, "validate-plan", expect=1)
+
+
+def a_run_carries_its_own_estimate_and_closes_itself():
+    """S69 - ADR-0006. The planner sizes each task once; everything after is arithmetic on
+    the bus. Covers the band check, the dependency chain, the work/waiting/paused clock,
+    the run phase following its services, qa-check completing the work, and the human's
+    one stamp after it."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Estimated")
+        task = lambda i, svc, size, cx, mins, **kw: {
+            "id": i, "title": i, "service": svc, "criteriaRef": ["AC1"],
+            "size": size, "complexity": cx, "minutes": mins, **kw}
+        plan = {"services": [{"name": "api", "dependsOnServices": []},
+                             {"name": "web", "dependsOnServices": ["api"]}],
+                "acceptanceCriteria": ["AC1 - it works"],
+                "tasks": [task("T1", "api", "M", "low", 10),
+                          task("T2", "api", "L", "high", 60, reason="contract and migration"),
+                          task("T3", "web", "S", "low", 5)]}
+        put = lambda obj: write(os.path.join(root, "plan.json"), json.dumps(obj))
+        put(plan)
+        run(root, "validate-plan")
+
+        bad = json.loads(json.dumps(plan)); bad["tasks"][0]["minutes"] = 40
+        put(bad)
+        assert "outside the M/low band" in run(root, "validate-plan", expect=1)
+        bad = json.loads(json.dumps(plan)); del bad["tasks"][1]["reason"]
+        put(bad)
+        assert "gives no 'reason'" in run(root, "validate-plan", expect=1)
+        put(plan)
+
+        for t in plan["tasks"]:
+            run(root, "task", "add", "--id", t["id"], "--title", t["id"], "--service", t["service"])
+        run(root, "phase", "implement")
+        eta = read_run(root)["eta"]
+        # web waits on api, so implement is the chain 70 + 5, not the longer of the two.
+        assert eta["phases"] == {"spec": 5, "plan": 14, "implement": 75, "test": 110,
+                                 "review": 15, "qa": 15}, eta
+        assert eta["leftMin"] == 75 + 110 + 15 + 15, eta
+        assert eta["likelyMin"] > eta["leftMin"], eta
+
+        run(root, "task", "update", "--id", "T1", "--status", "in_progress")
+        run(root, "task", "update", "--id", "T1", "--status", "done")
+        t1 = read_json(os.path.join(root, "tasks.json"))["tasks"][0]
+        assert t1.get("startedAt") and t1.get("doneAt"), t1
+        assert read_run(root)["eta"]["leftMin"] == 65 + 110 + 15 + 15, "a done task leaves the estimate"
+
+        # The clock: a long silence while running is a pause; time at a gate is waiting.
+        def backdate(minutes, status):
+            r = read_run(root)
+            r["clock"]["at"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - minutes * 60))
+            r["clock"]["status"] = status
+            write(os.path.join(root, "run.json"), json.dumps(r))
+        backdate(40, "running")
+        run(root, "agent", "coder")
+        backdate(7, "awaiting_approval")
+        run(root, "agent", "coder")
+        backdate(6, "running")
+        run(root, "agent", "coder")
+        c = read_run(root)["clock"]
+        assert 39 < c["pausedMin"] < 41 and 6.9 < c["waitMin"] < 7.2, c
+        assert 5.9 < c["work"]["implement"] < 6.5, c
+        assert "work left" in run(root, "eta")
+
+        # The run's phase follows its services once all of them have moved on.
+        run(root, "svc", "--name", "api", "--phase", "review")
+        assert read_run(root)["phase"] == "implement", "one service ahead moves nothing"
+        run(root, "svc", "--name", "web", "--phase", "test")
+        assert read_run(root)["phase"] == "test", read_run(root)["phase"]
+
+        assert "not completed yet" in run(root, "complete", expect=1)
+        clean = os.path.join(tmp, "clean.json")
+        write(clean, json.dumps({"recommendation": "approve", "findings": []}))
+        for svc in ("api", "web"):
+            os.makedirs(os.path.join(root, "services", svc, "test"), exist_ok=True)
+            write(os.path.join(root, "services", svc, "test", "results.json"),
+                  json.dumps({"passed": 2, "failed": 0}))
+            run(root, "review", "--from", clean, "--service", svc)
+        for i in ("T2", "T3"):
+            run(root, "task", "update", "--id", i, "--status", "done")
+        assert read_run(root)["status"] == "running"
+        out = run(root, "qa-check", "--service", "api")
+        assert read_run(root)["status"] == "running", "one lane green is not the run"
+        out = run(root, "qa-check")
+        r = read_run(root)
+        assert "work completed" in out and r["status"] == "done" and r["phase"] == "done", out
+        assert r["workCompletedAt"] and r["eta"]["leftMin"] == 0, r
+        assert r["humanSteps"][0] == "Review and merge the feature branch in api, web", r["humanSteps"]
+        assert len(r["humanSteps"]) == 3, "no worktrees, so there is nothing for finish to close"
+
+        run(root, "complete")
+        stamp = read_json(os.path.join(tmp, "completed.json"))
+        assert stamp["runId"] == r["runId"] and stamp["by"] == "terminal", stamp
+
+
+def the_estimate_clock_and_close_hold_at_their_edges():
+    """S70 - ADR-0006. The edges S69 does not reach: the band message names the task,
+    independent services cost the longer, a gate is waiting and not work, the 15-minute line
+    between work and a pause, the run phase never jumping to done, the steps qa-check
+    prints, the `eta` command, and a plan with no estimate showing none and erroring on
+    nothing."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Edges")
+        task = lambda i, svc, size, mins: {"id": i, "title": i, "service": svc,
+            "criteriaRef": ["AC1"], "size": size, "complexity": "low", "minutes": mins}
+        plan = {"services": [{"name": "api", "dependsOnServices": []},
+                             {"name": "web", "dependsOnServices": []}],
+                "acceptanceCriteria": ["AC1 - it works"],
+                "tasks": [task("T1", "api", "M", 10), task("T2", "web", "S", 5)]}
+        put = lambda obj: write(os.path.join(root, "plan.json"), json.dumps(obj))
+        put(plan)
+        run(root, "validate-plan")
+        bad = json.loads(json.dumps(plan)); bad["tasks"][0]["minutes"] = 40
+        put(bad)
+        out = run(root, "validate-plan", expect=1)
+        assert "'T1'" in out and "M/low band" in out, out          # AC1: the task and the band
+        put(plan)
+        for t in plan["tasks"]:
+            run(root, "task", "add", "--id", t["id"], "--title", t["id"], "--service", t["service"])
+        run(root, "phase", "implement")
+        eta = read_run(root)["eta"]
+        assert eta["phases"]["implement"] == 10, eta                # AC3: the longer, not 15
+
+        def backdate(minutes, status):
+            r = read_run(root)
+            r["clock"]["at"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - minutes * 60))
+            r["clock"]["status"] = status
+            write(os.path.join(root, "run.json"), json.dumps(r))
+
+        run(root, "set-status", "awaiting_approval")                # AC4: a gate is waiting
+        left = read_run(root)["eta"]["leftMin"]
+        backdate(10, "awaiting_approval")
+        run(root, "agent", "coder")
+        r = read_run(root)
+        assert 9.9 < r["clock"]["waitMin"] < 10.2 and r["eta"]["leftMin"] == left, r["clock"]
+        run(root, "set-status", "running")
+
+        backdate(14.5, "running")                                   # AC5: the 15-minute line
+        run(root, "agent", "coder")
+        c = read_run(root)["clock"]
+        assert c["pausedMin"] == 0 and 14.4 < c["work"]["implement"] < 14.7, c
+        backdate(15.5, "running")
+        run(root, "agent", "coder")
+        c = read_run(root)["clock"]
+        assert 15.4 < c["pausedMin"] < 15.7 and c["work"]["implement"] < 14.7, c
+
+        out = run(root, "eta")                                      # AC13: every line
+        for word in ("work left", "expected", "likely by", "waited on you", "total",
+                     "spec", "plan", "implement", "test", "review", "qa"):
+            assert word in out, f"`eta` prints no '{word}':\n{out}"
+
+        run(root, "svc", "--name", "api", "--phase", "done")        # AC6: forward, never done
+        run(root, "svc", "--name", "web", "--phase", "done")
+        r = read_run(root)
+        assert r["phase"] == "qa" and r["status"] == "running", (r["phase"], r["status"])
+
+        clean = os.path.join(tmp, "clean.json")                     # AC7: the steps are printed
+        write(clean, json.dumps({"recommendation": "approve", "findings": []}))
+        for svc in ("api", "web"):
+            os.makedirs(os.path.join(root, "services", svc, "test"), exist_ok=True)
+            write(os.path.join(root, "services", svc, "test", "results.json"),
+                  json.dumps({"passed": 2, "failed": 0}))
+            run(root, "review", "--from", clean, "--service", svc)
+        for i in ("T1", "T2"):
+            run(root, "task", "update", "--id", i, "--status", "done")
+        out = run(root, "qa-check", cwd=tmp)
+        steps = read_run(root)["humanSteps"]
+        assert steps and all(s in out for s in steps), out
+
+        old = os.path.join(tmp, "old", "pipeline")                  # AC12: no estimate
+        run(old, "init", "--feature", "Old")
+        write(os.path.join(old, "plan.json"), json.dumps(plan))
+        run(old, "phase", "implement")
+        assert "eta" in read_run(old)
+        no_minutes = json.loads(json.dumps(plan))
+        for t in no_minutes["tasks"]:
+            del t["minutes"]
+        write(os.path.join(old, "plan.json"), json.dumps(no_minutes))
+        run(old, "agent", "coder")
+        assert "eta" not in read_run(old), "a re-plan without estimates kept the old one"
+        assert "no estimate" in run(old, "eta"), "`eta` on an old plan erred or said nothing"
+
+
+def a_project_names_its_own_human_steps():
+    """S71 - the steps after "work completed" come from the project's config when it names
+    them, filled in with the run's own slug, branch and services. A malformed value is
+    refused by `config` and ignored by the run - the defaults stand, never an empty list."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        proj = os.path.join(tmp, "proj")
+        os.makedirs(os.path.join(proj, "api"))
+        cfg = os.path.join(proj, "agent-orchestration.config.json")
+
+        def steps_of(n, steps):
+            write(cfg, json.dumps({"services": [{"name": "api", "path": "api"}], "humanSteps": steps}))
+            root = os.path.join(tmp, f"b{n}", "pipeline")
+            run(root, "init", "--feature", "Steps", "--slug", "steps")
+            run(root, "svc", "--name", "api", "--phase", "implement")
+            run(root, "phase", "done", cwd=proj)
+            return read_run(root)["humanSteps"]
+
+        assert steps_of(1, ["Ship {slug} from {branch}", "Tell people about {services}"]) == \
+            ["Ship steps from feature/steps", "Tell people about api"]
+        for n, bad in enumerate(("deploy", [""], ["ok", "  "]), 2):
+            write(cfg, json.dumps({"services": [{"name": "api", "path": "api"}], "humanSteps": bad}))
+            assert "humanSteps" in run(os.path.join(tmp, "x"), "config", cwd=proj, expect=1)
+            assert len(steps_of(n, bad)) == 3, "a malformed humanSteps replaced the defaults"
+
+
+def a_write_survives_a_reader_holding_the_file():
+    """S76 - on Windows os.replace raises PermissionError while a dashboard has run.json
+    open, and every event now rewrites run.json. One refusal must not crash the caller;
+    a refusal that never lifts must still fail, and leave no temp file behind."""
+    pipe = import_pipe()
+    real = os.replace
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        target = os.path.join(tmp, "run.json")
+        calls = []
+
+        def flaky(src, dst):
+            calls.append(src)
+            if len(calls) == 1:
+                raise PermissionError(5, "Access is denied")
+            return real(src, dst)
+
+        def never(src, dst):
+            raise PermissionError(5, "Access is denied")
+        try:
+            os.replace = flaky
+            pipe.atomic_write(target, "landed")
+            assert open(target, encoding="utf-8").read() == "landed" and len(calls) == 2, calls
+            os.replace = never
+            try:
+                pipe.atomic_write(target, "refused")
+                raise AssertionError("a permanent refusal was swallowed")
+            except PermissionError:
+                pass
+        finally:
+            os.replace = real
+        assert os.listdir(tmp) == ["run.json"], os.listdir(tmp)
+
+
+def the_final_button_and_the_payload_are_tested():
+    """S72 - POST /api/complete is the hall's last door: it writes completed.json beside the
+    bus, so it resolves a slug by identity, refuses a run that is not done, and stamps the
+    run it saw, so a later wave reads as not completed. The same hall payload carries the
+    estimate and the clock, and nothing for a plan that has none."""
+    if not shutil.which("node"):
+        print("SKIP S72 - no node on PATH; the /api/complete endpoint was not exercised")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "shipped", "pipeline")
+        old = os.path.join(home, "pipelines", "old", "pipeline")
+        run(root, "init", "--feature", "Shipped", "--slug", "shipped", env=env)
+        run(old, "init", "--feature", "Old", "--slug", "old", env=env)
+        task = {"id": "T1", "title": "t", "service": "api", "criteriaRef": ["AC1"],
+                "size": "M", "complexity": "low", "minutes": 10}
+        plan = {"services": [{"name": "api"}], "acceptanceCriteria": ["AC1 - x"], "tasks": [task]}
+        write(os.path.join(root, "plan.json"), json.dumps(plan))
+        del task["minutes"]
+        write(os.path.join(old, "plan.json"), json.dumps(plan))
+        run(root, "phase", "implement", env=env)
+        run(old, "phase", "implement", env=env)
+        stamp = os.path.join(home, "pipelines", "shipped", "completed.json")
+
+        def card(port, slug):
+            code, body = http_json(port, "/api/hall")
+            assert code == 200, (code, body[:200])
+            return [p for p in json.loads(body)["pipelines"] if p["slug"] == slug][0]
+
+        with Server(home) as s:
+            p = card(s.port, "shipped")
+            assert set(p["eta"]) >= {"phases", "totalMin", "leftMin", "likelyMin"}, p["eta"]
+            assert set(p["clock"]) >= {"at", "work", "waitMin", "pausedMin"}, p["clock"]
+            for k in ("branch", "workCompletedAt", "humanSteps", "completed"):
+                assert k in p, f"the hall payload carries no '{k}'"
+            assert card(s.port, "old")["eta"] is None, "a plan with no minutes carries an estimate"
+
+            for slug in ("no-such-run", "../../etc"):
+                code, body = http_json(s.port, "/api/complete", {"slug": slug})
+                assert code == 404, (slug, code, body)
+            code, body = http_json(s.port, "/api/complete", {"slug": "shipped"})
+            assert code == 409 and not os.path.exists(stamp), (code, body)
+
+            run(root, "phase", "done", env=env)
+            assert http_json(s.port, "/api/complete", {"slug": "shipped"})[0] == 200
+            done = read_json(stamp)
+            assert done["runId"] == read_run(root)["runId"] and done["by"] == "browser", done
+            assert card(s.port, "shipped")["completed"], "/api/hall does not report it completed"
+
+            data = read_run(root)
+            data["runId"] = "run-a-later-wave"
+            write(os.path.join(root, "run.json"), json.dumps(data, indent=2))
+            assert card(s.port, "shipped")["completed"] is None, "a stamp outlived its run"
+
+
+def the_write_endpoints_refuse_cross_site_posts():
+    """S72b - a text/plain POST, or one from a foreign Origin, is refused before any write."""
+    if not shutil.which("node"):
+        print("SKIP S72b - no node on PATH")
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        root = os.path.join(home, "pipelines", "shipped", "pipeline")
+        run(root, "init", "--feature", "Shipped", "--slug", "shipped", env=env)
+        run(root, "phase", "done", env=env)
+        stamp = os.path.join(home, "pipelines", "shipped", "completed.json")
+        with Server(home) as s:
+            def post(headers):
+                req = urllib.request.Request(f"http://127.0.0.1:{s.port}/api/complete",
+                                             data=b'{"slug":"shipped"}', method="POST", headers=headers)
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        return r.status
+                except urllib.error.HTTPError as e:
+                    return e.code
+            assert post({"Content-Type": "text/plain"}) == 415
+            assert post({"Content-Type": "application/json", "Origin": "http://evil.example"}) == 403
+            assert not os.path.exists(stamp), "a refused POST wrote the stamp"
+            assert post({"Content-Type": "application/json",
+                         "Origin": f"http://localhost:{s.port}"}) == 200
 
 
 def test_results_are_written_through_a_check():
@@ -1892,7 +2220,8 @@ def a_plan_gate_card_carries_the_plan():
         run(moving, "init", "--feature", "Moving", "--slug", "moving", env=env)
         plan = {"approach": "a" * 900, "services": [{"name": "api"}, {"name": "web"}],
                 "acceptanceCriteria": [{"id": "AC1", "text": "x"}, {"id": "AC2", "text": "y"}],
-                "tasks": [{"id": f"T{i}", "service": "api", "title": "t" * 300} for i in range(40)],
+                "tasks": [{"id": f"T{i}", "service": "api", "title": "t" * 300,
+                           **({"complexity": "high"} if i < 2 else {})} for i in range(40)],
                 "risks": ["r"], "questions": []}
         for root in (gated, moving):
             write(os.path.join(root, "plan.json"), json.dumps(plan))
@@ -1907,6 +2236,7 @@ def a_plan_gate_card_carries_the_plan():
             b = by["gated"]["plan"]
             assert b, "a run at its plan gate carries no plan brief"
             assert b["taskCount"] == 40 and len(b["tasks"]) == 30, "the task list is not capped"
+            assert b["high"] == 2, "the brief does not count high-complexity tasks"
             assert b["services"] == ["api", "web"] and b["criteria"] == 2 and b["risks"] == 1
             assert len(b["approach"]) <= 400 and len(b["tasks"][0]["title"]) <= 140, \
                 "the brief carries whole fields - a gate card would carry the plan file"
@@ -2050,6 +2380,253 @@ def every_role_runs_on_a_chosen_model():
                 assert os.path.isfile(script), f"{event} hook runs {script}, which does not exist"
 
 
+def the_design_rules_and_their_fixes_stay_in_sync():
+    """S67 - ADR-0004. The rule table, the fix recipes and the agents that use them are three
+    files that must agree, which is how GTID-Vault's skills once described rules that did
+    not exist. Every rule has a level and a recipe and every recipe a rule, the ids run
+    D1..Dn with no gap, the planner, coder and reviewer each point at the table, and a
+    review finding cannot cite a rule the table does not define."""
+    base = os.path.join(REPO, "skills", "design-rules")
+    skill = open(os.path.join(base, "SKILL.md"), encoding="utf-8").read()
+    fixes = open(os.path.join(base, "FIXES.md"), encoding="utf-8").read()
+    assert os.path.isfile(os.path.join(base, "LANGUAGES.md"))
+    assert re.search(r"^name: design-rules$", skill, re.M), "the skill's name is not its folder"
+    assert len(skill) < 20000, f"SKILL.md is {len(skill)} chars; keep it under 20,000"
+
+    rows = re.findall(r"^\| (D\d+) \| (\w+) \|", skill, re.M)
+    ids = [r for r, _ in rows]
+    assert ids == [f"D{i}" for i in range(1, len(ids) + 1)], f"rule ids must run D1..Dn: {ids}"
+    assert {lvl for _, lvl in rows} <= {"must", "should"}, "a rule's level is must or should"
+    recipes = re.findall(r"^## (D\d+) — ", fixes, re.M)
+    assert sorted(recipes, key=lambda r: int(r[1:])) == ids, \
+        f"rules without a recipe: {sorted(set(ids) - set(recipes))}; " \
+        f"recipes without a rule: {sorted(set(recipes) - set(ids))}"
+
+    for name in ("planner", "coder", "reviewer"):
+        src = open(os.path.join(REPO, "agents", name + ".md"), encoding="utf-8").read()
+        assert "skills/design-rules/SKILL.md" in src, f"agents/{name}.md never points at the rules"
+    assert "skills/design-rules/FIXES.md" in \
+        open(os.path.join(REPO, "agents", "coder.md"), encoding="utf-8").read(), \
+        "the coder is never told where a cited rule's fix lives"
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Cited")
+        finding = lambda rule: {"recommendation": "changes-required", "findings": [
+            {"severity": "blocking", "file": "src/a.ts", "line": 3, "note": "entity in the response",
+             "planRef": "T1", "rule": rule}]}
+        bad, good = os.path.join(tmp, "bad.json"), os.path.join(tmp, "good.json")
+        write(bad, json.dumps(finding("D99")))
+        write(good, json.dumps(finding("D7")))
+        out = run(root, "review", "--from", bad, expect=1)
+        assert "D99" in out, out
+        run(root, "review", "--from", good)
+        md = open(os.path.join(root, "review", "review.md"), encoding="utf-8").read()
+        assert "[T1 · D7]" in md, "review.md does not show which rule a finding cites"
+
+
+def scenarios_are_written_as_use_cases():
+    """S68 - ADR-0005. Acceptance criteria and test scenarios are Gherkin in plain words so the
+    person who asked can review them. The rule table runs T1..Tn, each with a level and a
+    fix; the spec writers, planner, tester and reviewer all point at it; the tester's
+    example traces scenarios to criteria by id, never by index (the defect validate-plan
+    refuses in a plan); and a review may cite a T rule but not one that does not exist."""
+    base = os.path.join(REPO, "skills", "test-scenarios")
+    skill = open(os.path.join(base, "SKILL.md"), encoding="utf-8").read()
+    for extra in ("PLAYWRIGHT.md", "RUNNERS.md"):
+        assert os.path.isfile(os.path.join(base, extra)), f"test-scenarios/{extra} is missing"
+    assert re.search(r"^name: test-scenarios$", skill, re.M)
+    assert len(skill) < 20000, f"SKILL.md is {len(skill)} chars; keep it under 20,000"
+    rows = re.findall(r"^\| (T\d+) \| (\w+) \|.*\| ([^|]+) \|$", skill, re.M)
+    ids = [r for r, _, _ in rows]
+    assert ids == [f"T{i}" for i in range(1, len(ids) + 1)], f"rule ids must run T1..Tn: {ids}"
+    assert {lvl for _, lvl, _ in rows} <= {"must", "should"}
+    assert all(fix.strip() for _, _, fix in rows), "a rule without a fix"
+
+    for path in ("skills/ship/SKILL.md", "skills/ship-from-spec/SKILL.md", "agents/planner.md",
+                 "agents/tester.md", "agents/reviewer.md"):
+        src = open(os.path.join(REPO, path), encoding="utf-8").read()
+        assert "skills/test-scenarios/SKILL.md" in src, f"{path} never points at the scenario rules"
+    tester = open(os.path.join(REPO, "agents", "tester.md"), encoding="utf-8").read()
+    assert '"criteriaRef": ["AC' in tester and '"criteriaRef": [0]' not in tester, \
+        "the tester's example traces criteria by index"
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Worded")
+        for rule, code in (("T2", 0), ("T99", 1)):
+            src = os.path.join(tmp, rule + ".json")
+            write(src, json.dumps({"recommendation": "approve-with-notes", "findings": [
+                {"severity": "major", "file": "e2e/login.spec.ts", "note": "clicks in the wording",
+                 "rule": rule}]}))
+            run(root, "review", "--from", src, expect=code)
+
+
+def the_workstream_card_shows_the_estimate():
+    """S73 - AC4, AC9, AC12. The card's figures and rail, drawn by hall.html's own etcHTML()
+    in node on fixtures: running shows the clock, left and waited; a gate holds the work
+    left however long it waited; blocked says so; no estimate draws nothing; and the grid
+    still seats three to a row."""
+    if not shutil.which("node"):
+        print("SKIP S73 - no node on PATH; the card's estimate was not drawn")
+        return
+    src = open(HALL_HTML, encoding="utf-8").read()
+    esc = re.search(r"const esc=[^\n]*\n", src)
+    est = re.search(r"const IDLE_MIN=.*?(?=\nfunction pillTxt)", src, re.S)
+    assert esc and est, "hall.html no longer has esc ... IDLE_MIN .. doneHTML ahead of pillTxt"
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    iso = lambda m: (now - datetime.timedelta(minutes=m)).isoformat()
+    eta = {"phases": {"plan": 5, "implement": 30, "test": 10}, "totalMin": 45, "leftMin": 30,
+           "likelyMin": 40}
+    base = lambda **k: dict({"slug": "x", "status": "running", "phase": "implement", "eta": eta,
+        "clock": {"at": iso(1), "work": {"plan": 5, "implement": 2}, "waitMin": 0, "pausedMin": 0}}, **k)
+    fx = {"run": base(),
+          "gate": base(status="awaiting_approval", phase="plan",
+                       clock={"at": iso(120), "work": {}, "waitMin": 3, "pausedMin": 0}),
+          "block": base(status="blocked"),
+          "old": {"slug": "x", "status": "running", "phase": "implement"}}
+    js = (esc.group(0) + est.group(0) + "\nconst fx=" + json.dumps(fx) +
+          ";\nconst o={};for(const k in fx) o[k]=etcHTML(fx[k]);console.log(JSON.stringify(o));")
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, f"hall.html etcHTML() did not run:\n{r.stdout}{r.stderr}"
+    out = json.loads(r.stdout)
+    for want in ("Work completed at", "likely by", "Work left", "Waited on you"):
+        assert want in out["run"], f"a running card lacks {want!r}"
+    assert re.search(r"\d\d:\d\d", out["run"]), "the clock time is not a local HH:MM"
+    flex = [int(x) for x in re.findall(r'class="sg" style="flex:(\d+)', out["run"])]
+    assert flex == [5, 30, 10], f"one rail segment per phase, sized by its estimate: {flex}"
+    for want in ("Ready if approved now", "Waiting on you", "and counting"):
+        assert want in out["gate"], f"a gate card lacks {want!r}"
+    assert '<div class="v sm">30m</div>' in out["gate"], \
+        "the work left shrank while the run waited at a gate (AC4)"
+    assert "Ready if unblocked now" in out["block"], "a blocked card does not say so"
+    assert out["old"] == "", "a plan with no estimate drew something (AC12)"
+    assert re.search(r"#hall\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)", src), \
+        "the hall is not three cards to a row"
+    assert "${etcHTML(p)}" in src, "card() does not draw the estimate"
+
+
+def the_board_draws_the_lanes_the_inspector_and_the_time_band():
+    """S74 - AC11, AC12. board.html's own lanesHTML(), taskTab(), timeTab(), critTab() and
+    timeband(), run in node over a fixture of two services (one live task, one done over its
+    estimate, one to do) and again over a plan with no estimate: nothing may draw one, and
+    nothing may throw."""
+    if not shutil.which("node"):
+        print("SKIP S74 - no node on PATH; the board was not drawn")
+        return
+    src = open(os.path.join(REPO, "ui", "board.html"), encoding="utf-8").read()
+    block = re.search(r"(const esc=.*?)\nfunction gutter", src, re.S)
+    assert block, "board.html no longer has esc ... critTab ahead of gutter()"
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    iso = lambda m: (now - datetime.timedelta(minutes=m)).isoformat()
+    eta = {"phases": {"plan": 5, "implement": 60, "test": 10}, "totalMin": 75, "leftMin": 60,
+           "likelyMin": 80}
+    tasks = [
+        {"id": "T1", "title": "Schema", "service": "api", "status": "done", "owner": "coder",
+         "startedAt": iso(40), "doneAt": iso(25), "minutes": 10, "size": "M", "complexity": "low",
+         "criteriaRef": ["AC1"]},
+        {"id": "T2", "title": "Endpoint", "service": "web", "status": "in_progress", "owner": "coder",
+         "startedAt": iso(12), "minutes": 65, "size": "L", "complexity": "high",
+         "reason": "touches the session store", "criteriaRef": ["AC2"]},
+        {"id": "T3", "title": "Screen", "service": "web", "status": "todo", "owner": "coder",
+         "minutes": 20, "size": "M", "complexity": "medium", "reason": "two states",
+         "criteriaRef": ["AC2"]},
+    ]
+    run = {"slug": "x", "status": "running", "phase": "implement", "activeAgent": "coder",
+           "eta": eta, "clock": {"at": iso(1), "work": {"plan": 5, "implement": 20}, "waitMin": 0,
+                                 "pausedMin": 0}}
+    bare = [{k: v for k, v in t.items() if k not in ("minutes", "size", "complexity", "reason")}
+            for t in tasks]
+    plan = {"acceptanceCriteria": ["AC1 - Schema exists", "AC2 - Endpoint answers"]}
+    js = ("const el={hidden:false,innerHTML:''};var document={getElementById:()=>el};"
+          "var location={pathname:'/r/x',search:''};\n" + block.group(1) +
+          "\nconst fx=" + json.dumps({"run": run, "tasks": tasks, "bare": bare, "plan": plan}) + ";\n"
+          "const o={};\n"
+          "S={run:fx.run,plan:fx.plan,tasks:fx.tasks,messages:[]};SEL='T2';\n"
+          "o.cols=lanesHTML().cols;o.lanes=lanesHTML().h;o.live=taskTab();o.time=timeTab();o.crit=critTab();"
+          "timeband();o.band=el.innerHTML;SEL='T1';o.done=taskTab();\n"
+          "S={run:{slug:'x',status:'running',phase:'implement'},plan:fx.plan,tasks:fx.bare,messages:[]};"
+          "SEL='T2';o.bareLanes=lanesHTML().h;o.bareTask=taskTab();o.bareTime=timeTab();"
+          "timeband();o.bareHidden=el.hidden;\n"
+          "console.log(JSON.stringify(o));")
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8",
+                       timeout=60)
+    assert r.returncode == 0, f"board.html did not draw:\n{r.stdout}{r.stderr}"
+    o = json.loads(r.stdout)
+    assert "10m left" not in o["lanes"], "a finished task still counts as work left"
+    for want in ("api", "web", "1h 13m left", "12 of 1h 05m", "20m"):
+        assert want in o["lanes"], f"the lanes lack {want!r}"
+    assert "reached review" not in o["lanes"], "the lane head counts tasks, not time"
+    assert o["cols"].endswith("repeat(6,minmax(112px,1fr))"), f"the six stages are not equal widths: {o['cols']}"
+    for want in ("L</span> baseline 25m", "high", "touches the session store", "Estimate", "Actual",
+                 "AC2", "coder on it now"):
+        assert want in o["live"], f"the Task tab lacks {want!r}"
+    assert "5m over its estimate" in o["done"], "a task over its estimate does not say by how much"
+    for n in ("plan", "implement", "test", "waiting", "paused"):
+        assert f"<span>{n}</span>" in o["time"], f"the Time tab has no {n!r} row"
+    for want in ("AC1", "AC2", "0 of 2 met"):
+        assert want in o["crit"], f"the Criteria tab lacks {want!r}"
+    for want in ("Work completed at", "Work left", "Worked so far", "Waited on you", "slack"):
+        assert want in o["band"], f"the time band lacks {want!r}"
+    assert " left" not in o["bareLanes"] and "reached" not in o["bareLanes"],         "a plan with no estimate drew a time left (AC12)"
+    assert "before tasks carried an estimate" in o["bareTask"], "the Task tab has no hint (AC12)"
+    assert "No estimate for this run" in o["bareTime"], "the Time tab has no hint (AC12)"
+    assert o["bareHidden"] is True, "the time band showed with no estimate (AC12)"
+
+
+def the_hall_lays_cards_three_to_a_row():
+    """S75 - AC9. A wide screen holds three cards to a row, narrowing to two then one."""
+    with open(HALL_HTML, encoding="utf-8") as f:
+        src = f.read()
+    assert re.search(r"#hall\{[^}]*grid-template-columns:repeat\(3,", src), "the hall is not three to a row"
+    assert re.search(r"max-width:1340px\)\s*\{\s*#hall\{grid-template-columns:repeat\(2,", src), "no two-up step"
+    assert re.search(r"max-width:1010px\)\s*\{\s*#hall\{grid-template-columns:minmax\(0,1fr\)", src), "no one-up step"
+
+
+def the_floor_widens_to_fit_the_screen():
+    """S77 - AC10. Past six teams the office picks the column count that fits the window:
+    25 teams on 1500x950 and 1100x700 fit whole, and the generated corridors are all
+    axis-aligned and never cross an island. Six teams or fewer keep three columns."""
+    if not shutil.which("node"):
+        print("SKIP S77 - no node on PATH; the floor was not laid out")
+        return
+    src = open(HALL_HTML, encoding="utf-8").read()
+    geo = src[src.index("const BUILDING_W"):src.index("function podSig")]
+    js = geo + """
+const out={};
+for(const [cw,ch] of [[1500,950],[1100,700]]){
+  const N=pickCols(25,26,cw,ch,78,52), d=floorDims(N,26), g=floorGraph(N,d.rows);
+  const isl=[]; for(let i=0;i<26;i++) isl.push([18+194*(i%N),16+206*Math.floor(i/N)]);
+  out[cw]={N,d,tall:Math.max(...isl.map(a=>a[1]))+170,wide:Math.max(...isl.map(a=>a[0]))+156,nodes:g.nodes,edges:g.edges,isl,z:Math.min((cw-32)/d.w,(ch-130)/d.h)};
+}
+out.few=pickCols(6,7,1500,950,78,52);
+console.log(JSON.stringify(out));"""
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, f"hall.html's floor layout did not run: {r.stdout}{r.stderr}"
+    out = json.loads(r.stdout)
+    body = src[src.index("function renderOffice"):]
+    assert body.count("pickCols(") >= 2, "the floor does not re-pick N once the key exists (first open re-lays itself)"
+    assert re.search(r'"c":\[193,206\],"d":\[387,206\]', src), "the three-column corridor is off y 206"
+    assert out["few"] == 3, "six teams or fewer must keep the three-column floor"
+    for key in ("1500", "1100"):
+        o = out[key]
+        assert o["N"] > 3 and o["z"] >= 0.5, f"25 teams at {key}px do not fit: {o['N']} cols, zoom {o['z']}"
+        n = o["nodes"]
+        assert o["wide"] <= o["d"]["w"] and o["tall"] <= o["d"]["h"], f"an island hangs off the {key}px floor"
+        assert any(y == 206 for _, y in n.values()), "no between-rows corridor at y 206"
+        for a, b in o["edges"]:
+            (ax, ay), (bx, by) = n[a], n[b]
+            assert (ax == bx) != (ay == by), f"edge {a}-{b} is diagonal"
+            for x, y in o["isl"]:       # the island box, its rug and tag excluded
+                if ax == bx:
+                    hit = x <= ax <= x + 156 and min(ay, by) < y + 118 and max(ay, by) > y
+                else:
+                    hit = y <= ay <= y + 118 and min(ax, bx) < x + 156 and max(ax, bx) > x
+                assert not hit, f"edge {a}-{b} crosses the island at ({x},{y})"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -2091,6 +2668,18 @@ SCENARIOS = [
     ("S64", a_usage_limit_reads_as_a_pause),
     ("S65", the_next_coder_takes_at_most_two_ready_tasks),
     ("S66", every_role_runs_on_a_chosen_model),
+    ("S69", a_run_carries_its_own_estimate_and_closes_itself),
+    ("S70", the_estimate_clock_and_close_hold_at_their_edges),
+    ("S71", a_project_names_its_own_human_steps),
+    ("S72", the_final_button_and_the_payload_are_tested),
+    ("S72b", the_write_endpoints_refuse_cross_site_posts),
+    ("S73", the_workstream_card_shows_the_estimate),
+    ("S74", the_board_draws_the_lanes_the_inspector_and_the_time_band),
+    ("S75", the_hall_lays_cards_three_to_a_row),
+    ("S76", a_write_survives_a_reader_holding_the_file),
+    ("S77", the_floor_widens_to_fit_the_screen),
+    ("S67", the_design_rules_and_their_fixes_stay_in_sync),
+    ("S68", scenarios_are_written_as_use_cases),
     ("S53", every_agent_names_a_skill_that_exists),
     ("S54", no_tracked_source_carries_a_byte_order_mark),
     ("S55", a_plan_the_pipeline_cannot_use_is_refused),

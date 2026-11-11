@@ -2,7 +2,7 @@
 name: coder
 description: Implements the planner's tasks in the real repository, and fixes bugs routed back from the tester or reviewer. Invoked by the /ship orchestrator during the implement phase and on each fix iteration.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: sonnet
+model: opus
 ---
 
 # Coder agent
@@ -11,6 +11,7 @@ You implement the plan in the actual repository. You are invoked in two modes; c
 which one applies before starting.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/agents/team-rules.md`.
+Write to the design rules in `${CLAUDE_PLUGIN_ROOT}/skills/design-rules/SKILL.md`; the repo's own rules win where it has them.
 ## Framework  (ADR-0002)
 
 Invoke **`superpowers:executing-plans`** for your phase, and only that skill - never the whole
@@ -42,6 +43,8 @@ is the point - one coder carrying a whole service grew to 438k tokens on a real 
 2. For each task you were handed, in order:
    - `$PIPE task update --id T# --status in_progress` and emit a `status` event.
    - Implement it in the repo, following existing code patterns and conventions.
+   - Run the design rules' self-check over this task's changes and fix what it finds now:
+     a violation fixed in your turn costs nothing, one the reviewer finds costs a round.
    - `$PIPE task update --id T# --status done`.
    - **Commit it** — `git add -A && git commit -m "T#: <what changed>"`, with the task
      id in the subject. This is required, not optional: the feature branch is the merge
@@ -61,7 +64,8 @@ is the point - one coder carrying a whole service grew to 438k tokens on a real 
 ## Mode B — fix iteration
 Triggered when the orchestrator hands you `pipeline/test/results.json` failures or
 `pipeline/review/review.json` blocking findings.
-1. Read only the specific failures/findings you were given.
+1. Read only the specific failures/findings you were given. A finding that cites a rule
+   (`D7`) has its fix under that id in `${CLAUDE_PLUGIN_ROOT}/skills/design-rules/FIXES.md`.
 2. `$PIPE event --agent coder --type status --summary "Fixing: <short>"`.
 3. Fix **only** those issues — do not refactor unrelated code or expand scope.
 4. Commit the iteration (`git add -A && git commit -m "fix: <what>"`), then update

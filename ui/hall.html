@@ -19,11 +19,12 @@
     --text:#3A424F; --bright:#0E131B; --muted:#6B7585; --faint:#98A1AF;
     --planner:#9A6B10; --coder:#1A6CA8; --tester:#A33468; --reviewer:#1B7A52; --orch:#6B4FA8;
     --ok:#1B7A52; --warn:#9A6B10; --bad:#B03A34;
-    --felt:#E7EAF0;
-    /* floor tokens - the office view only */
+    --felt:#E7EAF0;   /* section 10.1 token, kept; the card no longer draws a felt */
+      /* floor tokens - the office view only */
     --floor:#DFE4EA; --floor-2:#D3D9E1; --grout:rgba(255,255,255,.7);
     --wall:#FBFBFC; --wall-edge:#C8CFD8; --wall-shadow:rgba(28,38,52,.14);
     --wood:#B9C1CC; --wood-2:#98A3B2; --deskglass:#EEF1F5;
+    --table:#C9B8A0; --table-2:#A8957B;
     --chairc:#7F8B9B; --chairc-2:#68748453;
     --skin:#D8A57C; --legs:#3C4A63; --shoe:#2B3344;
     --eye:#28313F; --pupil:#11161F;
@@ -46,6 +47,7 @@
       --floor:#161C26; --floor-2:#131922; --grout:rgba(255,255,255,.045);
       --wall:#232C3A; --wall-edge:#0E131B; --wall-shadow:rgba(0,0,0,.6);
       --wood:#39465A; --wood-2:#2A3446; --deskglass:#2E394A;
+      --table:#4A3F35; --table-2:#332B24;
       --chairc:#3A4658; --chairc-2:#2C3644;
       --skin:#C08E64; --legs:#2C3548; --shoe:#1B2130;
       --eye:#070A0F; --pupil:#05080D;
@@ -62,6 +64,7 @@
     --floor:#161C26; --floor-2:#131922; --grout:rgba(255,255,255,.045);
     --wall:#232C3A; --wall-edge:#0E131B; --wall-shadow:rgba(0,0,0,.6);
     --wood:#39465A; --wood-2:#2A3446; --deskglass:#2E394A;
+      --table:#4A3F35; --table-2:#332B24;
     --chairc:#3A4658; --chairc-2:#2C3644;
     --skin:#C08E64; --legs:#2C3548; --shoe:#1B2130;
     --eye:#070A0F; --pupil:#05080D;
@@ -196,15 +199,57 @@
   .who.a-planner{color:var(--planner)} .who.a-coder{color:var(--coder)}
   .who.a-tester{color:var(--tester)} .who.a-reviewer{color:var(--reviewer)}
   .who.a-orch{color:var(--orch)}
-  #cast{position:absolute;width:0;height:0;overflow:hidden}
+  .who .torso,.who .arm{fill:currentColor}
+  .who .head{fill:var(--skin)} .who .eye{fill:var(--pupil)}
+  .who .zz{font-family:var(--mono);font-size:7px;fill:var(--muted);opacity:0}
+  /* Hair is the same in both themes: it is what tells the five of them apart. */
+  .who .h-planner{fill:#CFCBC2} .who .h-coder{fill:#5B4636} .who .h-tester{fill:#8A4B2F}
+  .who .h-reviewer{fill:#3A2E22} .who .h-orch{fill:#4A4258}
 
   /* ---- section 10.2, the hall: one card per workstream, and the card is a table ---- */
-  #hall{display:grid;grid-template-columns:repeat(auto-fill,minmax(314px,1fr));gap:14px;align-content:start;
+  #hall{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-content:start;
     align-items:start}   /* a gate card grows by its plan; its row-mates keep their own height */
   .card{--st:var(--line-2);background:var(--panel);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));
-    border-radius:6px;padding:11px 11px 9px;display:flex;flex-direction:column;gap:8px}
+    border-radius:8px;padding:12px 13px;display:flex;flex-direction:column;gap:10px;min-width:0;
+    box-shadow:0 1px 2px rgba(9,12,18,.06),0 6px 16px -10px rgba(9,12,18,.18)}
   .card.s-run{--st:var(--coder)} .card.s-gate{--st:var(--warn)}
-  .card.s-done{--st:var(--ok)} .card.s-stale{--st:var(--bad)}
+  .card.s-done{--st:var(--ok)} .card.s-stale,.card.s-block{--st:var(--bad)}
+  .card.s-closed{--st:var(--line-2)}      /* completed: the human has closed it */
+  @media (max-width:1340px){ #hall{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @media (max-width:1010px){ #hall{grid-template-columns:minmax(0,1fr)} }
+
+  /* ---- the estimate (ADR-0006): three figures and one to-scale rail ----
+     pipe.py works the numbers out on every bus write; this only adds the minutes since. */
+  .c-etc{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px}
+  .c-etc>div{min-width:0}
+  .c-etc .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .c-etc .v{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--bright);font-variant-numeric:tabular-nums;line-height:1.2}
+  .c-etc .v.sm{font-size:14px;padding-top:4px}
+  .c-etc .s{font-family:var(--mono);font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .c-etc .hold{color:var(--warn)}
+  .card.s-block .c-etc .hold{color:var(--bad)}
+  .c-rail{display:flex;flex-direction:column;gap:4px;padding-top:9px}
+  .c-rail .bar{position:relative;display:flex;gap:2px;height:12px}
+  .c-rail .sg{position:relative;background:var(--sunk);border-radius:2px;overflow:hidden;min-width:0}
+  .c-rail .sg i{position:absolute;left:0;top:0;bottom:0;background:var(--c);border-radius:2px}
+  .c-rail .slack{border-radius:2px;border:1px dashed var(--line-2);min-width:0;
+    background:repeating-linear-gradient(135deg,transparent 0 4px,color-mix(in srgb,var(--line-2) 55%,transparent) 4px 5px)}
+  .c-rail .needle{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--bright);border-radius:1px}
+  .c-rail .needle::before{content:"now";position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--bright)}
+  .c-rail .lab{display:flex;gap:2px;font-family:var(--mono);font-size:7.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+  .c-rail .lab span{min-width:0;overflow:hidden;white-space:nowrap}
+  .c-rail .lab .cur{color:var(--bright)}
+  .c-over{font-family:var(--mono);font-size:10px;color:var(--bad)}
+  .c-sub{font-family:var(--mono);font-size:10.5px;line-height:1.5;color:var(--muted)}
+  .c-steps{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px;font-size:12px;counter-reset:st}
+  .c-steps li{display:flex;gap:8px;counter-increment:st;min-width:0;overflow-wrap:anywhere}
+  .c-steps li::before{content:counter(st);flex:0 0 17px;height:17px;border-radius:50%;border:1px solid var(--line-2);
+    font-family:var(--mono);font-size:9px;color:var(--muted);display:flex;align-items:center;justify-content:center}
+  .final{background:var(--ok);border:1px solid var(--ok);border-radius:3px;color:var(--panel);
+    font-family:var(--mono);font-size:11px;font-weight:600;padding:8px 0;cursor:pointer}
+  .final:hover{background:color-mix(in srgb,var(--ok) 86%,var(--bright))}
+  .final[disabled]{opacity:.5;cursor:default}
   /* a hidden team leaves before the grid closes over the gap it left */
   .card{transition:opacity 160ms var(--ease-out),transform 160ms var(--ease-out)}
   .card.leaving{opacity:0;transform:translateY(-4px)}
@@ -218,56 +263,36 @@
   .c-hide:hover{color:var(--bright);border-color:var(--line-2);background:var(--sunk)}
   .c-hide.txt{color:var(--coder);border-color:color-mix(in srgb,var(--coder) 35%,var(--line));padding:0 9px 0 7px}
   .c-hide[disabled]{opacity:.45;cursor:default}
-  .c-name{font-size:14px;font-weight:600;color:var(--bright);text-decoration:none;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .c-name{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--bright);text-decoration:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   .c-name:hover{text-decoration:underline}
-  .c-open{font-family:var(--mono);font-size:10px;color:var(--coder);text-decoration:none;opacity:0;
-    transition:opacity .15s linear;white-space:nowrap}
-  .card:hover .c-open{opacity:1}
-  .pill{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--st);border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));border-radius:2px;padding:1px 6px}
-  .c-repos{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis}
+  .pill{margin-left:auto;flex:none;font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--st);background:color-mix(in srgb,var(--st) 11%,transparent);
+    border:1px solid color-mix(in srgb,var(--st) 45%,var(--line));border-radius:20px;padding:3px 9px;
+    display:inline-flex;align-items:center;gap:6px}
+  .pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .card.s-closed .pill{color:var(--muted)}
 
-  /* the felt is a fixed 288x150 so the baton's 26 px inset is a constant, not a measurement */
-  .felt{position:relative;width:288px;height:150px;margin:0 auto;background:var(--felt);
-    border:1px solid var(--line);border-radius:8px}
-  .seat{position:absolute}
-  .seat.tl{left:5px;top:3px} .seat.tr{right:5px;top:3px}
-  .seat.br{right:5px;bottom:3px} .seat.bl{left:5px;bottom:3px}
-  /* section 10.8-1: the fifth seat sits on the bottom edge, outside the clockwise four */
-  .seat.op{left:50%;bottom:-6px;margin-left:-13px}
+  /* the team: four seats in a row, the one holding the work in bright ink, repos to the right */
+  .c-team{display:flex;align-items:flex-end;gap:9px;background:var(--sunk);border-radius:6px;padding:8px 10px 6px}
+  .c-team .seat{display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--mono);font-size:8px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .c-team .seat.on{color:var(--bright)}
+  .c-team .repos{margin-left:auto;align-self:center;text-align:right;font-family:var(--mono);font-size:10px;
+    color:var(--muted);min-width:0;overflow-wrap:anywhere}
 
-  .rail{position:absolute;left:8px;right:8px;top:50%;margin-top:-9px;display:flex}
-  .rail::before{content:"";position:absolute;left:6px;right:6px;top:4px;height:1px;background:var(--line-2);opacity:.7}
-  .tk{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--faint)}
-  .tk .d{width:7px;height:7px;border-radius:50%;background:var(--sunk);border:1px solid var(--line-2);
-    position:relative;z-index:1}
-  .tk .l{font-family:var(--mono);font-size:7px;letter-spacing:.04em;color:var(--faint)}
-  .tk.done .d{background:var(--line-2);border-color:var(--line-2)}
-  .tk.done .l{color:var(--muted)}
-  .tk.cur .d{background:currentColor;border-color:currentColor;transform:scale(1.7)}
-  .tk.cur .l{color:currentColor}
-
-  /* one token resting on the felt, inset 26 px from its seat's corner: consecutive hops
-     therefore run along an edge, and the path reads as passing work round a table. */
-  .baton{position:absolute;left:26px;top:26px;width:10px;height:10px;border-radius:2px;
-    background:currentColor;color:var(--muted)}
-
-  .c-foot{display:flex;gap:12px;font-family:var(--mono);font-size:10px;color:var(--muted);flex-wrap:wrap}
-  .c-foot b{color:var(--text);font-weight:600}
-  .c-foot .fail b{color:var(--bad)}
   .c-stale{font-family:var(--mono);font-size:10px;color:var(--bad)}
   /* Why the card is in the state it is in, and how long ago it was said - right under the
      name, because that is the question a card is opened to answer. */
-  .c-last{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:12px;color:var(--muted)}
-  .c-last b{flex:0 0 auto;font-family:var(--mono);font-size:10px;font-weight:400}
+  .c-last{display:flex;align-items:baseline;gap:7px;min-width:0;font-size:12px;color:var(--muted);
+    border-top:1px solid var(--line);padding-top:8px}
+  .c-last b{flex:0 0 auto;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .c-last .msg{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
-  .c-last .age{flex:0 0 auto;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums}
+  .c-last .age{flex:0 0 auto;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;color:var(--faint)}
   /* Something happened here while you were away; opening or clicking the card reads it. */
   .unread{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--coder)}
   /* The plan, beside the buttons that approve it. */
-  .c-plan{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:9px}
+  .c-plan{display:flex;flex-direction:column;gap:6px}
   .c-plan-sum{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
   .c-plan-sum b{color:var(--bright);font-weight:600}
   .c-plan-sum .q,.c-plan-sum .q b{color:var(--warn)}
@@ -329,20 +354,35 @@
        5. transform and opacity only: no layout, no paint, no transition:all
        6. prefers-reduced-motion stops every loop and leaves the resting pose */
 
-  /* 1 · baton travel — handoff — transform — 280 ms ease-in-out */
-  .baton{transition:transform 280ms var(--ease-in-out)}
+  /* (the baton, entry 1, went with the felt: the team row has no table to pass work across) */
   /* 2 · typing — the one agent that holds the work — 340 ms steps(1), loops */
   @keyframes typing{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1.5px * var(--amp,1)))}}
   .who.st-type{animation:typing 340ms steps(1) infinite}
-  /* the rail's current tick beats on the same rhythm, in the active agent's colour -
-     reusing an entry is how the inventory stays at eight */
-  .tk.cur{--amp:.55;animation:typing 340ms steps(1) infinite}
   /* 3 · waiting — turn not yet come — 3.4 s steps(1), loops */
   @keyframes waiting{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1px * var(--amp,1)))}}
   .who.st-wait{--amp:.5;animation:waiting 3.4s steps(1) infinite}
   /* 4 · asleep — agent finished — 3.6 s, opacity and transform */
   @keyframes sleeping{0%,100%{opacity:.62;transform:translateY(0)}50%{opacity:.48;transform:translateY(.8px)}}
   .who.st-sleep{animation:sleeping 3.6s steps(1) infinite}
+  /* The drawn cast's own three: hands on the keys, a blink, a sleeper's z. They ride on
+     entries 2-4 rather than replacing them, and stay transform and opacity only. */
+  @keyframes tap{from{transform:translateY(0)}to{transform:translateY(-2.5px)}}
+  .who.st-type .arm.l{animation:tap 320ms ease-in-out infinite alternate}
+  .who.st-type .arm.r{animation:tap 320ms ease-in-out -160ms infinite alternate}
+  @keyframes blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+  .who .eye{transform-box:fill-box;transform-origin:center;animation:blink 4.2s infinite}
+  .who.st-sleep .eye{animation:none;transform:scaleY(.15)}
+  /* The cast's two asking-for-help poses (T3): a hand up while it waits on you, a shake
+     when it is stuck. Transform only and stepped, so they stay inside the inventory's rules. */
+  @keyframes wave{from{transform:rotate(-150deg)}to{transform:rotate(-176deg)}}
+  .who.st-ask{--amp:.5;animation:waiting 3.4s steps(1) infinite}
+  .who.st-ask .arm.r{transform-box:fill-box;transform-origin:50% 12%;transform:rotate(-160deg);
+    animation:wave 520ms steps(3) infinite alternate}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}
+  .who.st-stuck{animation:shake 240ms steps(1) infinite}
+  .who.st-stuck .eye{animation:none}
+  @keyframes zz{0%{opacity:0;transform:translate(0,0)}30%{opacity:.9}100%{opacity:0;transform:translate(5px,-9px)}}
+  .who.st-sleep .zz{animation:zz 2.8s ease-in-out infinite}
   /* 5 · walking in — the baton lands — 440 ms steps(4), once. On the seat, not the
      sprite, so the arriving agent keeps its own loop. */
   @keyframes walk-in{from{transform:translateX(-10px);opacity:.6}to{transform:translateX(0);opacity:1}}
@@ -355,8 +395,8 @@
   .repo.enter{animation:row-in 240ms var(--ease-out) 1}
   /* 8 · going quiet — stale > 3 min — freeze plus opacity — 2.6 s ease-in-out, loops */
   @keyframes going-quiet{0%,100%{opacity:1}50%{opacity:.5}}
-  .card.s-stale .felt{animation:going-quiet 2.6s var(--ease-in-out) infinite}
-  .card.s-stale .who,.card.s-stale .tk.cur{animation-play-state:paused}
+  .card.s-stale .c-team{animation:going-quiet 2.6s var(--ease-in-out) infinite}
+  .card.s-stale .who,.card.s-stale .who *{animation-play-state:paused}
 
   /* ---- section 10.5, the office floor ----
      One open floor; the building's outer wall is the only wall. A team is a desk island
@@ -371,27 +411,36 @@
       repeating-linear-gradient(90deg,var(--grout) 0 1px,transparent 1px 34px),
       linear-gradient(160deg,var(--floor),var(--floor-2))}
   .pod{position:absolute;width:156px;height:118px}
-  .rug{position:absolute;inset:-8px -8px -34px;border-radius:12px;
+  .rug{position:absolute;inset:-8px -8px -52px;border-radius:12px;
     background:var(--floor-2);border:1px solid var(--line)}
   .pod.s-run .rug{background:color-mix(in srgb,var(--coder) 9%,var(--floor-2));
     border-color:color-mix(in srgb,var(--coder) 34%,var(--line))}
   .pod.s-gate .rug{background:color-mix(in srgb,var(--warn) 16%,var(--floor-2));
     border-color:color-mix(in srgb,var(--warn) 50%,var(--line))}
-  .pod.s-stale .rug{background:color-mix(in srgb,var(--bad) 16%,var(--floor-2));
+  .pod.s-stale .rug,.pod.s-block .rug{background:color-mix(in srgb,var(--bad) 16%,var(--floor-2));
     border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
   /* Finished reads as finished rather than as the default: without its own rule a done
      team was simply whatever a pod looks like with no state, which is the one thing the
      rug is supposed to say at a glance. */
   .pod.s-done .rug{background:color-mix(in srgb,var(--ok) 7%,var(--floor-2));
     border-color:color-mix(in srgb,var(--ok) 30%,var(--line))}
-  .pod.s-done .rug{opacity:.4}
+  .pod.s-closed{opacity:.55}
   /* The name is a nameplate on the seam between the two desk rows. Above the pod it sat
      inside the previous row's rug, on top of that team's bottom pair. */
-  .pod-name{position:absolute;left:6px;right:6px;top:68px;z-index:1;text-align:center;font-family:var(--mono);
-    font-size:9.5px;line-height:14px;color:var(--text);text-decoration:none;
+  .pod-name{position:absolute;left:6px;right:6px;top:150px;z-index:1;text-align:center;font-family:var(--mono);
+    font-size:10.5px;line-height:14px;color:var(--text);text-decoration:none;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   a.pod-name:hover{color:var(--bright);text-decoration:underline;text-underline-offset:2px}
   .pod.orch .pod-name{top:36px}
+  .p-bar{position:absolute;left:34px;right:34px;top:166px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+  .p-bar i{display:block;height:100%;background:var(--st,var(--muted));border-radius:2px}
+  /* one shared wood table, four laptops on it; the one holding the work scrolls */
+  .table{position:absolute;left:8px;top:38px;width:140px;height:74px;border-radius:14px;background:var(--table);
+    border:1.5px solid var(--table-2);box-shadow:0 4px 0 var(--table-2)}
+  .lap{position:absolute;width:26px;height:16px;border-radius:3px;background:var(--screen-b);
+    border:1px solid var(--wood-2);overflow:hidden;box-sizing:border-box}
+  .lap i{display:block;height:2px;margin:2px 3px;background:var(--screen);opacity:.3;border-radius:1px}
+  .lap.work i{opacity:1;--sc:-8px;animation:screen-scroll .9s steps(4) infinite}
   /* desks back to back down the middle, bodies on the outer edges: four fit in nearly
      the space of two, and no agent is ever in front of a screen */
   .desk{position:absolute;width:62px;height:30px;border-radius:3px;background:var(--wood);
@@ -407,22 +456,35 @@
   .body{position:absolute}
   /* the working desk's screen scrolls: the cheapest "something is happening here" that
      moves no body at all (section 10.5, not a ninth inventory entry) */
-  @keyframes screen-scroll{from{transform:translateY(0)}to{transform:translateY(-9px)}}
+  @keyframes screen-scroll{from{transform:translateY(0)}to{transform:translateY(var(--sc,-9px))}}
   .desk.work .scr i{animation:screen-scroll 1.2s steps(4) infinite}
   /* section 10.8-2: pods outside the viewport stop animating. At twelve teams that is
      ~24 simultaneous sprite loops, and the floor - not the hall - is where it bites. */
   /* grey, and no role colour: they are the one thing in the room that means nothing */
   .walker .who{color:var(--faint)}
   .pod.off *{animation-play-state:paused!important}
-  .pod.s-stale .who{animation-play-state:paused}
+  .pod.s-stale .who,.pod.s-stale .who *{animation-play-state:paused}
+  /* The one figure you need from across the room, over each island. */
+  .pod-tag{position:absolute;left:50%;top:-31px;transform:translateX(-50%);z-index:2;white-space:nowrap;
+    font-family:var(--mono);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
+    color:var(--st,var(--muted));background:var(--panel);border-radius:20px;padding:4px 12px;
+    border:1.5px solid color-mix(in srgb,var(--st,var(--line-2)) 55%,var(--line));
+    box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  .pod-tag small{font-weight:400;color:var(--muted);font-size:10px}
+  .pod.s-run{--st:var(--coder)} .pod.s-gate{--st:var(--warn)} .pod.s-stale,.pod.s-block{--st:var(--bad)}
+  .pod.s-done{--st:var(--ok)} .pod.s-closed{--st:var(--line-2)}
 
   .empty{color:var(--muted);font-size:13px;padding:36px 4px;font-family:var(--mono)}
-  /* floor toolbar - the reader zooms, the floor never stretches itself */
-  .fbar{display:flex;align-items:center;gap:7px;margin:0 2px 12px;font-family:var(--mono);font-size:10.5px;flex-wrap:wrap}
-  .fbar-l{letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-  .fbar .ghost{padding:2px 9px;min-width:30px}
-  #zoom-pct{color:var(--text);min-width:40px;text-align:center}
-  .fbar-hint{margin-left:auto;color:var(--muted)}
+  /* floating chrome over the floor: state key, hint, zoom HUD */
+  .hud,.hint,.key{position:absolute;z-index:3;background:var(--panel);border:1px solid var(--line);
+    border-radius:7px;font-family:var(--mono)}
+  .hud{right:12px;bottom:12px;display:flex;align-items:center;gap:4px;padding:4px;font-size:11px}
+  .hud .ghost{padding:3px 9px;min-width:30px;border-color:transparent;background:transparent}
+  #zoom-pct{color:var(--bright);min-width:44px;text-align:center}
+  .hint{left:12px;bottom:12px;padding:6px 10px;font-size:10.5px;color:var(--muted)}
+  .key{left:12px;top:12px;display:flex;flex-direction:column;gap:4px;padding:9px 11px;font-size:11px;
+    color:var(--muted);max-width:250px}
+  .key b{color:var(--text);font-weight:600}
   .pod.orch .rug{background-color:color-mix(in srgb,var(--orch) 22%,var(--floor-2))}
   .pod.orch .pod-name{color:var(--orch);border-color:color-mix(in srgb,var(--orch) 55%,var(--line))}
   /* A refused gate has to read as refused, not as a button that went quiet. */
@@ -450,101 +512,6 @@
 <!-- The cast, inline so the page makes no runtime request. Original drawn work: the
      no-licence pixel set was not copied from, and DiceBear's pixel-art was tried and
      rejected on looks. Chibi proportions - the head is 8 of the 18 units. -->
-<svg id="cast" aria-hidden="true" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">
-  <symbol id="who-body" viewBox="0 0 12 18">
-    <rect x="1.4" y="4.4" width="0.6" height="1.6" fill="var(--skin)"/>
-    <rect x="10" y="4.4" width="0.6" height="1.6" fill="var(--skin)"/>
-    <rect x="2" y="1" width="8" height="8" fill="var(--skin)"/>
-    <rect x="5" y="8.6" width="2" height="1.2" fill="var(--skin)"/>
-    <rect x="2.4" y="9.6" width="7.2" height="5" fill="currentColor"/>
-    <rect x="1.4" y="10" width="1" height="3.8" fill="currentColor"/>
-    <rect x="9.6" y="10" width="1" height="3.8" fill="currentColor"/>
-    <rect x="1.4" y="13.8" width="1" height="0.9" fill="var(--skin)"/>
-    <rect x="9.6" y="13.8" width="1" height="0.9" fill="var(--skin)"/>
-    <rect x="3" y="14.6" width="2.6" height="2.2" fill="var(--legs)"/>
-    <rect x="6.4" y="14.6" width="2.6" height="2.2" fill="var(--legs)"/>
-    <rect x="2.8" y="16.8" width="3" height="1.2" fill="var(--shoe)"/>
-    <rect x="6.2" y="16.8" width="3" height="1.2" fill="var(--shoe)"/>
-  </symbol>
-  <!-- 1.7 units wide at the 27 px render size is ~3.8 px of pupil. At the ~1.8 px it
-       started as, the eyes vanished entirely under crispEdges. -->
-  <symbol id="who-face" viewBox="0 0 12 18">
-    <rect x="3.2" y="4.2" width="1.9" height="0.4" fill="var(--eye)"/>
-    <rect x="6.9" y="4.2" width="1.9" height="0.4" fill="var(--eye)"/>
-    <rect x="3.3" y="4.9" width="1.7" height="1.6" fill="var(--pupil)"/>
-    <rect x="7" y="4.9" width="1.7" height="1.6" fill="var(--pupil)"/>
-    <rect x="5" y="7.2" width="2" height="0.4" fill="var(--eye)"/>
-  </symbol>
-  <!-- Shut eyes are markup, not animation, so prefers-reduced-motion keeps them shut. -->
-  <symbol id="who-face-shut" viewBox="0 0 12 18">
-    <rect x="3.3" y="5.6" width="1.7" height="0.5" fill="var(--pupil)"/>
-    <rect x="7" y="5.6" width="1.7" height="0.5" fill="var(--pupil)"/>
-    <rect x="5.2" y="7.2" width="1.6" height="0.4" fill="var(--eye)"/>
-  </symbol>
-
-  <!-- planner: an old man, silver, receding at the temples -->
-  <symbol id="hair-planner" viewBox="0 0 12 18">
-    <rect x="3.4" y="1" width="5.2" height="1.4" fill="#CFCBC2"/>
-    <rect x="2" y="2.2" width="1.6" height="2.8" fill="#CFCBC2"/>
-    <rect x="8.4" y="2.2" width="1.6" height="2.8" fill="#CFCBC2"/>
-    <rect x="4" y="1.3" width="3" height="0.7" fill="#E2DFD8"/>
-  </symbol>
-  <symbol id="hair-planner-back" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="6.4" fill="#CFCBC2"/>
-    <rect x="3" y="1.6" width="4" height="1.2" fill="#E2DFD8"/>
-  </symbol>
-
-  <!-- coder: a boy, dark fringe -->
-  <symbol id="hair-coder" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="2.6" fill="#5B4636"/>
-    <rect x="2" y="3.6" width="2.4" height="1.4" fill="#4A382B"/>
-    <rect x="8" y="3.6" width="2" height="1" fill="#5B4636"/>
-    <rect x="3" y="1.4" width="2.4" height="0.8" fill="#6B5544"/>
-  </symbol>
-  <symbol id="hair-coder-back" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="6.2" fill="#5B4636"/>
-    <rect x="3" y="1.6" width="2.6" height="1.2" fill="#6B5544"/>
-    <rect x="2.6" y="7" width="6.8" height="0.8" fill="#4A382B"/>
-  </symbol>
-
-  <!-- tester: a girl, long auburn -->
-  <symbol id="hair-tester" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="2.2" fill="#8A4B2F"/>
-    <rect x="1.4" y="1.6" width="1.6" height="8.4" fill="#8A4B2F"/>
-    <rect x="9" y="1.6" width="1.6" height="8.4" fill="#8A4B2F"/>
-    <rect x="1.4" y="8.4" width="1.6" height="1.6" fill="#7A4129"/>
-    <rect x="9" y="8.4" width="1.6" height="1.6" fill="#7A4129"/>
-    <rect x="3.4" y="1.3" width="3" height="0.8" fill="#9A573A"/>
-  </symbol>
-  <symbol id="hair-tester-back" viewBox="0 0 12 18">
-    <rect x="1.4" y="1" width="9.2" height="10.6" fill="#8A4B2F"/>
-    <rect x="3" y="1.6" width="3.4" height="1.2" fill="#9A573A"/>
-    <rect x="1.4" y="10" width="9.2" height="1.6" fill="#7A4129"/>
-  </symbol>
-
-  <!-- reviewer: an uncle, moustache -->
-  <symbol id="hair-reviewer" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="2" fill="#3A2E22"/>
-    <rect x="2" y="3" width="1.4" height="2.2" fill="#3A2E22"/>
-    <rect x="8.6" y="3" width="1.4" height="2.2" fill="#3A2E22"/>
-    <rect x="3.6" y="6.6" width="4.8" height="1.1" fill="#3A2E22"/>
-    <rect x="4.2" y="6.8" width="3.6" height="0.5" fill="#4A3B2C"/>
-  </symbol>
-  <symbol id="hair-reviewer-back" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="6" fill="#3A2E22"/>
-    <rect x="3" y="1.6" width="3" height="1.2" fill="#4A3B2C"/>
-  </symbol>
-
-  <!-- the orchestrator, who sits apart at the head table; the operator borrows it -->
-  <symbol id="hair-orch" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="2.4" fill="#4A4258"/>
-    <rect x="2" y="3.4" width="1.2" height="1.6" fill="#4A4258"/>
-    <rect x="8.8" y="3.4" width="1.2" height="1.6" fill="#4A4258"/>
-  </symbol>
-  <symbol id="hair-orch-back" viewBox="0 0 12 18">
-    <rect x="2" y="1" width="8" height="6.2" fill="#4A4258"/>
-  </symbol>
-</svg>
 <header>
   <span class="brand"><b>agent</b><span>·</span>orchestration</span>
   <div class="seg" id="view-seg">
@@ -552,7 +519,8 @@
   </div>
   <div class="seg" id="show-seg" role="group" aria-label="Which teams to show">
     <button data-show="active">Active<span class="n"></span></button><button
-      data-show="done">Done<span class="n"></span></button><button
+      data-show="ready">Ready to deploy<span class="n"></span></button><button
+      data-show="done">Completed<span class="n"></span></button><button
       data-show="hidden">Hidden<span class="n"></span></button>
   </div>
   <span class="legend" id="legend"></span>
@@ -616,13 +584,13 @@ function staleMs(p){
 }
 function agoTxt(ms){const m=Math.floor(ms/60000);return m<60?`${m}m`:`${Math.floor(m/60)}h ${m%60}m`;}
 
-/* run / gate / done / stale - the pill, the card border and the rug all read this one
+/* run / gate / done / block / stale (silent while running) - the pill, the card border and the rug all read this one
    function, so they can never disagree. */
 function cardState(p){
   if(p.status==="done") return "done";
   if(p.status==="awaiting_approval") return "gate";
+  if(p.status==="blocked"||p.status==="failed") return "block";
   if(staleMs(p)) return "stale";
-  if(p.status==="blocked"||p.status==="failed") return "stale";
   return "run";
 }
 
@@ -631,16 +599,19 @@ function cardState(p){
    away from you); `state` is what the agent is doing. */
 function sprite(role,opts){
   const o=opts||{}, state=o.state||"wait", px=o.px||27;
-  // TWO hair layers per character. -back fills the whole skull, because from behind
-  // there is no face to leave room for; the front one caps the head instead. Never turn
-  // a sleeping agent around - its shut eyes are the whole point of the pose.
+  // Never turn a sleeping agent around - its shut eyes are the whole point of the pose.
   const rear=!!o.back&&state!=="sleep";
-  // A seated agent is cropped at the waist: the legs are under a desk either way.
-  const units=o.seated?13.4:18;
-  const face=rear?"":`<use href="#who-${state==="sleep"?"face-shut":"face"}"/>`;
-  return `<svg class="who a-${role} st-${state}" width="${px}" height="${(px/12*units).toFixed(1)}"
-    viewBox="0 0 12 ${units}" shape-rendering="crispEdges" aria-hidden="true"
-    ><use href="#who-body"/>${face}<use href="#hair-${role}${rear?"-back":""}"/></svg>`;
+  // A seated agent is cropped at the waist: the rest is under a desk either way.
+  const h=o.seated?23:30;
+  // From behind there is no face to leave room for, so the hair fills the whole skull.
+  const hair=rear?`<circle cx="12" cy="9" r="7.2"/>`
+    :`<path d="M4.8 9.4A7.2 7.2 0 0 1 19.2 9.4C17.6 6.6 14.9 5.6 12 5.6S6.4 6.6 4.8 9.4Z"/>`;
+  const face=rear?"":`<circle class="eye" cx="9.4" cy="10.4" r="1.1"/><circle class="eye" cx="14.6" cy="10.4" r="1.1"/>`;
+  return `<svg class="who a-${role} st-${state}" width="${px}" height="${(px/24*h).toFixed(1)}"
+    viewBox="0 0 24 ${h}" aria-hidden="true"><rect class="arm l" x="2.5" y="17" width="4.5" height="9" rx="2.2"
+    /><rect class="arm r" x="17" y="17" width="4.5" height="9" rx="2.2"/><rect class="torso" x="5" y="15"
+    width="14" height="14" rx="5.5"/><circle class="head" cx="12" cy="9" r="7"/><g class="h-${role}">${hair}</g>${face
+    }<text class="zz" x="19" y="4">z</text></svg>`;
 }
 
 /* Section 10.8-1: the operator gets a fifth seat on the bottom edge of the felt, and it
@@ -662,17 +633,18 @@ let DEMO=false;       // ?demo=1: hides change this page only, nothing is writte
    Every team sits on exactly one shelf. Hidden wins over done, because hiding is the one
    you chose; the server ties a hide to the run it was made in, so a new wave returns to
    Active by itself. The hall and the office both draw shown(), never the raw scan. */
-const SHOWS=["active","done","hidden"];
+const SHOWS=["active","ready","done","hidden"];
 let SHOW=SHOWS.includes(new URLSearchParams(location.search).get("show"))
   ?new URLSearchParams(location.search).get("show"):"active";
-const shelf=p=>p.hidden?"hidden":p.status==="done"?"done":"active";
+// Work completed is not the end: it waits on Ready to deploy until a human marks it.
+const shelf=p=>p.hidden?"hidden":p.status!=="done"?"active":p.completed?"done":"ready";
 // What needs you first, then what may have died, then what is moving; newest first within.
-const URGENCY={gate:0,stale:1,run:2,done:3};
+const URGENCY={gate:0,block:1,stale:1,run:2,done:3};
 const byUrgency=(a,b)=>URGENCY[cardState(a)]-URGENCY[cardState(b)]
   ||String(b.updatedAt||"").localeCompare(String(a.updatedAt||""));
 function shown(){return HALL.pipelines.filter(p=>shelf(p)===SHOW).sort(byUrgency);}
 function shelfCounts(){
-  const c={active:0,done:0,hidden:0};
+  const c={active:0,ready:0,done:0,hidden:0};
   for(const p of HALL.pipelines) c[shelf(p)]++;
   return c;
 }
@@ -700,7 +672,7 @@ function renderHeadTable(){
   const ps=HALL.pipelines.filter(p=>!p.hidden);
   const running=ps.filter(p=>cardState(p)==="run").length;
   const awaiting=ps.filter(p=>cardState(p)==="gate").length;
-  const quiet=ps.filter(p=>cardState(p)==="stale").length;
+  const quiet=ps.filter(p=>["stale","block"].includes(cardState(p))).length;
   document.getElementById("counts").innerHTML=
     `<div class="count"><b>${running}</b><span>running</span></div>
      <div class="count awaiting"><b>${awaiting}</b><span>awaiting you</span></div>
@@ -742,21 +714,14 @@ function renderHeadTable(){
   paintTabs();
 
   // The cast named once in the chrome, so a role colour inside a card never needs decoding.
-  const LEGEND=[["planner","plan"],["coder","code"],["tester","test"],["reviewer","review"]];
   const lg=document.getElementById("legend");
   if(!lg.childElementCount)
-    lg.innerHTML=LEGEND.map(([role,label])=>
+    lg.innerHTML=TEAM.map(([role,label])=>
       `<span class="l-${role}">${sprite(role,{px:15})}${label}</span>`).join("");
 }
 
-/* Four seats at the corners of the felt in pipeline order clockwise. The near pair face
-   away from you, which is what the -back hair layer exists for. */
-const SEATS=[
-  {role:"planner", pos:"tl", back:false},
-  {role:"coder",   pos:"tr", back:false},
-  {role:"tester",  pos:"br", back:true},
-  {role:"reviewer",pos:"bl", back:true},
-];
+/* The team in pipeline order: the role and the short label the legend uses. */
+const TEAM=[["planner","plan"],["coder","code"],["tester","test"],["reviewer","review"]];
 const RAIL=["spec","plan","implement","test","review","done"];
 const STAGE={planner:1,coder:2,tester:3,reviewer:4,operator:2};
 // The hall's rail has no qa tick (section 10.2), so qa reads as the end of review.
@@ -766,11 +731,13 @@ function railIdx(ph){return ph==="qa"?4:RAIL.indexOf(ph);}
    behind the run - "busy" stays legible by being the exception in its own row. */
 function seatState(p,role){
   if(p.status==="done") return "sleep";
+  const past=railIdx(p.phase)>STAGE[role];
+  // At a gate every seat not yet past its stage has a hand up; blocked, the holder is stuck.
+  if(p.status==="awaiting_approval") return past?"sleep":"ask";
+  if(p.status==="blocked"||p.status==="failed") return p.activeAgent===role?"stuck":past?"sleep":"wait";
   if(p.activeAgent===role) return "type";
-  return railIdx(p.phase)>STAGE[role]?"sleep":"wait";
+  return past?"sleep":"wait";
 }
-// The baton rests 26 px in from its seat's corner of the 288x150 felt.
-const BATON={planner:[0,0],coder:[226,0],tester:[226,88],reviewer:[0,88],operator:[113,88]};
 const AGENT_COLOR={planner:"var(--planner)",coder:"var(--coder)",tester:"var(--tester)",
   reviewer:"var(--reviewer)",operator:"var(--orch)",orchestrator:"var(--orch)"};
 
@@ -799,12 +766,88 @@ function planHTML(p){
   const more=b.taskCount-b.tasks.length;
   return `<div class="c-plan">
     <div class="c-plan-sum">${[plural(b.taskCount,"task"),plural(b.services.length,"service"),
-      `<b>${b.criteria}</b> criteria`,b.risks?plural(b.risks,"risk"):"",
+      `<b>${b.criteria}</b> criteria`,b.high?plural(b.high,"high-complexity task"):"",b.risks?plural(b.risks,"risk"):"",
       b.questions?`<span class="q">${plural(b.questions,"open question")}</span>`:""].filter(Boolean).join(" · ")}</div>
     ${b.approach?`<p class="c-plan-why">${esc(b.approach)}</p>`:""}
     ${rows?`<details${PLAN_OPEN.has(p.slug)?" open":""}><summary>Tasks</summary><ol>${rows}${
       more>0?`<li class="svc">${more} more on the board</li>`:""}</ol></details>`:""}
   </div>`;
+}
+/* ---- the estimate ----
+   run.eta and run.clock are pipe.py's, stamped on its last bus write. All this adds is the
+   time since: counted as work while the run is moving, and as waiting while it is held at
+   a gate, blocked, or silent for longer than IDLE_MIN (== pipe.py IDLE_MIN). */
+const IDLE_MIN=15;
+const PHASE_C={spec:"var(--orch)",plan:"var(--planner)",implement:"var(--coder)",test:"var(--tester)",
+  review:"var(--reviewer)",qa:"var(--orch)"};
+const dur=m=>{m=Math.max(0,Math.round(m));return m>=60?`${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m`:`${m}m`;};
+function clockAt(t){
+  const d=new Date(t), hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false});
+  return d.toDateString()===new Date().toDateString()?hm
+    :d.toLocaleDateString([],{day:"numeric",month:"short"})+" "+hm;
+}
+function etc(p){
+  const e=p.eta, c=p.clock; if(!e||!c||!c.at) return null;
+  const done=p.status==="done";
+  const gap=done?0:Math.max(0,(Date.now()-new Date(c.at))/60000);
+  const waiting=p.status==="awaiting_approval"||p.status==="blocked"||p.status==="failed";
+  const paused=p.status==="running"&&gap>IDLE_MIN;
+  const held=waiting||paused, spent=held?0:gap;
+  const left=Math.max(0,e.leftMin-spent), likely=Math.max(left,e.likelyMin-spent);
+  const worked=Object.values(c.work||{}).reduce((a,b)=>a+b,0)+spent;
+  return {left,likely,held,waiting,paused,worked,total:e.totalMin,phases:e.phases,work:c.work||{},
+    waited:(c.waitMin||0)+(c.pausedMin||0)+(held?gap:0),over:Math.round(worked+left-e.totalMin)};
+}
+function railHTML(p,t){
+  const names=Object.keys(t.phases), cur=names.indexOf(p.phase);
+  const slack=Math.max(1,t.likely-t.left);
+  let before=0;
+  const segs=names.map((n,i)=>{
+    const est=Math.max(1,t.phases[n]);
+    const fill=i<cur?1:i>cur?0:Math.min(1,Math.max((t.work[n]||0)/est,0.04));
+    before+=est*fill;
+    return `<div class="sg" style="flex:${est};--c:${PHASE_C[n]}"><i style="width:${Math.round(fill*100)}%"></i></div>`;
+  }).join("");
+  const at=before/(t.total+slack)*100;
+  const lab=names.map((n,i)=>`<span style="flex:${Math.max(1,t.phases[n])}"${i===cur?' class="cur"':""}>${
+    t.phases[n]/(t.total+slack)>0.07?n:""}</span>`).join("");
+  return `<div class="c-rail"><div class="bar">${segs}<div class="slack" style="flex:${slack}"
+    title="How late it could run"></div><span class="needle" style="left:${at.toFixed(1)}%"></span></div>
+    <div class="lab">${lab}<span style="flex:${slack}">slack</span></div></div>`;
+}
+function etcHTML(p){
+  const t=etc(p); if(!t||p.status==="done") return "";
+  const now=Date.now();
+  const k1=p.status==="blocked"||p.status==="failed"?"Ready if unblocked now":t.waiting?"Ready if approved now"
+          :t.paused?"Ready if resumed now":"Work completed at";
+  return `<div class="c-etc">
+    <div><div class="k">${k1}</div><div class="v">${clockAt(now+t.left*60000)}</div>
+      <div class="s">likely by ${clockAt(now+t.likely*60000)}</div></div>
+    <div><div class="k">${t.waiting&&p.phase==="plan"?"Work to do":"Work left"}</div><div class="v sm">${dur(t.left)}</div></div>
+    <div><div class="k">${t.held?(t.paused?"Paused":"Waiting on you"):"Waited on you"}</div>
+      <div class="v sm${t.held?" hold":""}">${dur(t.waited)}</div>${t.held?`<div class="s">and counting</div>`:""}</div>
+  </div>${railHTML(p,t)}${t.over>5?`<div class="c-over">Running ${dur(t.over)} over the plan's estimate</div>`:""}`;
+}
+/* Work completed: what it cost, the human's steps, and the one button that closes it. */
+function doneHTML(p){
+  if(p.status!=="done") return "";
+  const t=etc(p);
+  const sum=[p.workCompletedAt&&`QA green ${clockAt(p.workCompletedAt)}`,
+    t&&t.worked>=1&&`${dur(t.worked)} of work against ${dur(t.total)} estimated`,
+    t&&t.waited>=1&&`waited on you ${dur(t.waited)}`].filter(Boolean).join(" · ");
+  if(p.completed) return `<div class="c-sub">Marked completed ${clockAt(p.completed)}${sum?" · "+esc(sum):""}</div>`;
+  const steps=(p.humanSteps||[]).map(x=>`<li><span>${esc(x)}</span></li>`).join("");
+  return `${sum?`<div class="c-sub">${esc(sum)}</div>`:""}
+    ${steps?`<ol class="c-steps" aria-label="Your steps">${steps}</ol>`:""}
+    <button class="final" type="button" data-final>Mark completed</button>`;
+}
+function pillTxt(p,st){
+  if(st==="gate") return p.phase==="plan"?"Approve plan":"Waiting on you";
+  if(st==="block") return "Blocked";
+  if(st==="stale") return "Quiet";
+  if(st==="done") return p.completed?"Completed":"Work completed";
+  const l=p.loop||{};
+  return esc(p.phase||"running")+(l.count>0?` - fix ${l.count} of ${l.max||5}`:"");
 }
 function since(ts){
   const m=Math.max(0,Math.floor((Date.now()-new Date(ts))/60000));
@@ -843,48 +886,42 @@ function readCard(slug){
 }
 
 const SEEN=new Set();   // entry 6: the table entrance is first paint only, and never replays
-const HOLDER={};        // who held the work last frame, per slug - entries 1 and 5
+const HOLDER={};        // who held the work last frame, per slug - the seat that just took it walks in
 
 function card(p){
-  const st=cardState(p), sm=staleMs(p), cur=railIdx(p.phase);
+  const st=cardState(p), sm=staleMs(p);
   const holder=p.activeAgent||"planner";
-  const colour=AGENT_COLOR[holder]||"var(--muted)";
   const prev=HOLDER[p.slug]||holder, moved=prev!==holder;
   HOLDER[p.slug]=holder;
-  const [bx,by]=BATON[prev]||BATON.planner, [tx,ty]=BATON[holder]||BATON.planner;
   const fresh=!SEEN.has(p.slug); SEEN.add(p.slug);
-  const seats=SEATS.map(s=>`<div class="seat ${s.pos}${moved&&s.role===holder?" arrive":""}">${
-    sprite(s.role,{back:s.back,state:seatState(p,s.role)})}</div>`).join("")
-    + (hasOperator(p)?`<div class="seat op${moved&&holder==="operator"?" arrive":""}">${
-        sprite("orch",{state:seatState(p,"operator")})}</div>`:"");
-  const rail=RAIL.map((ph,i)=>`<span class="tk ${i<cur?"done":i===cur?"cur":""}"
-      style="color:${i===cur?colour:""}"><i class="d"></i><i class="l">${ph}</i></span>`).join("");
-  const t=testCount(p), loop=p.loop||{count:0,max:5};
+  // The seat that just took the work walks in; the others keep their own loop.
+  const seat=(role,label,ag)=>`<span class="seat${holder===role?" on":""}${moved&&holder===role?" arrive":""}">${
+    sprite(ag||role,{state:seatState(p,role),px:24})}${label}</span>`;
+  const team=TEAM.map(([r,l])=>seat(r,l)).join("")+(hasOperator(p)?seat("operator","oper","orch"):"");
+  const repos=(p.repos&&p.repos.length?p.repos:Object.keys(p.services||{})).join(" · ")||p.slug;
   const ev=p.lastEvent, name=p.feature||p.slug;
   // Finished and hidden teams fold to one line; clicking the line opens it back up.
-  const fold=st==="done"||p.hidden;
+  const fold=(st==="done"&&!!p.completed)||p.hidden;
   const hide=p.hidden
     ?`<button class="c-hide txt" type="button" data-hide="0" aria-label="Unhide ${esc(name)}"
         title="Put it back in the hall and the office">${ICON_EYE}Unhide</button>`
     :`<button class="c-hide" type="button" data-hide="1" aria-label="Hide ${esc(name)}"
         title="Hide from the hall and the office until its next run">${ICON_EYE_OFF}</button>`;
-  return `<article class="card s-${st}${fold?" collapsed":""}${fresh?" enter":""}" data-slug="${esc(p.slug)}"${fold?" data-fold":""}>
+  // What the card says last: the newest event while it is moving, the plan at a gate.
+  const now=ev&&(st==="run"||st==="block"||st==="stale")?`<div class="c-last"><b style="color:${
+      AGENT_COLOR[ev.agent]||"var(--muted)"}">${esc(ev.agent)}</b><span class="msg" title="${esc(ev.summary)}">${
+      esc(ev.summary)}</span><span class="age" data-ts="${esc(ev.ts)}">${since(ev.ts)}</span></div>`:"";
+  return `<article class="card s-${st}${p.completed?" s-closed":""}${fold?" collapsed":""}${fresh?" enter":""}" data-slug="${esc(p.slug)}"${fold?" data-fold":""}>
     <div class="c-head">
       ${unread(p)?`<span class="unread" role="img" aria-label="New since you last looked"
-        title="New since you last looked"></span>`:""}<a class="c-name" href="/r/${encodeURIComponent(p.slug)}">${esc(name)}</a>
-      <a class="c-open" href="/r/${encodeURIComponent(p.slug)}">open →</a>
-      <span class="pill">${st}</span>${hide}</div>
-    <div class="c-repos">${esc((p.repos||[]).join(" · ")||p.slug)}</div>
-    ${ev?`<div class="c-last"><b style="color:${AGENT_COLOR[ev.agent]||"var(--muted)"}">${
-        esc(ev.agent)}</b><span class="msg" title="${esc(ev.summary)}">${esc(ev.summary)}</span><span
-        class="age" data-ts="${esc(ev.ts)}">${since(ev.ts)}</span></div>`:""}
-    <div class="felt">${seats}<div class="rail">${rail}</div>
-      <div class="baton" data-to="translate(${tx}px,${ty}px)" style="color:${colour};transform:translate(${bx}px,${by}px)"></div></div>
-    <div class="c-foot"><span>phase <b>${esc(p.phase||"—")}</b></span>
-      <span>loop <b>${loop.count}/${loop.max}</b></span>
-      ${t?`<span class="${t.failed?"fail":""}">tests <b>${t.passed}/${t.total}</b></span>`:""}</div>
+        title="New since you last looked"></span>`:""}<a class="c-name" href="/r/${encodeURIComponent(p.slug)}"
+        title="${esc(name)}">${esc(name)}</a>
+      <span class="pill"><i></i>${pillTxt(p,st)}</span>${hide}</div>
+    <div class="c-team">${team}<span class="repos">${esc(repos)}</span></div>
+    ${etcHTML(p)}${doneHTML(p)}
     ${sm?(HALL.limit?`<div class="c-stale paused">◉ paused at the usage limit — Claude Code resumes it</div>`
         :`<div class="c-stale">◉ no activity ${agoTxt(sm)} — agent may have died</div>`):""}
+    ${now}
     ${st==="gate"?planHTML(p):""}
     ${st==="gate"?`<div class="gate">
       <button data-d="finalize">Finalize</button>
@@ -899,7 +936,7 @@ function card(p){
 function cardSig(p){
   return [p.status,p.phase,p.activeAgent,(p.loop||{}).count,!!staleMs(p),hasOperator(p),p.hidden,
     (p.repos||[]).join(","),p.lastEvent&&p.lastEvent.ts,JSON.stringify(p.services||null),
-    unread(p),JSON.stringify(p.plan||null),!!HALL.limit].join("|");
+    unread(p),JSON.stringify(p.plan||null),!!HALL.limit,p.completed,etcHTML(p),doneHTML(p)].join("|");
 }
 
 /* An empty tab says what is on the other tabs and how work gets onto this one. */
@@ -909,11 +946,13 @@ function noneHTML(){
   if(SHOW==="active") return `<div class="blank">
     <div class="cast">${["planner","coder","tester","reviewer"].map(r=>sprite(r,{state:"sleep",px:22})).join("")}</div>
     <h2>Nobody is working right now</h2>
-    <p>${c.done} finished${c.hidden?` and ${c.hidden} hidden`:""}. A run appears here the moment
-      <code>/ship</code> starts one.</p>
-    ${c.done?`<button class="ghost" type="button" data-show="done">See finished work</button>`:""}</div>`;
-  if(SHOW==="done") return `<div class="blank"><h2>Nothing has finished yet</h2>
-    <p>A team moves here once its run reaches <b>done</b>.</p></div>`;
+    <p>${c.ready} ready to deploy, ${c.done} completed${c.hidden?` and ${c.hidden} hidden`:""}. A run
+      appears here the moment <code>/ship</code> starts one.</p>
+    ${c.ready?`<button class="ghost" type="button" data-show="ready">See what is ready to deploy</button>`:""}</div>`;
+  if(SHOW==="ready") return `<div class="blank"><h2>Nothing is waiting to be deployed</h2>
+    <p>A team moves here when its QA goes green, with the steps left for you.</p></div>`;
+  if(SHOW==="done") return `<div class="blank"><h2>Nothing is completed yet</h2>
+    <p>A team moves here once you mark its work completed, after deploying it.</p></div>`;
   return `<div class="blank"><h2>Nothing is hidden</h2>
     <p>Hide a team from its card to clear it out of the hall and the office. It comes back
       on its own when its workstream starts a new run.</p></div>`;
@@ -947,17 +986,13 @@ function renderHall(){
     prev=node; nodes.delete(p.slug);
   }
   for(const n of nodes.values()) n.remove();
-  // The baton is drawn where it was and moved on the next frame - a token that appears
-  // at its destination has not travelled.
-  requestAnimationFrame(()=>el.querySelectorAll(".baton[data-to]").forEach(b=>{
-    b.style.transform=b.dataset.to; b.removeAttribute("data-to");}));
   el.querySelectorAll(".c-last .age[data-ts]").forEach(a=>{
     const s=since(a.dataset.ts); if(a.textContent!==s) a.textContent=s;});
 }
 // A folded team is still a team: clicking its row opens it back up.
 document.getElementById("hall").addEventListener("click",e=>{
   const any=e.target.closest(".card"); if(any) readCard(any.dataset.slug);
-  if(e.target.closest(".gate,.c-hide,a,summary")) return;    // those own their own clicks
+  if(e.target.closest(".gate,.c-hide,.final,a,summary")) return;    // those own their own clicks
   const go=e.target.closest("[data-show]");
   if(go) return setShow(go.dataset.show);
   const c=e.target.closest(".card");
@@ -1021,6 +1056,24 @@ function toast(html,undo,bad){
   later();
 }
 
+/* The one final button. Marking work completed cannot be taken back from the hall, so the
+   first click asks and the second one sends; the server only stamps work that is done. */
+document.getElementById("hall").addEventListener("click",async e=>{
+  const b=e.target.closest(".final"); if(!b) return;
+  if(!b.dataset.armed){ b.dataset.armed="1"; b.textContent="Confirm: it is deployed"; return; }
+  const slug=b.closest(".card").dataset.slug;
+  b.disabled=true; b.textContent="sending…";
+  try{
+    if(DEMO){ const q=HALL.pipelines.find(x=>x.slug===slug); if(q) q.completed=new Date().toISOString(); render(); return; }
+    const r=await fetch("/api/complete",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({slug})});
+    if(!r.ok) throw new Error("the server said "+r.status);
+    await pull();
+  }catch(err){
+    b.disabled=false; delete b.dataset.armed; b.textContent="Mark completed";
+    toast(`Could not mark it completed - ${esc(err.message)}`,null,true);
+  }
+});
 /* Section 6 and 14: the browser half writes the same gate.json the terminal does. The
    decision is one of three fixed strings the server re-checks, and the slug is the card's
    own - nothing here is read from the URL. */
@@ -1050,57 +1103,95 @@ document.getElementById("hall").addEventListener("click",async e=>{
    The same bus data, read the ambient way. Behaviour maps to state, not decoration:
    typing at a desk means it holds the work, asleep means finished, frozen mid-keystroke
    means quiet, and the team standing together means a finalize gate. */
-const BUILDING_W=566, BUILDING_H=418;          // six pods fit; past that the floor grows
-// A rug overhangs its island by 8 above and 34 below, so at the original 152 one row's
-// rug ran into the next row's; 182 leaves the same 22 px aisle down the floor as across it.
-const POD_XS=[18,212,406], POD_Y0=16, POD_DY=182;
-// Seating is facing pairs: desks back to back down the middle, bodies on the outer
-// edges. Four fit in nearly the space of two and no agent is ever in front of a screen.
+const BUILDING_W=566, BUILDING_H=466;          // six pods fit; past that the floor grows
+// A rug overhangs its island by 8 above, and the nameplate and bar hang to +170, so at the original 152 one row's
+// rug ran into the next row's; 206 also clears each island's state tag (top:-31px) of the row above's nameplate and bar (bottom 170).
+const POD_XS=[18,212,406], POD_Y0=16, POD_DY=206;
+// Seating is facing pairs around one shared table: two above, two below (seen from
+// behind), each facing the laptop at (dx,dy).
 const POD=[
-  {"role":"planner", "x":26,"y":4,  "dx":12,"dy":34,"back":false},
-  {"role":"coder",   "x":96,"y":4,  "dx":82,"dy":34,"back":false},
-  {"role":"tester",  "x":26,"y":120,"dx":12,"dy":86,"back":true},
-  {"role":"reviewer","x":96,"y":120,"dx":82,"dy":86,"back":true}
+  {"role":"planner", "x":26,"y":4,  "dx":25,"dy":42,"back":false},
+  {"role":"coder",   "x":96,"y":4,  "dx":95,"dy":42,"back":false},
+  {"role":"tester",  "x":26,"y":120,"dx":25,"dy":92,"back":true},
+  {"role":"reviewer","x":96,"y":120,"dx":95,"dy":92,"back":true}
 ];
-// Only a gate gathers them. Agents do not walk between desks on a handoff (10.8-3):
-// the baton and the seat-level walk-in already carry it, and an agent in transit has no
-// legible state.
-const MEET=[[12,116],[42,116],[72,116],[102,116]];   // standing, they end at the rug's edge
-
 /* The corridor graph. Desk islands occupy x 18-174 / 212-368 / 406-562 and y 16-134 /
-   198-316, so the walkable space is the two vertical aisles and the horizontal ones.
+   222-340, so the walkable space is the two vertical aisles and the horizontal ones.
    Every edge here is purely horizontal or vertical - that is what stops a walker cutting
    the corner through somebody's desk. */
-const NODES={"a":[193,10],"b":[387,10],"c":[193,179],"d":[387,179],"e":[193,378],"f":[387,378]};
+const NODES={"a":[193,10],"b":[387,10],"c":[193,206],"d":[387,206],"e":[193,426],"f":[387,426]};
 const EDGES=[["a","b"],["c","d"],["e","f"],["a","c"],["c","e"],["b","d"],["d","f"]];
 // The bottom corridor follows the last row down as the floor grows; at two rows it is
-// the 378 declared above.
+// the 426 declared above.
 function nodeAt(k,rows){const n=NODES[k];return (k==="e"||k==="f")?[n[0],POD_Y0+rows*POD_DY-2]:n;}
 
-function podSig(p){return cardSig(p);}
+/* Past six teams the floor widens until the whole of it fits the window, instead of
+   growing down a fixed three columns off the bottom. Islands sit on the same 194 pitch;
+   the corridor graph is the three-column one drawn for n columns: an aisle between each
+   pair of columns, a corridor above the first row, one between the rows, one below the last. */
+const COL_DX=194;
+function floorDims(n,cells){
+  const rows=Math.max(2,Math.ceil(cells/n));
+  return {rows, w:Math.max(BUILDING_W,POD_XS[0]+COL_DX*(Math.min(n,cells)-1)+184), h:BUILDING_H+Math.max(0,rows-2)*POD_DY};
+}
+function floorGraph(n,rows){
+  const nodes={}, edges=[];
+  if(n===3){ Object.keys(NODES).forEach(k=>nodes[k]=nodeAt(k,rows)); return {nodes,edges:EDGES}; }
+  const ys=[10,206,POD_Y0+rows*POD_DY-2];
+  for(let j=0;j<n-1;j++) ys.forEach((y,r)=>{
+    nodes[r+"."+j]=[193+COL_DX*j,y];
+    if(r) edges.push([(r-1)+"."+j,r+"."+j]);
+    if(j) edges.push([r+"."+(j-1),r+"."+j]);
+  });
+  return {nodes,edges};
+}
+// The column count (3..cells) with the largest fitted zoom; six teams or fewer keep three.
+function pickCols(teams,cells,cw,ch,top,bot){
+  let best=3,bz=0;
+  if(teams<=6) return best;
+  for(let n=3;n<=cells;n++){
+    const d=floorDims(n,cells), z=Math.min((cw-32)/d.w,(ch-top-bot)/d.h);
+    if(z>bz+1e-9){bz=z;best=n;}
+  }
+  return best;
+}
+
+function podSig(p){return cardSig(p)+podTag(p,cardState(p));}
+function podTag(p,st){
+  if(st==="done") return p.completed?"completed":"ready to deploy";
+  const t=etc(p);
+  if(st==="gate") return "waiting on you"+(t?" "+dur(t.waited):"");
+  if(st==="block") return "blocked"+(t?" "+dur(t.waited):"");
+  if(st==="stale") return "quiet "+agoTxt(staleMs(p));
+  if(!t) return esc(p.phase||"running");
+  return clockAt(Date.now()+t.left*60000)+(t.over>5?` <small>${dur(t.over)} over</small>`
+    :(l=>l.length>5?"":` <small>likely ${l}</small>`)(clockAt(Date.now()+t.likely*60000)));   // a dated "likely" would outgrow the 194px pitch
+}
 const POD_SIG={};
 
-function podHTML(p,i){
-  const st=cardState(p), gate=st==="gate";
-  const x=POD_XS[i%3], y=POD_Y0+Math.floor(i/3)*POD_DY;
-  const people=(gate?POD.map((a,j)=>({role:a.role,x:MEET[j][0],y:MEET[j][1],back:false}))
-                    :POD).map(a=>
+function podHTML(p,i,N){
+  const st=cardState(p), work=st==="run";
+  const x=POD_XS[0]+COL_DX*(i%N), y=POD_Y0+Math.floor(i/N)*POD_DY;
+  // a completed team has left: empty chairs, laptops off
+  const people=p.completed?"":POD.map(a=>
     `<div class="chair" style="left:${a.x+2}px;top:${a.back?a.y+21:a.y-5}px"></div>
      <div class="body" style="left:${a.x}px;top:${a.y}px">${
-       sprite(a.role,{back:a.back,state:seatState(p,a.role),seated:!gate,px:24})}</div>`).join("");
-  const desks=POD.map(a=>`<div class="desk${!gate&&p.activeAgent===a.role?" work":""}"
-    style="left:${a.dx}px;top:${a.dy}px"><div class="scr"><i></i></div></div>`).join("");
-  return `<div class="pod s-${st}" data-slug="${esc(p.slug)}" style="left:${x}px;top:${y}px">
-    <div class="rug"></div><a class="pod-name" href="/r/${encodeURIComponent(p.slug)}"
+       sprite(a.role,{back:a.back,state:seatState(p,a.role),seated:true,px:24})}</div>`).join("");
+  const laps=POD.map(a=>`<span class="lap${!p.completed&&work&&p.activeAgent===a.role?" work":""}"
+    style="left:${a.dx}px;top:${a.dy}px"><i></i><i></i><i></i><i></i><i></i><i></i></span>`).join("");
+  const t=etc(p), pct=p.status==="done"?100:t?Math.round(100*t.worked/Math.max(1,t.worked+t.left)):0;
+  return `<div class="pod s-${st}${p.completed?" s-closed":""}" data-slug="${esc(p.slug)}" style="left:${x}px;top:${y}px">
+    <div class="rug"></div><span class="pod-tag">${podTag(p,st)}</span><div class="table"></div>${laps}${people}
+    <a class="pod-name" href="/r/${encodeURIComponent(p.slug)}"
       title="${esc(p.feature||p.slug)}">${esc(p.feature||p.slug)}</a>
-    ${desks}${people}</div>`;
+    <div class="p-bar"><i style="width:${pct}%"></i></div></div>`;
 }
 
 /* The conductor sits apart, on its own rug, because it does a different job: it owns the
    things that belong to the project rather than to any one feature. A floor that shows
    four teams and hides what is directing them hides the decision-maker. */
-function orchHTML(ps){
-  const i=ps.length, x=POD_XS[i%3], y=POD_Y0+Math.floor(i/3)*POD_DY;
+function orchHTML(ps,N){
+  const i=ps.length, x=POD_XS[0]+COL_DX*(i%N), y=POD_Y0+Math.floor(i/N)*POD_DY;
   const live=shelfCounts().active;     // the whole room's, whichever tab is showing
   return `<div class="pod orch" style="left:${x}px;top:${y}px">
     <div class="rug"></div>
@@ -1114,22 +1205,22 @@ function orchHTML(ps){
 
 /* Two walkers, on the graph, one axis at a time. They are the only thing in the room
    that means nothing, and they are grey for exactly that reason. */
-function startWalkers(floor,rows){
-  const keys=Object.keys(NODES);
+function startWalkers(floor,g){
+  const keys=Object.keys(g.nodes);
   [0,1].forEach(n=>{
     const el=document.createElement("div");
     el.className="walker"; el.style.position="absolute"; el.style.left="0"; el.style.top="0";
     el.innerHTML=sprite("orch",{state:"wait",px:24});
     floor.append(el);
-    let at=keys[n?5:0];
-    const put=(k,ms)=>{const c=nodeAt(k,rows);
+    let at=keys[n?keys.length-1:0];
+    const put=(k,ms)=>{const c=g.nodes[k];
       el.style.transition=ms?`transform ${ms}ms steps(${Math.max(2,Math.round(ms/90))})`:"";
       el.style.transform=`translate(${c[0]-12}px,${c[1]-20}px)`;};
     const step=()=>{
       if(!el.isConnected) return;                       // the floor was rebuilt
-      const next=EDGES.filter(e=>e.indexOf(at)>=0).map(e=>e[0]===at?e[1]:e[0]);
+      const next=g.edges.filter(e=>e.indexOf(at)>=0).map(e=>e[0]===at?e[1]:e[0]);
       const to=next[Math.floor(Math.random()*next.length)];
-      const a=nodeAt(at,rows), b=nodeAt(to,rows);
+      const a=g.nodes[at], b=g.nodes[to];
       const ms=(Math.abs(b[0]-a[0])+Math.abs(b[1]-a[1]))*14;
       put(to,ms); at=to;
       setTimeout(step,ms+700+Math.random()*1800);
@@ -1154,25 +1245,31 @@ function observePods(floor){
 /* Zoom and pan over real DOM, not a canvas rewrite: every agent keeps its tooltip, its
    CSS animation and its theme tokens. Ctrl+wheel anchors on the pointer; drag pans. */
 let Z=1,PX=24,PY=24;
-/* The floor stays at its own size and does NOT stretch to the viewport: a fixed building
-   keeps every pod the same size run to run, which is what makes it scannable. Fit is a
-   control the reader reaches for, not something that happens to them. */
+/* The floor opens fitted to the screen and re-fits when the window or the set of teams
+   changes; after that the reader moves it like any canvas - drag, scroll, ctrl+scroll. */
+function fitFrame(host){
+  const pad=16, tagH=24;   // the state tags hang tagH above the floor's top edge
+  const k=host.querySelector(".key");
+  return {pad, top:(k?k.offsetHeight+24:pad)+tagH, bot:pad+36};  // key above, HUD below
+}
 function fitView(){
   const host=document.getElementById("office"), f=host.querySelector(".floor");
   if(!f || !host.clientWidth) return;
-  const pad=16;
-  Z=Math.max(0.5,Math.min(2.5,
-    Math.min((host.clientWidth-pad*2)/f.offsetWidth,(host.clientHeight-pad*2)/f.offsetHeight)));
-  PX=Math.max(pad,(host.clientWidth-f.offsetWidth*Z)/2);
-  PY=pad;
+  const {pad,top,bot}=fitFrame(host);
+  const w=f.offsetWidth, h=f.offsetHeight;
+  Z=Math.max(0.2,Math.min(1.6,   // fit never zooms past 160% nor below 20%; manual zoom still spans 50%-250%
+    Math.min((host.clientWidth-pad*2)/w,(host.clientHeight-top-bot)/h)));
+  PX=Math.max(pad,(host.clientWidth-w*Z)/2);
+  PY=Math.max(top,top+(host.clientHeight-top-bot-h*Z)/2);
   applyView(); showZoom();
 }
+window.addEventListener("resize",()=>{ if(!document.getElementById("office").hidden){ renderOffice(); fitView(); } });
 function showZoom(){
   const el=document.getElementById("zoom-pct");
   if(el) el.textContent=Math.round(Z*100)+"%";
 }
 function setZoom(z){
-  Z=Math.max(0.5,Math.min(2.5,Math.round(z*100)/100));
+  Z=Math.max(Math.min(0.5,Z),Math.min(2.5,Math.round(z*100)/100));   // a fitted Z below 0.5 must not jump in on zoom-out
   applyView(); showZoom();
 }
 function applyView(){
@@ -1188,12 +1285,12 @@ function applyView(){
       return;
     }
     const r=host.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
-    const nz=Math.min(2.5,Math.max(0.5,Z*(e.deltaY<0?1.12:1/1.12)));
+    const nz=Math.min(2.5,Math.max(Math.min(0.5,Z),Z*(e.deltaY<0?1.12:1/1.12)));
     PX=mx-(mx-PX)*(nz/Z); PY=my-(my-PY)*(nz/Z); Z=nz; applyView();
   },{passive:false});
   let down=null;
   host.addEventListener("pointerdown",e=>{
-    if(e.target.closest("a,button")) return;  // a captured pointer would swallow the click
+    if(e.target.closest("a,button,.hud")) return;  // a captured pointer would swallow the click
     down={x:e.clientX-PX,y:e.clientY-PY};
     host.classList.add("drag");host.setPointerCapture(e.pointerId);});
   host.addEventListener("pointermove",e=>{if(!down)return;
@@ -1206,34 +1303,42 @@ function renderOffice(){
   if(host.hidden) return;                      // the hall is the working view
   // The conductor occupies a cell like any team, so it has to be counted when the floor
   // is sized - otherwise it is placed in a column the building has no room for and hangs
-  // off the right edge. The 566x418 of section 10.5 is the floor's *minimum*: three
+  // off the right edge. The 566x466 of section 10.5 is the floor's *minimum*: three
   // columns of 158 starting at x=18 need more than that once the border is counted.
-  const ps=shown(), cells=ps.length+1, rows=Math.max(2,Math.ceil(cells/3));
-  const shell=rows+"|"+ps.map(p=>p.slug).join(",");
+  const ps=shown(), cells=ps.length+1, fr=fitFrame(host),
+    N=pickCols(ps.length,cells,host.clientWidth,host.clientHeight,fr.top,fr.bot),
+    {rows,w,h}=floorDims(N,cells);
+  const shell=N+"|"+rows+"|"+ps.map(p=>p.slug).join(",");
   let floor=host.querySelector(".floor");
   if(!floor||host.dataset.shell!==shell){
     host.dataset.shell=shell;
-    const h=BUILDING_H+Math.max(0,rows-2)*POD_DY;
-    const w=Math.max(BUILDING_W, POD_XS[Math.min(2,cells-1)]+158+26);
-    host.innerHTML=`<div class="fbar">
-        <span class="fbar-l">Floor</span>
-        <button class="ghost" data-z="out">&minus;</button>
-        <span id="zoom-pct">100%</span>
-        <button class="ghost" data-z="in">+</button>
-        <button class="ghost" data-z="fit">Fit</button>
-        <span class="fbar-hint">ctrl + scroll to zoom &middot; drag to pan</span>
+    host.innerHTML=`<div class="key">
+        <span><b>Typing, screen scrolling:</b> holds the work now</span>
+        <span><b>Hand up, amber rug:</b> waiting on you</span>
+        <span><b>Shaking, red rug:</b> blocked</span>
+        <span><b>Asleep on green:</b> ready to deploy</span>
       </div>
+      <span class="hint">Drag to move &middot; scroll to pan &middot; ctrl + scroll to zoom</span>
+      <div class="hud"><button class="ghost" data-z="out" aria-label="Zoom out">&minus;</button>
+        <span id="zoom-pct">100%</span>
+        <button class="ghost" data-z="in" aria-label="Zoom in">+</button>
+        <button class="ghost" data-z="fit">Fit</button>
+        <button class="ghost" data-z="100">100%</button></div>
       <div class="floor" style="width:${w}px;height:${h}px">
-      ${ps.map(podHTML).join("")}${orchHTML(ps)}
+      ${ps.map((p,i)=>podHTML(p,i,N)).join("")}${orchHTML(ps,N)}
       <div class="plant" style="left:184px;top:${h-56}px"><i></i><b></b></div>
       <div class="plant" style="left:${w-40}px;top:${h-56}px"><i></i><b></b></div></div>`;
     floor=host.querySelector(".floor");
+    // The key only exists now: if it moves the best column count, lay out once more, here,
+    // so the first open lands on its final N instead of re-laying itself on the next update.
+    const fr2=fitFrame(host);
+    if(pickCols(ps.length,cells,host.clientWidth,host.clientHeight,fr2.top,fr2.bot)!==N){ renderOffice(); return; }
     ps.forEach(p=>POD_SIG[p.slug]=podSig(p));
-    host.querySelector(".fbar").addEventListener("click",e=>{
+    host.querySelector(".hud").addEventListener("click",e=>{
       const b=e.target.closest("button"); if(!b) return;
-      if(b.dataset.z==="fit") fitView(); else setZoom(Z*(b.dataset.z==="in"?1.15:1/1.15));
+      if(b.dataset.z==="fit") fitView(); else if(b.dataset.z==="100") setZoom(1); else setZoom(Z*(b.dataset.z==="in"?1.15:1/1.15));
     });
-    applyView(); showZoom(); startWalkers(floor,rows);
+    fitView(); startWalkers(floor,floorGraph(N,rows));
   }else{
     // Patch only the pod that changed, or the whole floor's loops restart - including
     // the walkers, who would teleport back to where they started.
@@ -1242,7 +1347,7 @@ function renderOffice(){
       if(POD_SIG[p.slug]===podSig(p)) return;
       POD_SIG[p.slug]=podSig(p);
       const old=pods.find(el=>el.dataset.slug===p.slug); if(!old) return;
-      const t=document.createElement("template"); t.innerHTML=podHTML(p,i);
+      const t=document.createElement("template"); t.innerHTML=podHTML(p,i,N);
       old.replaceWith(t.content.firstElementChild);
     });
   }
@@ -1265,7 +1370,7 @@ setInterval(()=>{if(HALL.pipelines.length) render();},30000);
    bell says. A notification fires only for a change you are not looking at, and only once
    you turned alerts on from the bell: the page never raises the permission prompt itself. */
 const BASE_TITLE=document.title;
-const NEEDS={gate:"Waiting for your approval",stale:"Gone quiet - its agent may have died",done:"Finished"};
+const NEEDS={gate:"Waiting for your approval",block:"Blocked - it needs you",stale:"Gone quiet - its agent may have died",done:"Finished"};
 const canAlert=()=>"Notification" in window;
 let ALERTS=(()=>{try{return localStorage.getItem("ao-alerts");}catch(e){return null;}})();
 const alertsOn=()=>canAlert()&&Notification.permission==="granted"&&ALERTS==="on";
@@ -1283,13 +1388,13 @@ function attention(){
   paintLimit();
   const live=HALL.pipelines.filter(p=>!p.hidden);
   // While a limit holds every team, a quiet one is waiting on the reset, not on you.
-  const need=live.filter(p=>cardState(p)==="gate"||(cardState(p)==="stale"&&!HALL.limit)).length
+  const need=live.filter(p=>cardState(p)==="gate"||(["stale","block"].includes(cardState(p))&&!HALL.limit)).length
     +(HALL.limit&&HALL.limit.state==="needs-you"?1:0);
   document.title=need?`(${need}) need you · ${BASE_TITLE}`:BASE_TITLE;
   const now={}; for(const p of HALL.pipelines) now[p.slug]=cardState(p);
   if(WAS&&alertsOn()&&!DEMO&&!looking()) for(const p of live){
     const s=now[p.slug], was=WAS[p.slug];
-    if(s===was||!NEEDS[s]||(was===undefined&&s==="done")||(s==="stale"&&HALL.limit)) continue;
+    if(s===was||!NEEDS[s]||(was===undefined&&s==="done")||((s==="stale"||s==="block")&&HALL.limit)) continue;
     // set-status lands before the orchestrator's question, so at a gate the newest event
     // is often the previous phase's news - quote it only when it is the question itself.
     const ev=p.lastEvent, say=ev&&ev.summary&&(s!=="gate"||ev.type==="question");
@@ -1354,7 +1459,7 @@ function setView(v){
   for(const k of VIEWS) document.getElementById(k).hidden=k!==VIEW;
   document.querySelectorAll("#view-seg button")
     .forEach(b=>b.classList.toggle("sel",b.dataset.view===VIEW));
-  if(VIEW==="office") renderOffice();   // it skips itself while hidden
+  if(VIEW==="office"){ renderOffice(); fitView(); }   // it skips itself while hidden
 }
 document.getElementById("view-seg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
@@ -1390,10 +1495,13 @@ const ago=s=>new Date(Date.now()-s*1000).toISOString();
 const FIXTURE={root:"~/.agent-orchestration/pipelines",pipelines:[
   {slug:"multi-pipeline-engine",feature:"Multi-pipeline engine",phase:"implement",
    status:"running",activeAgent:"coder",loop:{count:1,max:5},repos:["ship-team"],
-   updatedAt:ago(20),lastEvent:{ts:ago(20),agent:"coder",type:"status",summary:"Wiring the felt"}},
+   updatedAt:ago(20),lastEvent:{ts:ago(20),agent:"coder",type:"status",summary:"Wiring the felt"},
+   eta:{phases:{spec:5,plan:30,implement:150,test:45,review:25,qa:15},totalMin:270,leftMin:173,likelyMin:225},
+   clock:{at:ago(20),work:{spec:4,plan:34,implement:65},waitMin:22,pausedMin:0}},
   {slug:"009-messaging-hub",feature:"Messaging hub",phase:"plan",status:"awaiting_approval",
    activeAgent:"planner",loop:{count:0,max:5},repos:["crm","api"],updatedAt:ago(90),
    lastEvent:{ts:ago(90),agent:"planner",type:"handoff",summary:"Plan ready: 7 tasks, 2 services"},
+   eta:{phases:{spec:5,plan:30,implement:150,test:45,review:25,qa:15},totalMin:270,leftMin:235,likelyMin:300},clock:{at:ago(1320),work:{spec:4,plan:31},waitMin:0,pausedMin:0},
    plan:{approach:"The hub owns delivery; crm only publishes events. api gains one outbox table and a worker, so a slow provider never holds a request open.",
      services:["api","crm"],taskCount:7,criteria:9,risks:2,questions:1,tasks:[
      {id:"T1",service:"api",title:"Outbox table and migration"},{id:"T2",service:"api",title:"Delivery worker with retry and backoff"},
@@ -1403,10 +1511,21 @@ const FIXTURE={root:"~/.agent-orchestration/pipelines",pipelines:[
   {slug:"tenant-sso-logout",feature:"Propagate tenant SSO logout",phase:"test",status:"running",
    activeAgent:"tester",loop:{count:2,max:5},repos:["oauth","MFA_Server"],updatedAt:ago(1500),
    services:{oauth:{passed:6,failed:1},MFA_Server:{passed:4,failed:0}},
-   lastEvent:{ts:ago(1500),agent:"tester",type:"result",summary:"Tests 10/11 — 1 failing (iter 2)"}},
+   lastEvent:{ts:ago(1500),agent:"tester",type:"result",summary:"Tests 10/11 — 1 failing (iter 2)"},
+   eta:{phases:{spec:5,plan:22,implement:80,test:70,review:20,qa:10},totalMin:207,leftMin:48,likelyMin:85},
+   clock:{at:ago(1500),work:{spec:5,plan:20,implement:92,test:54},waitMin:6,pausedMin:0}},
   {slug:"ipo-mandate-automation",feature:"IPO mandate automation",phase:"done",status:"done",
    activeAgent:"reviewer",loop:{count:1,max:5},repos:["crm"],updatedAt:ago(6000),
-   lastEvent:{ts:ago(6000),agent:"orchestrator",type:"status",summary:"Merged and archived"}},
+   workCompletedAt:ago(6000),branch:"feature/ipo-mandate-automation",
+   humanSteps:["Review and merge feature/ipo-mandate-automation in crm","Deploy to the target environment",
+     "Verify the change live","Close the workstream: pipe.py finish ipo-mandate-automation --apply"],
+   eta:{phases:{spec:5,plan:30,implement:150,test:45,review:25,qa:15},totalMin:270,leftMin:0,likelyMin:0},
+   clock:{at:ago(6000),work:{spec:4,plan:33,implement:171,test:52,review:19,qa:11},waitMin:48,pausedMin:0},
+   lastEvent:{ts:ago(6000),agent:"orchestrator",type:"status",summary:"QA green: 9 tasks, tests 412/412"}},
+  {slug:"client-investment-horizon",feature:"Client investment horizon",phase:"done",status:"done",
+   activeAgent:"orchestrator",loop:{count:2,max:5},repos:["crm"],updatedAt:ago(260000),
+   workCompletedAt:ago(260000),completed:ago(172000),
+   lastEvent:{ts:ago(260000),agent:"orchestrator",type:"status",summary:"QA green"}},
   {slug:"legacy-importer",feature:"Legacy CSV importer",phase:"implement",status:"running",
    activeAgent:"coder",loop:{count:0,max:5},repos:["api"],updatedAt:ago(900000),hidden:true,
    lastEvent:{ts:ago(900000),agent:"coder",type:"status",summary:"Parsing the header row"}},

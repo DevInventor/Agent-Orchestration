@@ -384,72 +384,74 @@ repo is an orchestrator-level act shared by every team: each row shows index sta
 node count (`fresh` / `drift` — HEAD moved / `none` — never indexed), there is a field to
 add another, and a hand-off link to `localhost:9749/?tab=stats` (§11).
 
-One card per pipeline, and the card is a table:
+One card per pipeline, flat, top to bottom:
 
-- **Header** — feature name, `open →` affordance on hover, and a status pill
-  (`run` / `gate` / `done` / `stale`). Card border takes the same colour.
-- **Repos line** — the services this workstream touches.
-- **The surface** — the felt, with four seats at its corners in pipeline order clockwise:
-  `planner` top-left, `coder` top-right, `tester` bottom-right, `reviewer` bottom-left.
-- **The phase rail** — across the middle of the felt: `spec → plan → implement → test →
-  review → done`, current tick scaled and pulsing in the active agent's colour.
-- **The baton** — one token resting on the felt, inset 26 px from its seat's corner,
-  recoloured to whoever holds the work. Consecutive hops therefore run along an edge: the
-  path reads as passing work round a table, not cutting across it.
-- **Foot** — phase, fix-loop position, test count (red when failing).
+- **Header** — feature name, a status pill (`run` / `gate` / `done` / `stale`, or `blocked`),
+  and a hide toggle. Card border takes the pill's colour; a dot marks an event you have not
+  seen. Completed and hidden teams fold to one line.
+- **Team row** — the four drawn characters (§10.3) in pipeline order, the holder marked,
+  with the repos beside them. No table, no corner seats, no baton.
+- **Three figures** — *expected* (work left on the local clock, "if approved now" at a gate)
+  with *likely by* beneath it, *work left*, and *waiting* (time held on you; "and counting"
+  while it is). A run past the plan's estimate says by how much.
+- **Phase rail** — to scale: segments sized by each phase's estimate, filled by work done, a
+  needle at now, and **slack** as the grey tail for how late it could run. The estimate
+  itself is `pipe.py`'s (ADR-0006); the hall only counts the time since its last stamp.
 - **Stale strip** — `◉ no activity 6m — agent may have died`, on a run claiming `running`
-  whose bus has not been written to for ~3 min (D3, shipped).
-- **Last event**, one line.
+  whose bus has not been written to for ~3 min (D3), or the usage-limit pause.
+- **Last line** — the newest event while the run moves; at the plan gate, instead, the
+  **plan brief**: task / service / criteria counts (high-complexity tasks named), the
+  approach, and the tasks by service.
 - **Gate row** — `Finalize` / `In place` / `Reject`, on a waiting card only. These are
   §14's three fixed values and nothing else.
+- **Ready to deploy** — a finished run shows the QA-green time, the human's steps, and
+  **Mark completed** (two-step confirm). Completed, it folds.
 
 Footer count reads `N teams · N awaiting you · N quiet`.
 
 ### 10.3 The cast
 
 Four people you can tell apart **without reading a colour**: the planner is an old man
-(silver, receding at the temples), the coder a boy (dark fringe), QA a girl (long auburn),
-the reviewer an uncle (moustache). An orchestrator sits apart at the head table.
+(silver hair, receding at the temples), the coder a boy (dark fringe), QA a girl (long
+auburn), the reviewer an uncle (moustache). An orchestrator sits apart at the head table.
 
-- **Hair is a separate SVG layer over a shared body.** The shirt keeps the role colour via
-  `currentColor` while the hair gives each agent a face, so the team reads two ways at
-  once. Skin, legs, shoes and pupils come from theme tokens.
-- **Two hair layers per character**, `hair-<role>` and `hair-<role>-back`. The front one
-  caps the head and leaves room for a face; the back one fills the whole skull, because
-  from behind there is no face to leave room for. `sprite()` appends `-back` automatically
-  for rear-facing seats and never for `sleep`. **Skipping this is what made the near pair
-  render as blank heads** — bare scalp with a fringe balanced on it. It was the last bug
-  fixed in the mockup; do not reintroduce it.
-- Hair colours: planner `#CFCBC2` / `#E2DFD8`, coder `#5B4636` / `#4A382B` / `#6B5544`,
-  tester `#8A4B2F` / `#7A4129` / `#9A573A`, reviewer `#3A2E22` / `#4A3B2C`,
-  orchestrator `#4A4258`.
-- **Eyes need the dedicated near-black `--pupil` token** and roughly 3.6 px of rendered
-  width (a 1.6–1.7 unit rect in the 12×18 viewBox at the 27 px render size). At the
-  original ~1.8 px they vanished entirely under `shape-rendering: crispEdges`.
-- Chibi proportions — head about 45% of the body — and `crispEdges` throughout.
+- **One drawn figure, one hair layer.** `sprite()` in `ui/hall.html` draws a round head,
+  rounded torso and two rounded arms in a 24-wide viewBox (30 tall standing, 23 seated,
+  cropped at the waist). The torso and arms take the role colour via `currentColor`; the
+  hair (`h-<role>`, the same in both themes) gives each agent a face.
+- **Front and back.** From the front the hair is a cap with room for a face and two eyes;
+  from behind (the near pair of seats) it fills the whole skull, because there is no face to
+  leave room for. `sprite()` turns a rear-facing seat around, never a sleeper. **Skipping
+  this renders blank heads** — bare scalp with a fringe balanced on it; do not reintroduce it.
+- Skin comes from `--skin` and the eyes from the near-black `--pupil` token. The edges are
+  smooth, not pixel-snapped.
+- **States**: `type` (hands on the keys, holds the work), `wait`, `ask` (a hand up and
+  waving — waiting on you at a gate), `stuck` (shaking — blocked), `sleep` (finished, eyes
+  shut, a floating z) and idle. Blocked is its own state, not a dimmed wait.
 
 ### 10.4 Motion inventory
 
-Eight entries, and six of them are one agent's states plus the two that mark a change.
-**If this list grows to twenty, that is the bug.**
+Seven entries (the baton went with the felt). S52 is the guard: it allows these keyframes
+plus the cast's own five (`tap`, `blink`, `zz`, `wave`, `shake`) and the office's
+`screen-scroll`, which ride on the entries below. **If this list
+grows to twenty, that is the bug.**
 
 | What | Trigger | Property | Curve & duration |
 |---|---|---|---|
-| Baton travel | handoff | `transform` | 280 ms `ease-in-out` |
 | Typing | agent holds the work | `transform` | 340 ms `steps(1)`, loops |
-| Waiting | turn not yet come | `transform` | 3.4 s `steps(1)`, loops |
+| Waiting | turn not yet come (also `ask`) | `transform` | 3.4 s `steps(1)`, loops |
 | Asleep | agent finished | `opacity`, `transform` | 3.6 s, loops |
-| Walking in | baton lands | `transform` | 440 ms `steps(4)`, once |
-| Table entrance | first paint only | `transform`, `opacity` | 260 ms `ease-out`, never replays |
+| Walking in | work lands on a seat | `transform` | 440 ms `steps(4)`, once |
+| Card entrance | first paint only | `transform`, `opacity` | 260 ms `ease-out`, never replays |
 | Repo row in | you register a repo | `transform`, `opacity` | 240 ms `ease-out` |
 | Going quiet | run stale > 3 min | freeze + `opacity` | 2.6 s `ease-in-out`, loops |
 
 Rules that come with it:
 
-1. **Stepped, never eased.** Every sprite loop is `steps(1)` or `steps(4)`. A pixel
-   character that tweens smoothly stops reading as a sprite and starts reading as a moving
-   `div`. The snap is what makes it look drawn.
-2. **Exactly one agent per table types.** The rest wait or sleep at much lower amplitude,
+1. **Bodies are stepped, never eased.** The body loops (typing, waiting, asleep, shaking, walking in)
+   are `steps(n)`: the snap keeps a character from reading as a tweening `div`. The small
+   limb and face loops (`tap`, `blink`, `zz`) are eased, and `wave` is `steps(3)`.
+2. **Exactly one agent per team types.** The rest wait or sleep at much lower amplitude,
    so "busy" stays legible by being the exception in its own row.
 3. **Something always moves at rest.** A completely still floor reads as a broken
    dashboard. This was overruled three times in favour of stillness and restored each
@@ -465,47 +467,60 @@ Rules that come with it:
 
 ### 10.5 The office floor
 
-One open floor; the building's outer wall is the only wall. A team is a **desk island on a
-rug, and the rug carries the state** — amber for a gate, red for a run gone quiet, faded
-for one that is finished. You read the rug before you find a single agent, which is what a
-floor plan must earn, being slower to scan than a table.
+One open floor; the building's outer wall is the only wall. A team is an **island on a
+rug, and the rug carries the state** — amber for a gate, red for blocked or gone quiet,
+green for ready to deploy, faded and empty for completed. You read the rug before you find
+a single agent, which is what a floor plan must earn, being slower to scan than a card.
 
-- **Seating is facing pairs** — desks back to back down the middle, bodies on the outer
-  edges. Chosen explicitly over solo desk, round table and bench row, because it fits four
-  in nearly the space of two and **no agent is ever in front of a screen**. The bottom pair
-  is `back: true`. Offsets, per agent: planner `(26,4)` desk `(12,34)`, coder `(96,4)` desk
-  `(82,34)`, tester `(26,120)` desk `(12,86)`, reviewer `(96,120)` desk `(82,86)`.
-- **The working desk's screen scrolls.** The cheapest possible "something is happening
-  here" that moves no body at all.
-- **Walkers move on a corridor graph, one axis at a time.** Desk islands occupy x 18–174 /
-  212–368 / 406–562 and y 16–134 / 168–286, so the walkable space is the two vertical
-  aisles and the two horizontal ones. Every edge in `NODES` / `EDGES` is purely horizontal
-  or vertical — that is what stops a walker cutting the corner through somebody's desk.
-  The two walkers are the only thing in the room that means nothing, and they are grey for
-  exactly that reason.
-- **Zoom and pan over real DOM**, not a canvas rewrite: every agent keeps its tooltip, its
-  CSS animation and its theme tokens. Ctrl+wheel zooms anchored on the pointer, drag pans,
-  range 0.5–2.5.
-- Behaviour maps to state, not decoration: typing at a desk = holds the work, asleep =
-  finished, frozen mid-keystroke = quiet, team round the meeting table = a finalize gate.
+- **One shared wood table per island, four laptops on it**; the holder's screen scrolls —
+  the cheapest "something is happening here" that moves no body at all. Seating is facing
+  pairs around it, chosen over solo desk, round table and bench row because it fits four in
+  nearly the space of two and **no agent is ever in front of a screen**. The bottom pair is
+  seen from behind (`back: true`), facing their laptops. Seats: planner `(26,4)`, coder
+  `(96,4)`, tester `(26,120)`, reviewer `(96,120)`; laptops at `(25|95, 42)` and
+  `(25|95, 92)`. A completed island is empty and dimmed.
+- **State tag above each island, nameplate and progress bar at the foot.** The tag is the
+  one figure you need from across the room: the expected clock time (with *likely by* or
+  how far over), or `waiting on you 12m`, `blocked`, `quiet 6m`, `ready to deploy`,
+  `completed`. The nameplate links to the board.
+- **Walkers move on a corridor graph, one axis at a time.** Islands occupy x 18–174 /
+  212–368 / 406–562 and y 16–134 / 222–340, so the walkable space is the aisles between
+  them. Every edge in `NODES` / `EDGES` is purely horizontal or vertical — that is what
+  stops a walker cutting the corner through somebody's desk. The two walkers are the only
+  thing in the room that means nothing, and they are grey for exactly that reason.
+- **Six teams or fewer sit in three columns; past that the floor widens** to whichever column
+  count (same 194 pitch, same corridor graph drawn for that many aisles) fits the window
+  largest, and re-chooses on resize.
+- **Pan and zoom over real DOM**, not a canvas rewrite: every agent keeps its tooltip, its
+  CSS animation and its theme tokens. The floor opens **fitted to the screen** — fit is
+  capped at 1.6 and leaves room for the state key above and the tags over the top row —
+  and re-fits on resize or a change of teams. Then drag or scroll pans, ctrl+wheel zooms
+  anchored on the pointer, manual zoom 0.5–2.5.
+- **Floating chrome**: a state key (top left), a hint (bottom left) and the zoom HUD
+  (bottom right) sit over the floor, not in the page flow.
+- Behaviour maps to state, not decoration: typing at a laptop = holds the work, hand up on
+  an amber rug = waiting on you, shaking on red = blocked, asleep = finished.
 
 ### 10.6 Board (`/r/<slug>`)
 
-Three panes: team comms left, task flow centre (six columns: To do → Coding → Ready for QA
-→ QA → Review → Done, each headed in its owning agent's colour), completion matrix right.
-Panes minimise to a labelled spine and the dividers drag; **the task flow absorbs the
-slack**, so shrinking a side pane widens the board rather than opening a gap. If the task
-flow itself is minimised, the first open pane takes that role. Widths persist across team
-switches.
+A **time band** on top — the phase rail (§10.2) with per-phase work against estimate, and
+the figures: expected, likely by, work left, worked so far, waited on you. Below it, three
+panes: team comms left (filterable by agent), the task flow centre, and an inspector right
+with tabs **Task / Time / Criteria**. Panes minimise to a labelled spine and the dividers
+drag; **the task flow absorbs the slack**, so shrinking a side pane widens the board rather
+than opening a gap. If the task flow itself is minimised, the first open pane takes that
+role.
 
-The matrix counts tasks that have **reached** a stage or passed it, not tasks sitting in
-it — so the gap between adjacent columns is the work in flight at that stage, which is the
-bottleneck you opened the dashboard to find. A row stopping short at QA is a service
-drowning in test failures; one stopping at Rev is waiting on a reviewer. Fix budget sits
-underneath, so one glance answers both "how far along" and "how much rope is left".
+The task flow is one **lane per service**, each with the six stage columns To do → Coding →
+Ready for QA → QA → Review → Done (S58; each headed in its owning agent's colour, a stage
+nobody is in shrinks). The lane head carries the service's work left, its fix budget
+("fix 2/5") and test count, so one glance answers "how far along" and "how much rope is
+left". Task chips show their time — live "12 of 65m", done its actual, not started its
+estimate — and run late-coloured when over. Picking a chip opens it in the inspector.
 
-Sources: comms from `messages.jsonl` filtered by `runId`; flow from `tasks.json` plus
-per-service results; the matrix derived — **no new state on the bus**.
+Sources: comms from `messages.jsonl` filtered by `runId`; flow from `tasks.json` joined to
+the plan by id plus per-service results; times from the run's `eta` and `clock`. The page
+repaints its clock figures every 30 s — **no new state on the bus**.
 
 ### 10.7 Settled — do not re-open
 
@@ -539,7 +554,7 @@ seating it at the head table (that table owns project-wide things; an operator w
 specific run, and the head table cannot say which).
 
 **2. At 12+ teams, pause off-screen loops and let the floor scroll.** The hall is a wrapping
-grid and scales already; the office is a fixed 566×418 building with six hard-coded pod
+grid and scales already; the office is a fixed 566×466 building with six hard-coded pod
 positions, so **the floor runs out of room before the hall does**. Use an
 `IntersectionObserver` to stop animation on pods outside the viewport and let the building
 grow. This bounds the cost where the cost actually is — roughly 24 simultaneous sprite loops

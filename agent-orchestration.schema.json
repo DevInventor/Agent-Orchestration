@@ -13,6 +13,12 @@
       "default": ".",
       "description": "Base directory for relative service paths, resolved relative to this config file's location."
     },
+    "humanSteps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Replaces the default list of steps a human follows once a run's work is completed (merge, deploy, verify, close). {branch}, {services} and {slug} are filled in per run."
+    },
     "services": {
       "type": "array",
       "minItems": 1,

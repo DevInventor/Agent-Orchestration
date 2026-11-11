@@ -21,7 +21,19 @@ many at once** — coordinating through a shared `./pipeline` bus with a live lo
 - **One service or many.** A single-service feature runs the classic linear flow. A feature spanning several services fans out **phase-batched in parallel**, each service with its own fix-loop budget of 5 and its own dashboard row.
 - **Bring your own repos.** An optional `agent-orchestration.config.json` registry maps service names to their local repo paths and test commands.
 - **Watch it live.** A zero-dependency dashboard streams plan → code → test → review as it happens. Finished teams move to a Done tab, and you can hide any team from the hall and the office until its next run. The tab title counts the teams waiting on you, a dot marks what changed while you were away, an approval card shows the plan it is asking about, and the bell turns on browser notifications for gates, quiet teams and finished runs.
-- **Spends tokens where they buy something.** `/ship` asks you once before starting in a chat that is already large, each coder takes at most two tasks with a fresh context, and each agent runs on the model its job needs (Opus to plan and review, Sonnet to build and test, with Opus brought in when a fix loop gets stuck). A usage limit shows on the dashboard as a pause, and Claude Code resumes the run at the reset.
+- **Spends tokens where they buy something.** `/ship` asks you once before starting in a chat that is already large, each coder takes at most two tasks with a fresh context, and each agent runs on the model its job needs (Opus to plan, build and review; Sonnet to test and operate). A usage limit shows on the dashboard as a pause, and Claude Code resumes the run at the reset.
+- **Holds code to one set of design rules.** A language-agnostic rulebook
+  (`skills/design-rules`) - one-way layers, wire types apart from storage, one error
+  family, explicit wiring, size limits, a test per use case - is what the planner designs
+  to, the coder self-checks against before hand-off, and the reviewer cites by id, each
+  with a fix recipe. A repo's own rules win where it has them. Any developer can use it
+  outside the pipeline as `/agent-orchestration:design-rules`.
+- **Tests read like the use cases they prove.** Acceptance criteria and test scenarios
+  are written in Gherkin - Given / When / Then in plain domain words, the Cucumber format -
+  so whoever asked for the feature can review them without reading code
+  (`skills/test-scenarios`). Repos that run Cucumber or playwright-bdd get `.feature`
+  files; the rest keep the same wording in their own framework, including Playwright's
+  `test.step`.
 - **Cleans up after itself.** Each run starts by removing the worktrees of finished workstreams whose branch is merged or pushed. It only touches clean trees and never deletes a branch.
 
 ## Requirements
@@ -89,6 +101,24 @@ node "$(claude plugin root agent-orchestration)/ui/server.js" --pipeline ./pipel
 A multi-service run renders a **service-swimlane hero** — one lane per service grouped
 into dependency waves (from `plan.json`, which `server.js` now forwards) — while a
 single-service run keeps the classic assembly-line view.
+
+## Estimated time to complete
+
+Every run carries an estimate from the moment its plan exists (ADR-0006):
+
+- The **planner** gives each task a size (S/M/L), a complexity (low/medium/high) and its
+  own minutes inside the band those two allow. It does this once, while writing the plan;
+  the rules are in `skills/estimation-rules`.
+- **`pipe.py`** does everything after that at no token cost: it sorts elapsed time into
+  work, waiting on you, and paused; it costs parallel services by their longest dependency
+  chain; and it recomputes what is left on every bus write.
+- `pipe.py eta` prints work left, an **expected** time and a **likely by** time on your
+  local clock. The orchestrator quotes it at the plan gate.
+
+A green `qa-check` marks the run **work completed** and lists the steps left for you
+(merge, deploy, verify, close). Once it is deployed, press the hall's one button or run
+`pipe.py complete` to mark the workstream **completed**. Replace the default steps for a
+project with a `humanSteps` list in its config.
 
 ## Configuring your services (optional)
 

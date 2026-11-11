@@ -89,7 +89,8 @@ these three do not cover.
      ],
      "tasks": [
        { "id": "T1", "service": "<real-service-dir-A>", "title": "...",
-         "files": ["src/..."], "owner": "coder", "rationale": "...", "criteriaRef": [0] }
+         "files": ["src/..."], "owner": "coder", "rationale": "...", "criteriaRef": ["AC1"],
+         "size": "M", "complexity": "low", "minutes": 10 }
      ],
      "risks": ["..."],
      "outOfScope": ["..."]
@@ -114,5 +115,15 @@ these three do not cover.
 - Make tasks independently implementable and testable; each maps to >=1 acceptance
   criterion via `criteriaRef`.
 - Name real files and real functions from your index — no placeholders.
+- Design to `${CLAUDE_PLUGIN_ROOT}/skills/design-rules/SKILL.md` (the repo's own rules win): for each use case, the plan
+  says where input is validated, where wire and storage types are mapped, and which typed
+  error each failure becomes.
+- Keep each acceptance criterion a plain-words Given/When/Then scenario with its id
+  (`${CLAUDE_PLUGIN_ROOT}/skills/test-scenarios/SKILL.md`): the user approves them at the gate and the tester builds on them.
+- **Estimate every task once, here** (`${CLAUDE_PLUGIN_ROOT}/skills/estimation-rules/SKILL.md`): `size`,
+  `complexity`, `minutes` inside the band, and a one-line `reason` when complexity is not
+  low; `suite` (fast/medium/slow) on each service. `validate-plan` rejects a figure outside
+  its band. Nobody re-estimates later - the bus derives the rest from these and from your
+  `dependsOnServices`, so declare a dependency only when it is real.
 - Call out anything genuinely ambiguous as a `question` event rather than guessing
   on something load-bearing.

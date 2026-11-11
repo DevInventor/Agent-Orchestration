@@ -81,7 +81,9 @@ local rule wins** — the bus contract is not negotiable.
 | finalize gate | you + orchestrator | `grilling` |
 | implement | coder | `superpowers:executing-plans` |
 | test | tester | `superpowers:test-driven-development` |
-| fix loop at K≥2 | coder, on opus (ADR-0003) | `superpowers:systematic-debugging` |
+| design | planner, coder, reviewer | `design-rules` (local, ADR-0004); the repo's own rules win |
+| scenarios | spec, planner, tester, reviewer | `test-scenarios` (local, ADR-0005): Gherkin always, Cucumber where the repo runs it |
+| fix loop at K≥2 | coder | `superpowers:systematic-debugging` |
 | review | reviewer | `ponytail` review skill |
 | findings returned | coder | `superpowers:receiving-code-review` |
 | qa gate | orchestrator | `superpowers:verification-before-completion` |
@@ -111,7 +113,8 @@ in an event — the phase names and the bus contract are unchanged either way.
    check belongs, and two defects came through it (a `criteriaRef` written as an array
    index, and criteria nothing could join to a task). It refuses a plan with duplicate
    task ids, a task naming a service that is not in `services[]`, a criterion no task
-   implements, or a reference by index rather than id. On a non-zero exit, re-run the
+   implements, a reference by index rather than id, or a task whose estimate (`size`,
+   `complexity`, `minutes`) is missing or outside its band. On a non-zero exit, re-run the
    planner once with the exact output as feedback; if it fails again, mark
    `status: blocked` and surface it.
 
@@ -119,7 +122,9 @@ in an event — the phase names and the bus contract are unchanged either way.
 The plan phase does not advance to implement until the user approves. This is a hard
 stop, not a pause you talk through.
 1. Present the plan to the user as a **numbered list grouped by service**, each service
-   with its tasks and any `dependsOnServices`. Keep it skimmable.
+   with its tasks and any `dependsOnServices`. Keep it skimmable. End with the output of
+   `$PIPE eta` - work to do, expected and likely-by on the local clock - so the size of the
+   work is part of the decision. Quote it; never estimate yourself.
 2. `$PIPE set-status awaiting_approval` and, for visibility,
    `$PIPE event --agent orchestrator --type question --summary "Plan ready — reply 'finalize' to start, or edit scope"`.
 3. **END YOUR TURN.** Write no code, spawn no coder. Wait for the user.
@@ -152,12 +157,17 @@ dropped the cap of 5 is how a fix loop runs past it.
 3. Write `pipeline/status/summary.md`: what shipped (grouped by service in a
    multi-service run), per-task status, per-service test summary and fix-loop count,
    review disposition, and anything deferred or blocked.
-4. If all gates pass: `$PIPE phase done`. Otherwise `$PIPE set-status blocked` and
-   explain which service(s) blocked and why.
+4. A green whole-run `qa-check` has already marked the work completed and printed the
+   steps left for the human - there is no `phase done` to remember. If your own judgement
+   in step 2 fails it, move it back: `$PIPE phase qa`, then `$PIPE set-status blocked`,
+   and explain which service(s) blocked and why.
 
 ### 6. Report
 Give the user a tight summary: feature, tasks completed, test result (and how many
-fix iterations it took), review disposition, and the path to `status/summary.md`.
+fix iterations it took), review disposition, and the path to `status/summary.md`. Close
+with the human's steps exactly as `qa-check` printed them. The work is completed; the
+workstream is only *completed* when the user presses the hall's button after deploying
+(or runs `$PIPE complete`). Never run that for them.
 
 ## The operator (optional — only when the plan names an operational task)
 
