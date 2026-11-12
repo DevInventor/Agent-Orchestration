@@ -373,9 +373,16 @@ function etc(){
   return {left,likely,held,waiting,paused,worked,total:e.totalMin,phases:e.phases,work,done,
     waited:(c.waitMin||0)+(c.pausedMin||0)+(held?gap:0)};
 }
+// Why a run shows no times - the same two causes the hall names (whyNoTimes in hall.html).
+function whyNoTimes(){
+  const r=S.run||{};
+  return !r.clock?"No clock: an older pipe.py (before 0.11) writes this run - restart the Claude session driving it."
+    :!r.eta?"No estimate yet: the plan has no minutes per task.":"";
+}
 function timeband(){
   const el=document.getElementById("timeband"), r=S.run||{}, t=etc();
-  el.hidden=!t; if(!t) return;
+  if(!t){ const w=whyNoTimes(); el.hidden=!w; el.innerHTML=w?`<span class="hint">${esc(w)}</span>`:""; return; }
+  el.hidden=false;
   const names=Object.keys(t.phases), cur=t.done?names.length:names.indexOf(r.phase);
   const slack=Math.max(1,t.likely-t.left), now=Date.now();
   let before=0;
@@ -520,7 +527,7 @@ function taskTab(){
 }
 function timeTab(){
   const t=etc(), c=(S.run||{}).clock||{};
-  if(!t) return `<span class="hint">No estimate for this run: there is no plan yet, or it was written before tasks carried a size, a complexity and minutes.</span>`;
+  if(!t) return `<span class="hint">No estimate for this run. ${esc(whyNoTimes())}</span>`;
   const top=Math.max(...Object.keys(t.phases).map(n=>Math.max(t.phases[n],t.work[n]||0)),1);
   return `<div><div class="phr h"><span>phase</span><span>estimate over actual</span><span class="n">est</span><span class="n">actual</span></div>
     ${Object.keys(t.phases).map(n=>{const a=t.work[n]||0;

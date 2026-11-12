@@ -73,6 +73,21 @@ RULE_TABLES = [os.path.join(SKILLS, "design-rules", "SKILL.md"),
                os.path.join(SKILLS, "test-scenarios", "SKILL.md")]
 
 
+def _plugin_version():
+    try:
+        with open(os.path.join(os.path.dirname(SKILLS), ".claude-plugin", "plugin.json"),
+                  encoding="utf-8") as f:
+            return json.load(f).get("version")
+    except (OSError, ValueError):
+        return None
+
+
+# Stamped on run.json by every write, so a bus written by a stale install says so: a session
+# started before an update keeps calling the old version's path, and that copy never keeps
+# the clock (0.10.0 drove a whole run that way and its board showed no times at all).
+VERSION = _plugin_version()
+
+
 def design_rule_ids():
     ids = set()
     try:
@@ -423,6 +438,8 @@ def estimate(root, run, now):
 
 def save_run(root, run):
     run["updatedAt"] = now_iso()
+    if VERSION:
+        run["pipeVersion"] = VERSION
     tick(run, run["updatedAt"])
     eta = estimate(root, run, run["updatedAt"])
     if eta:

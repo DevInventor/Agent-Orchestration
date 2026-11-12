@@ -1936,6 +1936,20 @@ def a_project_names_its_own_human_steps():
             assert len(steps_of(n, bad)) == 3, "a malformed humanSteps replaced the defaults"
 
 
+def every_write_names_the_pipe_that_made_it():
+    """S78 - a session started before an update keeps calling the old version's pipe.py,
+    which never keeps the clock; a whole run went timeless that way with nothing to say why.
+    Every write stamps run.json with the version of the pipe.py that made it."""
+    want = json.load(open(os.path.join(REPO, ".claude-plugin", "plugin.json"),
+                          encoding="utf-8"))["version"]
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "stamp")
+        run(root, "event", "--agent", "orchestrator", "--type", "status", "--summary", "s")
+        got = json.load(open(os.path.join(root, "run.json"), encoding="utf-8")).get("pipeVersion")
+        assert got == want, f"run.json pipeVersion is {got!r}, the plugin is {want!r}"
+
+
 def a_write_survives_a_reader_holding_the_file():
     """S76 - on Windows os.replace raises PermissionError while a dashboard has run.json
     open, and every event now rewrites run.json. One refusal must not crash the caller;
@@ -2485,7 +2499,9 @@ def the_workstream_card_shows_the_estimate():
           "gate": base(status="awaiting_approval", phase="plan",
                        clock={"at": iso(120), "work": {}, "waitMin": 3, "pausedMin": 0}),
           "block": base(status="blocked"),
-          "old": {"slug": "x", "status": "running", "phase": "implement"}}
+          "old": {"slug": "x", "status": "running", "phase": "implement"},
+          "noeta": {"slug": "x", "status": "running", "phase": "plan",
+                    "clock": {"at": iso(1), "work": {}, "waitMin": 0, "pausedMin": 0}}}
     js = (esc.group(0) + est.group(0) + "\nconst fx=" + json.dumps(fx) +
           ";\nconst o={};for(const k in fx) o[k]=etcHTML(fx[k]);console.log(JSON.stringify(o));")
     r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
@@ -2501,7 +2517,11 @@ def the_workstream_card_shows_the_estimate():
     assert '<div class="v sm">30m</div>' in out["gate"], \
         "the work left shrank while the run waited at a gate (AC4)"
     assert "Ready if unblocked now" in out["block"], "a blocked card does not say so"
-    assert out["old"] == "", "a plan with no estimate drew something (AC12)"
+    # AC12: no estimate is drawn - but the card says why, instead of going silently blank.
+    assert "No clock" in out["old"] and "Work left" not in out["old"], \
+        f"a run with no clock does not say why it has no times: {out['old']!r}"
+    assert "No estimate yet" in out["noeta"] and "Work left" not in out["noeta"], \
+        f"a run with a clock but no estimate does not say why: {out['noeta']!r}"
     assert re.search(r"#hall\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)", src), \
         "the hall is not three cards to a row"
     assert "${etcHTML(p)}" in src, "card() does not draw the estimate"
@@ -2549,7 +2569,7 @@ def the_board_draws_the_lanes_the_inspector_and_the_time_band():
           "timeband();o.band=el.innerHTML;SEL='T1';o.done=taskTab();\n"
           "S={run:{slug:'x',status:'running',phase:'implement'},plan:fx.plan,tasks:fx.bare,messages:[]};"
           "SEL='T2';o.bareLanes=lanesHTML().h;o.bareTask=taskTab();o.bareTime=timeTab();"
-          "timeband();o.bareHidden=el.hidden;\n"
+          "timeband();o.bareHidden=el.hidden;o.bareBand=el.innerHTML;\n"
           "console.log(JSON.stringify(o));")
     r = subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8",
                        timeout=60)
@@ -2573,7 +2593,8 @@ def the_board_draws_the_lanes_the_inspector_and_the_time_band():
     assert " left" not in o["bareLanes"] and "reached" not in o["bareLanes"],         "a plan with no estimate drew a time left (AC12)"
     assert "before tasks carried an estimate" in o["bareTask"], "the Task tab has no hint (AC12)"
     assert "No estimate for this run" in o["bareTime"], "the Time tab has no hint (AC12)"
-    assert o["bareHidden"] is True, "the time band showed with no estimate (AC12)"
+    assert o["bareHidden"] is False and "No clock" in o["bareBand"] and " left" not in o["bareBand"], \
+        f"the time band does not say why a run has no times, or drew an estimate (AC12): {o['bareBand']!r}"
 
 
 def the_hall_lays_cards_three_to_a_row():
@@ -2678,6 +2699,7 @@ SCENARIOS = [
     ("S75", the_hall_lays_cards_three_to_a_row),
     ("S76", a_write_survives_a_reader_holding_the_file),
     ("S77", the_floor_widens_to_fit_the_screen),
+    ("S78", every_write_names_the_pipe_that_made_it),
     ("S67", the_design_rules_and_their_fixes_stay_in_sync),
     ("S68", scenarios_are_written_as_use_cases),
     ("S53", every_agent_names_a_skill_that_exists),

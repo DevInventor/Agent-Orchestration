@@ -815,8 +815,15 @@ function railHTML(p,t){
     title="How late it could run"></div><span class="needle" style="left:${at.toFixed(1)}%"></span></div>
     <div class="lab">${lab}<span style="flex:${slack}">slack</span></div></div>`;
 }
+// Why a run shows no times: only pipe.py 0.11+ keeps the clock, and only a plan with minutes
+// per task gives an estimate. Saying which beats a card that is silently blank.
+function whyNoTimes(p){
+  return !p.clock?"No clock: an older pipe.py (before 0.11) writes this run - restart the Claude session driving it."
+    :!p.eta?"No estimate yet: the plan has no minutes per task.":"";
+}
 function etcHTML(p){
-  const t=etc(p); if(!t||p.status==="done") return "";
+  if(p.status==="done") return "";
+  const t=etc(p); if(!t){ const w=whyNoTimes(p); return w?`<div class="c-sub">${esc(w)}</div>`:""; }
   const now=Date.now();
   const k1=p.status==="blocked"||p.status==="failed"?"Ready if unblocked now":t.waiting?"Ready if approved now"
           :t.paused?"Ready if resumed now":"Work completed at";
