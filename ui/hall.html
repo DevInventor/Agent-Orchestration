@@ -403,7 +403,7 @@
      One open floor; the building's outer wall is the only wall. A team is a desk island
      on a rug and the rug carries the state, so you read the rug before you find a single
      agent - which is what a floor plan has to earn for being slower to scan than a table. */
-  #office{padding:0;position:relative;overflow:hidden;cursor:grab}
+  #office{padding:0;position:relative;overflow:hidden;cursor:grab;touch-action:none}
   #office.drag{cursor:grabbing}
   .floor{position:absolute;left:0;top:0;transform-origin:0 0;border:4px solid var(--wall);
     box-shadow:0 0 0 1px var(--wall-edge),inset 0 0 44px var(--wall-shadow);
@@ -426,13 +426,13 @@
   .pod.s-done .rug{background:color-mix(in srgb,var(--ok) 7%,var(--floor-2));
     border-color:color-mix(in srgb,var(--ok) 30%,var(--line))}
   .pod.s-closed{opacity:.55}
+  .pod.vacant{opacity:.5} .pod.vacant .rug{inset:-8px -8px -22px;border-style:dashed}
   /* The name is a nameplate on the seam between the two desk rows. Above the pod it sat
      inside the previous row's rug, on top of that team's bottom pair. */
   .pod-name{position:absolute;left:6px;right:6px;top:150px;z-index:1;text-align:center;font-family:var(--mono);
     font-size:10.5px;line-height:14px;color:var(--text);text-decoration:none;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   a.pod-name:hover{color:var(--bright);text-decoration:underline;text-underline-offset:2px}
-  .pod.orch .pod-name{top:36px}
   .p-bar{position:absolute;left:34px;right:34px;top:166px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
   .p-bar i{display:block;height:100%;background:var(--st,var(--muted));border-radius:2px}
   /* one shared wood table, four laptops on it; the one holding the work scrolls */
@@ -463,7 +463,8 @@
      ~24 simultaneous sprite loops, and the floor - not the hall - is where it bites. */
   /* grey, and no role colour: they are the one thing in the room that means nothing */
   .walker .who{color:var(--faint)}
-  .pod.off *{animation-play-state:paused!important}
+  .walker.amble .who{color:var(--muted)}
+  .pod.off *,.room.off *{animation-play-state:paused!important}
   .pod.s-stale .who,.pod.s-stale .who *{animation-play-state:paused}
   /* The one figure you need from across the room, over each island. */
   .pod-tag{position:absolute;left:50%;top:-31px;transform:translateX(-50%);z-index:2;white-space:nowrap;
@@ -474,6 +475,181 @@
   .pod-tag small{font-weight:400;color:var(--muted);font-size:10px}
   .pod.s-run{--st:var(--coder)} .pod.s-gate{--st:var(--warn)} .pod.s-stale,.pod.s-block{--st:var(--bad)}
   .pod.s-done{--st:var(--ok)} .pod.s-closed{--st:var(--line-2)}
+
+  /* ---- the building around the desks ----
+     The bullpen is open floor; the east wing is two walled rooms, each with its own tile:
+     the orchestrator's office, where a team sits down over a finished plan, and a break
+     room that means nothing and is there so the floor reads as a place people work in.
+     Every colour is mixed from the section 10.1 tokens, so both themes come for free. */
+  .floor{--wall-face:color-mix(in srgb,var(--wall) 68%,var(--wall-edge));
+    --glass:color-mix(in srgb,var(--coder) 26%,var(--wall));
+    --check:repeating-conic-gradient(color-mix(in srgb,var(--bright) 4%,transparent) 0 25%,transparent 0 50%) 0 0/34px 34px}
+  .wall-n{position:absolute;left:-4px;right:-4px;top:-26px;height:22px;background:var(--wall-face);
+    border:1px solid var(--wall-edge);border-bottom:0;border-radius:3px 3px 0 0}
+  .win{position:absolute;top:4px;width:56px;height:13px;border-radius:2px;background:var(--glass);
+    border:1px solid var(--wall-edge);box-shadow:inset 0 -3px 0 color-mix(in srgb,var(--wall) 30%,transparent)}
+  .win::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--wall-edge)}
+  .room{position:absolute;border-left:6px solid var(--wall);
+    box-shadow:-1px 0 0 var(--wall-edge),inset 1px 0 0 var(--wall-edge)}
+  .room::before{content:"";position:absolute;left:0;right:0;top:0;height:14px;background:var(--wall-face);
+    border-bottom:1px solid var(--wall-edge)}
+  .room.office{background:var(--check),color-mix(in srgb,var(--orch) 10%,var(--floor))}
+  .room.cafe{background:var(--check),color-mix(in srgb,var(--screen) 10%,var(--floor))}
+  .room.nw{border-left:0;box-shadow:none}
+  /* a raised floor: half-size tiles, cooler */
+  .room.server{background:var(--check),color-mix(in srgb,var(--coder) 13%,var(--floor));background-size:17px 17px,auto}
+  .door.n{top:0;width:32px;height:15px}
+  .door.n::after{left:-1px;top:14px;width:3px;height:15px}
+  .plate.dim{left:10px;top:auto;bottom:5px;color:var(--muted);font-size:10px;letter-spacing:.06em}
+  /* a doorway is a gap in the wall with the leaf swung in */
+  .door{position:absolute;left:-7px;width:8px;height:32px;background:var(--floor)}
+  .door::after{content:"";position:absolute;left:7px;top:-1px;width:15px;height:3px;border-radius:1px;
+    background:var(--wood-2)}
+  .plate{position:absolute;left:12px;top:32px;font-family:var(--mono);font-size:10.5px;line-height:14px;
+    color:var(--orch);white-space:nowrap}
+  /* The big screen. A wall display is dark in both themes, like the racks: it is lit glass,
+     not a surface of the room. Idle it ticks over dimly; with a team at the table it is
+     the plan, one bar per role. The server room's wallboard is the same panel. */
+  .tv{position:absolute;top:0;height:27px;border-radius:2px;background:#141A26;border:1.5px solid #0B0F17;
+    padding:4px 7px;box-shadow:0 2px 0 var(--wall-edge)}
+  .tv i{display:block;height:3px;margin-bottom:3px;border-radius:1px;background:#4FA6E0;opacity:.4;
+    transform-origin:0 50%;animation:tv-bar 3.2s steps(5) infinite alternate}
+  .tv i:nth-child(2){animation-delay:-1.1s} .tv i:nth-child(3){animation-delay:-2.3s}
+  @keyframes tv-bar{from{transform:scaleX(.3)}to{transform:scaleX(1)}}
+  .room.on .tv i{opacity:1;background:#F2C14E}
+  .room.on .tv i:nth-child(2){background:#4FA6E0} .room.on .tv i:nth-child(3){background:#E06C9F}
+  .room.server .tv i{opacity:.85;background:#3FBE8B}
+  /* the cabin's decor: books, a lamp, something won, and a carpet under the big table */
+  .shelf{position:absolute;width:58px;height:17px;border-radius:2px;background:var(--wood);border:1px solid var(--wood-2);
+    display:flex;gap:2px;padding:2px 3px;align-items:flex-end}
+  .shelf i{flex:1;height:10px;border-radius:1px;background:var(--orch);box-shadow:inset 5px 0 0 var(--planner),inset 10px 0 0 var(--reviewer)}
+  .shelf i:nth-child(2){height:8px;background:var(--tester);box-shadow:inset 6px 0 0 var(--coder)}
+  .lamp{position:absolute;width:10px;height:10px;border-radius:50%;background:color-mix(in srgb,var(--warn) 70%,var(--panel));
+    border:1px solid var(--wood-2);box-shadow:0 0 0 5px color-mix(in srgb,var(--warn) 14%,transparent)}
+  .award{position:absolute;width:13px;height:13px;border-radius:2px;background:var(--panel);border:1px solid var(--wall-edge)}
+  .award::after{content:"";position:absolute;left:3px;top:2px;width:5px;height:6px;border-radius:1px 1px 3px 3px;background:var(--planner)}
+  .carpet{position:absolute;left:30px;top:122px;right:14px;bottom:8px;border-radius:10px;
+    background:color-mix(in srgb,var(--orch) 13%,var(--floor-2));border:1px solid color-mix(in srgb,var(--orch) 30%,var(--line));
+    box-shadow:inset 0 0 0 4px color-mix(in srgb,var(--orch) 7%,transparent)}
+  .room.gate .carpet{background:color-mix(in srgb,var(--warn) 16%,var(--floor-2));
+    border-color:color-mix(in srgb,var(--warn) 50%,var(--line))}
+  .desk.boss{width:74px;height:32px}
+  .desk.boss .scr.two{right:30px}
+  .clock{position:absolute;left:110px;top:0;width:14px;height:14px;border-radius:50%;background:var(--panel);
+    border:1px solid var(--wall-edge)}
+  .clock i{position:absolute;left:5.5px;bottom:6px;width:1px;background:var(--bright);transform-origin:50% 100%}
+  .clock .hh{height:3px} .clock .mm{height:5px}
+  .conf{position:absolute;width:184px;height:152px}
+  .conf .table{width:168px;height:84px;border-radius:18px}
+  .conf .rug{display:none}                     /* the carpet does the rug's job in here */
+  .conf-name{position:absolute;left:14px;right:14px;top:73px;z-index:1;text-align:center;font-family:var(--mono);
+    font-size:10.5px;line-height:14px;color:var(--muted);text-decoration:none;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  a.conf-name{color:var(--bright)}
+  a.conf-name:hover{text-decoration:underline;text-underline-offset:2px}
+  /* a meeting is people taking turns: one bubble at a time goes round the table */
+  .say{position:absolute;width:13px;height:9px;border-radius:4px;background:var(--panel);
+    border:1px solid var(--line-2);opacity:0;animation:say 6s steps(1) infinite}
+  .say::before{content:"";position:absolute;left:2.5px;top:3px;width:1.5px;height:1.5px;border-radius:50%;
+    background:var(--muted);box-shadow:3px 0 var(--muted),6px 0 var(--muted)}
+  @keyframes say{0%,23%{opacity:1}24%,100%{opacity:0}}
+  /* the server room: racks are dark metal in both themes, and their lights never agree */
+  .rack{position:absolute;top:4px;width:28px;height:50px;border-radius:2px;background:#1B2230;border:1px solid #0B0F17;
+    box-shadow:0 3px 0 #0B0F17,inset 0 0 0 2px #232C3C;padding-top:3px}
+  .rack i{display:block;width:3px;height:2px;margin:5px 0 0 5px;border-radius:1px;background:#3FBE8B;
+    box-shadow:5px 0 #3FBE8B,10px 0 #4FA6E0,15px 0 #3FBE8B;animation:led 1.9s steps(1) var(--d,0ms) infinite}
+  .rack i:nth-child(2){animation-duration:1.1s} .rack i:nth-child(3){animation-duration:2.7s;background:#F2C14E}
+  .rack i:nth-child(4){animation-duration:.7s} .rack i:nth-child(5){animation-duration:1.5s}
+  @keyframes led{0%,55%{opacity:1}56%,100%{opacity:.25}}
+  .cool{position:absolute;top:3px;width:30px;height:30px;border-radius:3px;background:var(--panel);border:1px solid var(--wood-2)}
+  .cool i{position:absolute;inset:5px;border-radius:50%;border:1px solid var(--wood-2);
+    background:conic-gradient(var(--wood-2) 0 12%,transparent 0 50%,var(--wood-2) 0 62%,transparent 0);animation:fan 900ms steps(8) infinite}
+  @keyframes fan{to{transform:rotate(360deg)}}
+  .cable{position:absolute;top:62px;height:3px;border-radius:2px;background:color-mix(in srgb,var(--coder) 45%,var(--floor-2));
+    box-shadow:0 5px 0 color-mix(in srgb,var(--warn) 40%,var(--floor-2))}
+  .ups{position:absolute;top:3px;width:26px;height:40px;border-radius:2px;background:#1B2230;border:1px solid #0B0F17;
+    box-shadow:0 3px 0 #0B0F17}
+  .ups i{position:absolute;left:5px;right:5px;top:6px;height:5px;border-radius:1px;background:#3FBE8B;
+    box-shadow:0 9px 0 #232C3C,0 18px 0 #232C3C;animation:led 2.3s steps(1) infinite}
+  /* the cafeteria: two off the clock at the table, somewhere to sit, something to buy */
+  .npc{position:absolute}
+  .npc .who{color:var(--faint)} .npc.p2 .who{color:var(--muted)}
+  .npc.p2 .who .arm{animation-delay:-480ms}
+  .prop.bat{left:20px;top:14px;width:5px;height:7px;border-radius:3px 3px 1px 1px;background:var(--bad);border-color:var(--wood-2)}
+  .npc.p2 .prop.bat{left:-1px}
+  @keyframes swing{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  .npc .prop.bat{animation:swing 1.3s steps(2) infinite} .npc.p2 .prop.bat{animation-delay:-650ms}
+  .sink{position:absolute;right:8px;top:6px;width:22px;height:11px;border-radius:2px;background:var(--screen-b);border:1px solid var(--wood-2)}
+  .vend{position:absolute;left:228px;top:2px;width:26px;height:38px;border-radius:3px;background:var(--chairc);border:1px solid var(--wood-2)}
+  .vend i{position:absolute;left:3px;top:4px;width:13px;height:20px;border-radius:1px;background:var(--screen-b);
+    box-shadow:inset 0 5px 0 color-mix(in srgb,var(--tester) 50%,transparent),inset 0 11px 0 color-mix(in srgb,var(--coder) 50%,transparent),inset 0 17px 0 color-mix(in srgb,var(--planner) 50%,transparent)}
+  .cafe-t{position:absolute;width:30px;height:30px;border-radius:50%;background:var(--table);border:1.5px solid var(--table-2);
+    box-shadow:0 3px 0 var(--table-2),-22px 6px 0 -9px var(--chairc),22px 6px 0 -9px var(--chairc)}
+  .counter{position:absolute;left:10px;top:8px;width:112px;height:24px;border-radius:3px;background:var(--wood);
+    border:1px solid var(--wood-2);box-shadow:inset 0 5px 0 var(--deskglass)}
+  .coffee{position:absolute;left:12px;top:-3px;width:14px;height:18px;border-radius:2px;background:var(--chairc);
+    border:1px solid var(--wood-2);box-shadow:inset 0 -5px 0 var(--screen-b)}
+  .coffee i{position:absolute;left:3px;top:-5px;width:2px;height:4px;border-radius:1px;background:var(--muted);
+    opacity:0;animation:steam 2.4s steps(4) infinite}
+  .coffee i+i{left:8px;animation-delay:-1.2s}
+  @keyframes steam{0%{opacity:0;transform:translateY(2px)}40%{opacity:.7}100%{opacity:0;transform:translateY(-6px)}}
+  .cooler{position:absolute;left:136px;top:6px;width:14px;height:30px;border-radius:2px;background:var(--panel);
+    border:1px solid var(--wood-2)}
+  .cooler::before{content:"";position:absolute;left:1px;right:1px;top:-1px;height:12px;border-radius:4px 4px 1px 1px;
+    background:var(--glass)}
+  .cooler i{position:absolute;left:5px;top:7px;width:2px;height:2px;border-radius:50%;background:var(--panel);
+    opacity:0;animation:steam 3.8s steps(3) infinite}
+  .fridge{position:absolute;left:192px;top:2px;width:28px;height:36px;border-radius:3px;background:var(--panel);
+    border:1px solid var(--wood-2);box-shadow:inset 0 -22px 0 -1px var(--screen-b)}
+  .fridge::after{content:"";position:absolute;left:4px;top:5px;width:2px;height:22px;border-radius:1px;background:var(--wood-2)}
+  .pong{position:absolute;left:92px;top:84px;width:90px;height:48px;border-radius:3px;
+    background:color-mix(in srgb,var(--reviewer) 42%,var(--floor-2));border:1.5px solid var(--table-2);
+    box-shadow:0 4px 0 var(--table-2),inset 0 0 0 2px color-mix(in srgb,var(--panel) 55%,transparent)}
+  .pong::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--panel)}
+  .pong i{position:absolute;left:0;top:0;width:4px;height:4px;border-radius:50%;background:var(--bright);
+    animation:rally 2.6s linear infinite}
+  @keyframes rally{0%,100%{transform:translate(8px,10px)}25%{transform:translate(76px,30px)}
+    50%{transform:translate(10px,34px)}75%{transform:translate(74px,8px)}}
+  .sofa{position:absolute;left:142px;bottom:12px;width:84px;height:28px;border-radius:6px;background:var(--chairc);
+    border:1px solid var(--wood-2);
+    box-shadow:inset 0 -9px 0 color-mix(in srgb,var(--bright) 10%,transparent),inset 6px 0 0 color-mix(in srgb,var(--bright) 6%,transparent),
+      inset -6px 0 0 color-mix(in srgb,var(--bright) 6%,transparent)}
+  .sofa::before{content:"";position:absolute;left:50%;top:3px;bottom:10px;width:1px;background:var(--wood-2)}
+
+  /* ---- people on their feet ----
+     An agent away from its chair is an actor on the floor: walking a corridor, or in your
+     hand. Its seat keeps its place in the DOM and is only hidden, so the pod never reflows.
+     The gait is still stepped (rule 1); what tells two walkers apart is tempo and carriage. */
+  .body{cursor:grab}
+  .body.gone{visibility:hidden}
+  .who .leg{fill:var(--legs);transform-box:fill-box}
+  .actor{position:absolute;left:0;top:0;z-index:4;cursor:grab}
+  .actor::after{content:"";position:absolute;left:4px;right:4px;bottom:-2px;height:5px;border-radius:50%;
+    background:rgba(0,0,0,.22);z-index:-1;transition:transform 160ms var(--ease-out),opacity 160ms var(--ease-out)}
+  .actor .who{transform-origin:50% 100%}
+  @keyframes stride{from{transform:translateY(0)}to{transform:translateY(-2.5px)}}
+  .actor.walking .who{animation:waiting var(--gait,260ms) steps(1) infinite}
+  .actor.walking .leg.l,.actor.walking .arm.r{animation:stride var(--gait,260ms) steps(2) infinite alternate}
+  .actor.walking .leg.r,.actor.walking .arm.l{animation:stride var(--gait,260ms) steps(2) calc(var(--gait,260ms) * -1) infinite alternate}
+  .actor.brisk{--gait:170ms}
+  .actor.amble{--gait:430ms}
+  @keyframes sway{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+  .actor.amble.walking .who{animation:sway 860ms steps(4) infinite}
+  .prop{position:absolute;border:1px solid var(--wood-2);border-radius:1px}
+  .prop.clip{left:-1px;top:17px;width:6px;height:8px;background:var(--deskglass)}
+  .prop.mug{left:19px;top:19px;width:6px;height:5px;background:var(--panel)}
+  @keyframes sip{0%,60%,100%{transform:translateY(0)}70%,90%{transform:translateY(-7px)}}
+  .actor.sip .prop.mug{animation:sip 2.1s steps(1) infinite}
+  /* in your hand: lifted, kicking, wide-eyed; the shadow stays on the floor and shrinks */
+  @keyframes dangle{from{transform:translateY(-9px) scale(1.2) rotate(-7deg)}to{transform:translateY(-9px) scale(1.2) rotate(7deg)}}
+  .actor.held{cursor:grabbing;z-index:6}
+  .actor.held .who{transform-origin:50% 0;animation:dangle 300ms steps(3) infinite alternate}
+  .actor.held .leg.l{animation:stride 150ms steps(2) infinite alternate}
+  .actor.held .leg.r{animation:stride 150ms steps(2) -150ms infinite alternate}
+  .actor.held .eye{animation:none;transform:scale(1.4)}
+  .actor.held::after{transform:scale(.6);opacity:.5}
+  @keyframes land{0%{transform:scale(1.15,.8)}100%{transform:scale(1)}}
+  .actor.land .who{animation:land 200ms var(--ease-out) 1}
 
   .empty{color:var(--muted);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   /* floating chrome over the floor: state key, hint, zoom HUD */
@@ -486,8 +662,6 @@
   .key{left:12px;top:12px;display:flex;flex-direction:column;gap:4px;padding:9px 11px;font-size:11px;
     color:var(--muted);max-width:250px}
   .key b{color:var(--text);font-weight:600}
-  .pod.orch .rug{background-color:color-mix(in srgb,var(--orch) 22%,var(--floor-2))}
-  .pod.orch .pod-name{color:var(--orch);border-color:color-mix(in srgb,var(--orch) 55%,var(--line))}
   /* A refused gate has to read as refused, not as a button that went quiet. */
   .gate-err{font-family:var(--mono);font-size:10px;color:var(--bad);align-self:center}
   ::-webkit-scrollbar{width:9px;height:9px}
@@ -604,13 +778,16 @@ function sprite(role,opts){
   // Never turn a sleeping agent around - its shut eyes are the whole point of the pose.
   const rear=!!o.back&&state!=="sleep";
   // A seated agent is cropped at the waist: the rest is under a desk either way.
-  const h=o.seated?23:30;
+  // On its feet and going somewhere it has legs; the standing bust everywhere else has none.
+  const h=o.seated?23:o.legs?34:30;
+  const legs=o.legs?`<rect class="leg l" x="7.4" y="26" width="3.8" height="7.6" rx="1.7"
+    /><rect class="leg r" x="12.8" y="26" width="3.8" height="7.6" rx="1.7"/>`:"";
   // From behind there is no face to leave room for, so the hair fills the whole skull.
   const hair=rear?`<circle cx="12" cy="9" r="7.2"/>`
     :`<path d="M4.8 9.4A7.2 7.2 0 0 1 19.2 9.4C17.6 6.6 14.9 5.6 12 5.6S6.4 6.6 4.8 9.4Z"/>`;
   const face=rear?"":`<circle class="eye" cx="9.4" cy="10.4" r="1.1"/><circle class="eye" cx="14.6" cy="10.4" r="1.1"/>`;
   return `<svg class="who a-${role} st-${state}" width="${px}" height="${(px/24*h).toFixed(1)}"
-    viewBox="0 0 24 ${h}" aria-hidden="true"><rect class="arm l" x="2.5" y="17" width="4.5" height="9" rx="2.2"
+    viewBox="0 0 24 ${h}" aria-hidden="true">${legs}<rect class="arm l" x="2.5" y="17" width="4.5" height="9" rx="2.2"
     /><rect class="arm r" x="17" y="17" width="4.5" height="9" rx="2.2"/><rect class="torso" x="5" y="15"
     width="14" height="14" rx="5.5"/><circle class="head" cx="12" cy="9" r="7"/><g class="h-${role}">${hair}</g>${face
     }<text class="zz" x="19" y="4">z</text></svg>`;
@@ -1111,8 +1288,9 @@ document.getElementById("hall").addEventListener("click",async e=>{
 /* ---- section 10.5, the office floor -----------------------------------------------
    The same bus data, read the ambient way. Behaviour maps to state, not decoration:
    typing at a desk means it holds the work, asleep means finished, frozen mid-keystroke
-   means quiet, and the team standing together means a finalize gate. */
-const BUILDING_W=566, BUILDING_H=466;          // six pods fit; past that the floor grows
+   means quiet, and the team sitting in the orchestrator's office means a finished plan
+   is waiting on your finalize. */
+const BUILDING_H=466;                          // two rows of pods; past that the floor grows
 // A rug overhangs its island by 8 above, and the nameplate and bar hang to +170, so at the original 152 one row's
 // rug ran into the next row's; 206 also clears each island's state tag (top:-31px) of the row above's nameplate and bar (bottom 170).
 const POD_XS=[18,212,406], POD_Y0=16, POD_DY=206;
@@ -1124,34 +1302,56 @@ const POD=[
   {"role":"tester",  "x":26,"y":120,"dx":25,"dy":92,"back":true},
   {"role":"reviewer","x":96,"y":120,"dx":95,"dy":92,"back":true}
 ];
-/* The corridor graph. Desk islands occupy x 18-174 / 212-368 / 406-562 and y 16-134 /
-   222-340, so the walkable space is the two vertical aisles and the horizontal ones.
-   Every edge here is purely horizontal or vertical - that is what stops a walker cutting
-   the corner through somebody's desk. */
-const NODES={"a":[193,10],"b":[387,10],"c":[193,206],"d":[387,206],"e":[193,426],"f":[387,426]};
-const EDGES=[["a","b"],["c","d"],["e","f"],["a","c"],["c","e"],["b","d"],["d","f"]];
-// The bottom corridor follows the last row down as the floor grows; at two rows it is
-// the 426 declared above.
-function nodeAt(k,rows){const n=NODES[k];return (k==="e"||k==="f")?[n[0],POD_Y0+rows*POD_DY-2]:n;}
+/* The east wing: the orchestrator's office above, the break room below. Positions inside
+   a room are in the room's own coordinates, which start RX in from the wing's left edge
+   because the room's wall is its left border. */
+const WING=270, OFFICE_H=300, RX=6;
+/* The south strip under the bullpen is the server room. */
+const SOUTH=132;
+// The cabin's table is the big one: the same facing pairs as a pod, further apart.
+const CONF={x:44,y:128};
+const CSEAT=[
+  {"role":"planner", "x":34, "y":4,  "dx":33, "dy":44, "back":false},
+  {"role":"coder",   "x":118,"y":4,  "dx":117,"dy":44, "back":false},
+  {"role":"tester",  "x":34, "y":130,"dx":33, "dy":100,"back":true},
+  {"role":"reviewer","x":118,"y":130,"dx":117,"dy":100,"back":true}
+];
+const ORCH_DESK={x:176,y:34}, ORCH_SEAT={x:196,y:72}, ORCH_STAND={x:228,y:196};
 
 /* Past six teams the floor widens until the whole of it fits the window, instead of
-   growing down a fixed three columns off the bottom. Islands sit on the same 194 pitch;
-   the corridor graph is the three-column one drawn for n columns: an aisle between each
-   pair of columns, a corridor above the first row, one between the rows, one below the last. */
+   growing down a fixed three columns off the bottom. Islands sit on the same 194 pitch,
+   with an aisle after every column; the last aisle runs along the wing's wall. */
 const COL_DX=194;
 function floorDims(n,cells){
-  const rows=Math.max(2,Math.ceil(cells/n));
-  return {rows, w:Math.max(BUILDING_W,POD_XS[0]+COL_DX*(Math.min(n,cells)-1)+184), h:BUILDING_H+Math.max(0,rows-2)*POD_DY};
+  const rows=Math.max(2,Math.ceil(cells/n)), bw=193+COL_DX*(n-1)+20, bh=BUILDING_H+Math.max(0,rows-2)*POD_DY;
+  return {rows, bw, bh, w:bw+WING, h:bh+SOUTH};
 }
-function floorGraph(n,rows){
-  const nodes={}, edges=[];
-  if(n===3){ Object.keys(NODES).forEach(k=>nodes[k]=nodeAt(k,rows)); return {nodes,edges:EDGES}; }
-  const ys=[10,206,POD_Y0+rows*POD_DY-2];
-  for(let j=0;j<n-1;j++) ys.forEach((y,r)=>{
-    nodes[r+"."+j]=[193+COL_DX*j,y];
-    if(r) edges.push([(r-1)+"."+j,r+"."+j]);
-    if(j) edges.push([r+"."+(j-1),r+"."+j]);
+/* The corridor graph. Every edge is purely horizontal or vertical - that is what stops a
+   walker cutting the corner through somebody's desk. A corridor runs above the first row,
+   between each pair of rows and below the last; each one starts at a stub over the first
+   column so a seat there has a corridor straight above or below it. The cabin door opens
+   off the first cross corridor and the cafeteria's off the last; inside the cabin a ring
+   runs round the big table along the two rows of chairs. The server room opens off the
+   last corridor too, through the wall under the first aisle. */
+function floorGraph(n,rows,bw,bh){
+  const nodes={}, edges=[], L=n-1, ys=[12];
+  for(let r=1;r<rows;r++) ys.push(POD_Y0+r*POD_DY-16);
+  ys.push(POD_Y0+rows*POD_DY-2);
+  ys.forEach((y,r)=>{
+    nodes[r+".w"]=[30,y]; edges.push([r+".w",r+".0"]);
+    for(let j=0;j<n;j++){
+      nodes[r+"."+j]=[193+COL_DX*j,y];
+      if(r) edges.push([(r-1)+"."+j,r+"."+j]);
+      if(j) edges.push([r+"."+(j-1),r+"."+j]);
+    }
   });
+  const ox=bw+RX, by=ys[rows];
+  Object.assign(nodes,{od:[bw+3,ys[1]],oi:[ox+26,ys[1]],ot:[ox+26,154],otr:[ox+240,154],
+    ob:[ox+26,280],obr:[ox+240,280],kd:[bw+3,by],ki:[ox+28,by],kc:[ox+28,OFFICE_H+62],
+    sd:[193,bh+8],si:[193,bh+96],sa:[36,bh+96],sb:[bw-36,bh+96]});
+  edges.push(["1."+L,"od"],["od","oi"],["oi","ot"],["oi","ob"],["ot","otr"],["ob","obr"],["otr","obr"],
+    [rows+"."+L,"kd"],["kd","ki"],["ki","kc"],
+    [rows+".0","sd"],["sd","si"],["sa","si"],["si","sb"]);
   return {nodes,edges};
 }
 // The column count (3..cells) with the largest fitted zoom; six teams or fewer keep three.
@@ -1165,7 +1365,143 @@ function pickCols(teams,cells,cw,ch,top,bot){
   return best;
 }
 
-function podSig(p){return cardSig(p)+podTag(p,cardState(p));}
+/* ---- who is where ----
+   LAY is the built floor's geometry. MEET is the one team in the orchestrator's office.
+   ACT holds every agent on its feet, by key - "slug|role", "orch", or a walker's "w0" -
+   and GONE the keys whose chair is empty because of it. A key has exactly one seat in the
+   DOM at a time (its pod's, or the conference table's), so "go home" is always one lookup. */
+let LAY=null, MEET=null, HELD=null, ROOM_SIG="", SEATS=[];
+const ACT={}, GONE=new Set();
+const NO_MOTION=matchMedia("(prefers-reduced-motion:reduce)");
+/* Planning happens in the orchestrator's cabin: the team sits at the big table from the
+   moment the plan phase starts until you finalize it. One table, so one team: the one
+   already sitting stays, and the next plans at its own desks until the table is free. */
+function meeting(ps){
+  const q=ps.filter(p=>p.phase==="plan"&&(p.status==="running"||p.status==="awaiting_approval")&&!p.completed);
+  return q.some(p=>p.slug===MEET)?MEET:(q[0]?q[0].slug:null);
+}
+// Top-left of the seat `k` belongs in right now, in floor coordinates.
+function homeOf(k){
+  const ox=LAY.bw+RX;
+  if(k==="orch"){ const s=MEET?ORCH_STAND:ORCH_SEAT; return [ox+s.x,s.y]; }
+  const cut=k.lastIndexOf("|"), slug=k.slice(0,cut), role=k.slice(cut+1), a=POD.find(a=>a.role===role);
+  if(!a) return null;
+  if(slug===MEET){ const c=CSEAT.find(c=>c.role===role); return [ox+CONF.x+c.x,CONF.y+c.y]; }
+  const i=LAY.slugs.indexOf(slug);
+  return i<0?null:[POD_XS[0]+COL_DX*(i%LAY.N)+a.x, POD_Y0+Math.floor(i/LAY.N)*POD_DY+a.y];
+}
+const seatEl=k=>[...document.querySelectorAll("#office .body[data-k]")].find(el=>el.dataset.k===k);
+
+/* An actor's position is its hips: 12 across and 22 down the sprite, which puts a standing
+   agent exactly over the seated one it replaces. Movement is a stepped transition (rule 1). */
+function put(el,x,y,ms){
+  if(ms) void el.offsetWidth;                  // commit where it stands, or there is nothing to move from
+  el._x=x; el._y=y;
+  el.style.transition=ms?`transform ${ms}ms steps(${Math.max(1,Math.round(ms/45))})`:"none";
+  el.style.transform=`translate(${x-12}px,${y-22}px)`;
+}
+// Walk `el` through `pts` at `pace` ms per pixel. A later go() on the same actor, or a hand
+// picking it up, ends this one: `done` only fires for a walk that arrived.
+function go(el,pts,pace,done){
+  const run=el._run=(el._run||0)+1;
+  let i=0;
+  (function leg(){
+    if(!el.isConnected||el._run!==run) return;
+    if(i>=pts.length||NO_MOTION.matches){
+      if(pts.length) put(el,...pts[pts.length-1],0);
+      el.classList.remove("walking");
+      if(done) done();
+      return;
+    }
+    const [x,y]=pts[i++], ms=Math.round((Math.abs(x-el._x)+Math.abs(y-el._y))*pace);
+    if(!ms) return leg();
+    el.classList.add("walking");
+    put(el,x,y,ms);
+    setTimeout(leg,ms);
+  })();
+}
+const span=(a,b)=>Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1]);
+// The nearest point of any corridor to `p`, and the edge it lies on.
+function snap(g,p){
+  let best=null;
+  for(const [a,b] of g.edges){
+    const A=g.nodes[a], B=g.nodes[b];
+    const q=[Math.min(Math.max(p[0],Math.min(A[0],B[0])),Math.max(A[0],B[0])),
+             Math.min(Math.max(p[1],Math.min(A[1],B[1])),Math.max(A[1],B[1]))];
+    const d=span(p,q);
+    if(!best||d<best.d) best={d,q,a,b};
+  }
+  return best;
+}
+/* Straight to the nearest corridor, along the corridors, straight to the target.
+   ponytail: Dijkstra by linear scan over a graph of about forty nodes; a heap only if the
+   floor ever grows past a few hundred. */
+function route(g,from,to){
+  const s=snap(g,from), t=snap(g,to);
+  const N=Object.assign({},g.nodes,{S:s.q,T:t.q});
+  const E=g.edges.concat([["S",s.a],["S",s.b],["T",t.a],["T",t.b]]);
+  if(s.a===t.a&&s.b===t.b) E.push(["S","T"]);
+  const D={S:0}, prev={}, seen=new Set();
+  for(;;){
+    let u=null;
+    for(const k in D) if(!seen.has(k)&&(u===null||D[k]<D[u])) u=k;
+    if(u===null||u==="T") break;
+    seen.add(u);
+    for(const [a,b] of E){
+      const v=a===u?b:b===u?a:null; if(v===null) continue;
+      const d=D[u]+span(N[u],N[v]);
+      if(!(v in D)||d<D[v]){ D[v]=d; prev[v]=u; }
+    }
+  }
+  const path=[to];
+  for(let k="T";k;k=prev[k]) path.unshift(N[k]);
+  return path;
+}
+
+// Stand `k` up where its seat is (or reuse the actor it already is) and empty the chair.
+function actorFor(k,at){
+  let el=ACT[k]; if(el) return el;
+  el=document.createElement("div");
+  el.className="actor"; el.dataset.act=k;
+  el.innerHTML=sprite(k==="orch"?"orch":k.slice(k.lastIndexOf("|")+1),{state:"wait",legs:true,px:24});
+  LAY.floor.append(el); ACT[k]=el;
+  put(el,at[0]+12,at[1]+22,0);
+  GONE.add(k);
+  const s=seatEl(k); if(s) s.classList.add("gone");
+  return el;
+}
+function sitDown(k){
+  if(ACT[k]) ACT[k].remove();
+  delete ACT[k];
+  GONE.delete(k);
+  const s=seatEl(k); if(s) s.classList.remove("gone");
+}
+// Home is looked up again on arrival: the team may have been called in, or sent back, mid-walk.
+function walkHome(k){
+  const el=ACT[k]; if(!el||el._held) return;
+  const h=homeOf(k); if(!h) return sitDown(k);
+  go(el,route(LAY.g,[el._x,el._y],[h[0]+12,h[1]+22]),13,()=>{
+    const now=homeOf(k);
+    if(now&&(now[0]!==h[0]||now[1]!==h[1])) walkHome(k); else sitDown(k);
+  });
+}
+/* Planning, as two walks. When a team's plan phase starts it leaves its desks for the
+   cabin and the orchestrator comes round its desk to the head of the table; when you
+   finalize (or reject) they walk back, and the planner of a finalized plan, whose work is
+   done, goes to sleep in its own chair. Everyone stands up at once and sets off a beat apart. */
+function setMeet(want){
+  const cast=[MEET,want].filter(Boolean).flatMap(s=>POD.map(a=>s+"|"+a.role)).concat("orch");
+  const from=cast.map(homeOf);
+  MEET=want;
+  cast.forEach((k,n)=>{
+    const a=from[n], b=homeOf(k);
+    if(!a||!b||(a[0]===b[0]&&a[1]===b[1])) return;
+    actorFor(k,a);
+    setTimeout(()=>walkHome(k),n*240);
+  });
+}
+
+function podSig(p){return cardSig(p)+podTag(p,cardState(p))+(p.slug===MEET);}
 function podTag(p,st){
   if(st==="done") return p.completed?"completed":"ready to deploy";
   const t=etc(p);
@@ -1178,14 +1514,19 @@ function podTag(p,st){
 }
 const POD_SIG={};
 
+// One seat: the chair always, the agent unless it is on its feet somewhere.
+function seatHTML(slug,a,state){
+  const k=slug+"|"+a.role;
+  return `<div class="body${GONE.has(k)?" gone":""}" data-k="${esc(k)}" style="left:${a.x}px;top:${a.y}px">${
+    sprite(a.role,{back:a.back,state,seated:true,px:24})}</div>`;
+}
+const chairHTML=a=>`<div class="chair" style="left:${a.x+2}px;top:${a.back?a.y+21:a.y-5}px"></div>`;
+
 function podHTML(p,i,N){
   const st=cardState(p), work=st==="run";
   const x=POD_XS[0]+COL_DX*(i%N), y=POD_Y0+Math.floor(i/N)*POD_DY;
-  // a completed team has left: empty chairs, laptops off
-  const people=p.completed?"":POD.map(a=>
-    `<div class="chair" style="left:${a.x+2}px;top:${a.back?a.y+21:a.y-5}px"></div>
-     <div class="body" style="left:${a.x}px;top:${a.y}px">${
-       sprite(a.role,{back:a.back,state:seatState(p,a.role),seated:true,px:24})}</div>`).join("");
+  // a completed team has left: empty chairs, laptops off. A team in the office has left its chairs behind.
+  const people=p.completed?"":POD.map(a=>chairHTML(a)+(p.slug===MEET?"":seatHTML(p.slug,a,seatState(p,a.role)))).join("");
   const laps=POD.map(a=>`<span class="lap${!p.completed&&work&&p.activeAgent===a.role?" work":""}"
     style="left:${a.dx}px;top:${a.dy}px"><i></i><i></i><i></i><i></i><i></i><i></i></span>`).join("");
   const t=etc(p), pct=p.status==="done"?100:t?Math.round(100*t.worked/Math.max(1,t.worked+t.left)):0;
@@ -1196,47 +1537,141 @@ function podHTML(p,i,N){
     <div class="p-bar"><i style="width:${pct}%"></i></div></div>`;
 }
 
-/* The conductor sits apart, on its own rug, because it does a different job: it owns the
-   things that belong to the project rather than to any one feature. A floor that shows
-   four teams and hides what is directing them hides the decision-maker. */
-function orchHTML(ps,N){
-  const i=ps.length, x=POD_XS[0]+COL_DX*(i%N), y=POD_Y0+Math.floor(i/N)*POD_DY;
-  const live=shelfCounts().active;     // the whole room's, whichever tab is showing
-  return `<div class="pod orch" style="left:${x}px;top:${y}px">
-    <div class="rug"></div>
-    <div class="pod-name">orchestrator &middot; ${live} live</div>
-    <div class="desk work" style="left:47px;top:60px"><div class="scr"><i></i></div></div>
-    <div class="chair" style="left:65px;top:104px"></div>
-    <div class="body" style="left:63px;top:98px">${
-      sprite("orch",{back:true,state:live?"work":"idle",seated:true,px:24})}</div>
-  </div>`;
+// Desks nobody has been given yet: an office has them, and a half-empty floor reads as unfinished.
+function vacantHTML(from,to,N){
+  let out="";
+  for(let i=from;i<to;i++) out+=`<div class="pod vacant" style="left:${POD_XS[0]+COL_DX*(i%N)}px;top:${
+    POD_Y0+Math.floor(i/N)*POD_DY}px"><div class="rug"></div><div class="table"></div>${POD.map(a=>
+    `<span class="lap" style="left:${a.dx}px;top:${a.dy}px"></span>`+chairHTML(a)).join("")}</div>`;
+  return out;
+}
+/* The walls and the furniture, drawn once per floor. What changes - who is at the desk,
+   who is at the table - is painted into .dyn by paintRoom(). */
+const plantHTML=css=>`<div class="plant" style="${css}"><i></i><b></b></div>`;
+const tvHTML=css=>`<div class="tv" style="${css}"><i></i><i></i><i></i></div>`;
+function wingHTML(L){
+  const door=L.g.nodes.kd[1]-OFFICE_H-16;      // the cafeteria's doorway, in its own y
+  const S=L.bw, racks=Math.min(9,Math.floor((S-250)/34));
+  const npc=(css,cls)=>`<div class="npc ${cls}" style="${css}">${sprite("orch",{state:"type",legs:true,px:24})}<i class="prop bat"></i></div>`;
+  return `<div class="room office" style="left:${L.bw}px;top:0;width:${WING}px;height:${OFFICE_H}px">
+      <div class="door" style="top:190px"></div>
+      ${tvHTML("left:24px;width:132px")}
+      <div class="clock" style="left:170px"><i class="hh"></i><i class="mm"></i></div>
+      <div class="shelf" style="left:6px;top:20px"><i></i><i></i><i></i></div>
+      ${plantHTML("left:72px;top:22px")}
+      <div class="lamp" style="left:160px;top:78px"></div>
+      <div class="award" style="left:224px;top:1px"></div>
+      <div class="carpet"></div>
+      <div class="dyn"></div></div>
+    <div class="room cafe" style="left:${L.bw}px;top:${OFFICE_H}px;width:${WING}px;height:${L.h-OFFICE_H}px">
+      <div class="door" style="top:${door}px"></div>
+      <div class="counter"><span class="coffee"><i></i><i></i></span><span class="sink"></span></div>
+      <div class="cooler"><i></i></div><div class="fridge"></div><div class="vend"><i></i></div>
+      <div class="pong"><i></i></div>
+      ${npc("left:62px;top:84px","p1")}${npc("left:190px;top:92px","p2")}
+      <div class="cafe-t" style="left:44px;bottom:66px"></div><div class="cafe-t" style="left:128px;bottom:84px"></div>
+      <div class="sofa"></div>
+      ${plantHTML("left:238px;bottom:10px")}${plantHTML("left:8px;bottom:10px")}
+      <span class="plate dim" style="left:30px">cafeteria</span></div>
+    <div class="room server nw" style="left:0;top:${L.bh}px;width:${S}px;height:${SOUTH}px">
+      <div class="door n" style="left:${193-16}px"></div>
+      ${[...Array(racks).keys()].map(i=>`<div class="rack" style="left:${12+34*i}px;--d:${-(i*370)%1900}ms"><i></i><i></i><i></i><i></i><i></i></div>`).join("")}
+      ${tvHTML(`left:${S-226}px;width:96px`)}
+      <div class="cool" style="left:${S-116}px"><i></i></div><div class="cool" style="left:${S-80}px"><i></i></div>
+      <div class="ups" style="left:${S-40}px"><i></i></div>
+      <div class="desk boss work" style="left:${S-150}px;top:88px"><div class="scr"><i></i></div><div class="scr two"><i></i></div></div>
+      <div class="chair" style="left:${S-124}px;top:124px"></div>
+      ${plantHTML(`left:${S-24}px;top:104px`)}
+      <div class="cable" style="left:14px;width:${34*racks-10}px"></div>
+      <span class="plate dim">server room</span></div>`;
+}
+/* The conductor is the boss and has the cabin, because it does a different job: it owns
+   the things that belong to the project rather than to any one feature. With a team in
+   the room it is on its feet at the head of the table; otherwise it is at its own desk. */
+function paintRoom(){
+  const room=LAY.floor.querySelector(".room.office");
+  const p=MEET&&HALL.pipelines.find(x=>x.slug===MEET), live=shelfCounts().active;
+  const sig=(p?cardSig(p):"")+"|"+live;
+  if(sig===ROOM_SIG&&room.querySelector(".conf")) return;
+  ROOM_SIG=sig;
+  const gone=GONE.has("orch")?" gone":"";
+  const orch=p
+    ?`<div class="body${gone}" data-k="orch" style="left:${ORCH_STAND.x}px;top:${ORCH_STAND.y}px">${
+        sprite("orch",{state:"type",legs:true,px:24})}</div>`
+    :`<div class="body${gone}" data-k="orch" style="left:${ORCH_SEAT.x}px;top:${ORCH_SEAT.y}px">${
+        sprite("orch",{back:true,state:live?"type":"wait",seated:true,px:24})}</div>`;
+  const gate=!!p&&p.status==="awaiting_approval";
+  room.classList.toggle("on",!!p); room.classList.toggle("gate",gate);
+  room.querySelector(".dyn").innerHTML=`
+    <div class="plate" style="left:8px;top:44px">orchestrator &middot; ${live} live</div>
+    <div class="desk boss${live&&!p?" work":""}" style="left:${ORCH_DESK.x}px;top:${ORCH_DESK.y}px"><div class="scr"><i></i></div><div class="scr two"><i></i></div></div>
+    <div class="chair" style="left:${ORCH_SEAT.x+2}px;top:${ORCH_SEAT.y+6}px"></div>${orch}
+    <div class="conf" style="left:${CONF.x}px;top:${CONF.y}px">
+      <div class="rug"></div><div class="table"></div>${
+      CSEAT.map(a=>`<span class="lap${p&&!gate&&a.role==="planner"?" work":""}" style="left:${a.dx}px;top:${a.dy}px"><i></i><i></i><i></i><i></i><i></i><i></i></span>`).join("")}${
+      CSEAT.map((a,n)=>chairHTML(a)+(p?seatHTML(p.slug,a,a.role!=="planner"?"wait":gate?"ask":"type")
+        +`<i class="say" style="left:${a.x+17}px;top:${a.y-8}px;animation-delay:${-1.5*n}s"></i>`:"")).join("")}${
+      p?`<a class="conf-name" href="/r/${encodeURIComponent(p.slug)}" title="${gate?"Plan ready, waiting on your finalize":"Planning"}: ${
+            esc(p.feature||p.slug)}">${esc(p.feature||p.slug)}</a>`
+       :`<span class="conf-name">planning table</span>`}
+    </div>`;
+}
+function tickClock(){
+  const c=LAY.floor.querySelector(".clock"), d=new Date(); if(!c) return;
+  c.querySelector(".hh").style.transform=`rotate(${(d.getHours()%12+d.getMinutes()/60)*30}deg)`;
+  c.querySelector(".mm").style.transform=`rotate(${d.getMinutes()*6}deg)`;
 }
 
-/* Two walkers, on the graph, one axis at a time. They are the only thing in the room
-   that means nothing, and they are grey for exactly that reason. */
-function startWalkers(floor,g){
-  const keys=Object.keys(g.nodes);
-  [0,1].forEach(n=>{
+/* Two walkers. They are the only people in the room that mean nothing, and they are grey
+   for exactly that reason - but they are two different people. The pacer laps the outer
+   corridor clockwise at a clip, clipboard under one arm, and barely stops at a corner. The
+   ambler drifts wherever the next junction takes it, never doubling back when it has a
+   choice, stands about between legs, and every fifth leg goes for a coffee and drinks it
+   at the machine. Pick either up and it rejoins its own pattern from where you put it. */
+function startWalkers(){
+  const g=LAY.g, R=LAY.rows, L=LAY.N-1, P=k=>g.nodes[k];
+  const mk=(k,cls,at,prop)=>{
     const el=document.createElement("div");
-    el.className="walker"; el.style.position="absolute"; el.style.left="0"; el.style.top="0";
-    el.innerHTML=sprite("orch",{state:"wait",px:24});
-    floor.append(el);
-    let at=keys[n?keys.length-1:0];
-    const put=(k,ms)=>{const c=g.nodes[k];
-      el.style.transition=ms?`transform ${ms}ms steps(${Math.max(2,Math.round(ms/90))})`:"";
-      el.style.transform=`translate(${c[0]-12}px,${c[1]-20}px)`;};
-    const step=()=>{
-      if(!el.isConnected) return;                       // the floor was rebuilt
-      const next=g.edges.filter(e=>e.indexOf(at)>=0).map(e=>e[0]===at?e[1]:e[0]);
-      const to=next[Math.floor(Math.random()*next.length)];
-      const a=g.nodes[at], b=g.nodes[to];
-      const ms=(Math.abs(b[0]-a[0])+Math.abs(b[1]-a[1]))*14;
-      put(to,ms); at=to;
-      setTimeout(step,ms+700+Math.random()*1800);
-    };
-    put(at,0);
-    setTimeout(step,500+n*1100);
-  });
+    el.className="actor walker "+cls; el.dataset.act=k;
+    el.innerHTML=sprite("orch",{state:"wait",legs:true,px:24})+prop;
+    LAY.floor.append(el); ACT[k]=el; put(el,at[0],at[1],0);
+    return el;
+  };
+  const pacer=mk("w0","brisk",P("0.0"),`<i class="prop clip"></i>`);
+  // ...and once a lap it ducks into the server room and stands a moment in front of the racks
+  const lap=["0."+L,R+"."+L,"si","0.0"];
+  let li=0;
+  pacer._resume=()=>{
+    if(!pacer.isConnected||pacer._held||NO_MOTION.matches) return;
+    go(pacer,route(g,[pacer._x,pacer._y],P(lap[li])),8,()=>{
+      const rest=lap[li]==="si"?2600:260;
+      li=(li+1)%lap.length; setTimeout(pacer._resume,rest); });
+  };
+  const amb=mk("w1","amble",P(R+".0"),`<i class="prop mug"></i>`);
+  let at=R+".0", was=null, legs=0;
+  const roam=()=>{
+    if(!amb.isConnected||amb._held||NO_MOTION.matches) return;
+    if(++legs%5===0){
+      go(amb,route(g,[amb._x,amb._y],P("kc")),22,()=>{
+        at="kc"; was=null; amb.classList.add("sip");
+        setTimeout(()=>{ amb.classList.remove("sip"); roam(); },4200);
+      });
+      return;
+    }
+    // the cabin is by invitation and the racks are the pacer's: it turns back at those doors
+    let next=g.edges.filter(e=>e.includes(at)).map(e=>e[0]===at?e[1]:e[0]).filter(k=>!/^[os]/.test(k));
+    if(next.length>1) next=next.filter(k=>k!==was);
+    const to=next[Math.floor(Math.random()*next.length)];
+    was=at; at=to;
+    go(amb,[P(to)],22,()=>setTimeout(roam,1200+Math.random()*2600));
+  };
+  amb._resume=()=>{
+    if(NO_MOTION.matches) return;
+    amb.classList.remove("sip");
+    go(amb,route(g,[amb._x,amb._y],P(at)),22,()=>setTimeout(roam,800));
+  };
+  setTimeout(pacer._resume,500);
+  setTimeout(roam,1600);
 }
 
 // Section 10.8-2. Capping the floor would hide exactly the stalled pipelines the floor
@@ -1248,7 +1683,7 @@ function observePods(floor){
   if(!IO) IO=new IntersectionObserver(es=>es.forEach(e=>
     e.target.classList.toggle("off",!e.isIntersecting)),{root:host,rootMargin:"120px"});
   IO.disconnect();
-  floor.querySelectorAll(".pod").forEach(el=>IO.observe(el));
+  floor.querySelectorAll(".pod,.room").forEach(el=>IO.observe(el));
 }
 
 /* Zoom and pan over real DOM, not a canvas rewrite: every agent keeps its tooltip, its
@@ -1257,7 +1692,7 @@ let Z=1,PX=24,PY=24;
 /* The floor opens fitted to the screen and re-fits when the window or the set of teams
    changes; after that the reader moves it like any canvas - drag, scroll, ctrl+scroll. */
 function fitFrame(host){
-  const pad=16, tagH=24;   // the state tags hang tagH above the floor's top edge
+  const pad=16, tagH=28;   // the north wall, and the state tags over it, stand tagH above the floor's top edge
   const k=host.querySelector(".key");
   return {pad, top:(k?k.offsetHeight+24:pad)+tagH, bot:pad+36};  // key above, HUD below
 }
@@ -1297,47 +1732,93 @@ function applyView(){
     const nz=Math.min(2.5,Math.max(Math.min(0.5,Z),Z*(e.deltaY<0?1.12:1/1.12)));
     PX=mx-(mx-PX)*(nz/Z); PY=my-(my-PY)*(nz/Z); Z=nz; applyView();
   },{passive:false});
+  // The pointer in floor coordinates: under the pan and zoom, and inside the 4px outer wall.
+  const at=e=>{const r=host.getBoundingClientRect();
+    return [(e.clientX-r.left-PX)/Z-4,(e.clientY-r.top-PY)/Z-4];};
+  /* Pick an agent up and it comes with you; let go and it walks home by the corridors. It
+     is a toy and changes nothing on the bus - the run does not know it was lifted. */
+  function grab(t,e){
+    let el=t;
+    if(t.classList.contains("actor")){
+      // mid-walk: stop it where it is on screen, not where the walk was headed
+      const m=new DOMMatrix(getComputedStyle(t).transform);
+      t._run=(t._run||0)+1; put(t,m.m41+12,m.m42+22,0);
+    }else{
+      const h=homeOf(t.dataset.k); if(!h) return;
+      el=actorFor(t.dataset.k,h);
+    }
+    el._held=true; el.classList.remove("walking","sip","land"); el.classList.add("held");
+    const p=at(e); HELD={el,dx:el._x-p[0],dy:el._y-p[1]};
+  }
   let down=null;
   host.addEventListener("pointerdown",e=>{
     if(e.target.closest("a,button,.hud")) return;  // a captured pointer would swallow the click
-    down={x:e.clientX-PX,y:e.clientY-PY};
-    host.classList.add("drag");host.setPointerCapture(e.pointerId);});
-  host.addEventListener("pointermove",e=>{if(!down)return;
+    const who=e.button===0&&LAY&&e.target.closest(".body[data-k],.actor");
+    if(who) grab(who,e);
+    if(!HELD){ down={x:e.clientX-PX,y:e.clientY-PY}; host.classList.add("drag"); }
+    host.setPointerCapture(e.pointerId);});
+  host.addEventListener("pointermove",e=>{
+    if(HELD){
+      const p=at(e);
+      put(HELD.el,Math.min(LAY.w-12,Math.max(12,p[0]+HELD.dx)),Math.min(LAY.h-12,Math.max(12,p[1]+HELD.dy)),0);
+      return;
+    }
+    if(!down)return;
     PX=e.clientX-down.x;PY=e.clientY-down.y;applyView();});
-  host.addEventListener("pointerup",()=>{down=null;host.classList.remove("drag");});
+  const drop=()=>{
+    down=null;host.classList.remove("drag");
+    if(!HELD) return;
+    const el=HELD.el; HELD=null;
+    el._held=false; el.classList.remove("held"); el.classList.add("land");
+    setTimeout(()=>el.classList.remove("land"),220);
+    if(!el.isConnected) return;                  // the floor was rebuilt under the hand
+    if(el._resume) el._resume(); else walkHome(el.dataset.act);
+  };
+  host.addEventListener("pointerup",drop);
+  host.addEventListener("pointercancel",drop);
 })();
 
 function renderOffice(){
   const host=document.getElementById("office");
   if(host.hidden) return;                      // the hall is the working view
-  // The conductor occupies a cell like any team, so it has to be counted when the floor
-  // is sized - otherwise it is placed in a column the building has no room for and hangs
-  // off the right edge. The 566x466 of section 10.5 is the floor's *minimum*: three
-  // columns of 158 starting at x=18 need more than that once the border is counted.
-  const ps=shown(), cells=ps.length+1, fr=fitFrame(host),
+  // The conductor has its own room now, so the grid is sized for the teams alone; the
+  // wing is added to whatever width they need.
+  // A team keeps the desks it was given. The hall sorts by urgency, but here a re-sort
+  // would move every pod the moment one team's state changed - which is exactly when its
+  // people are meant to be seen walking somewhere.
+  const live=shown();
+  SEATS=SEATS.filter(s=>live.some(p=>p.slug===s)).concat(live.map(p=>p.slug).filter(s=>!SEATS.includes(s)));
+  const ps=SEATS.map(s=>live.find(p=>p.slug===s)), cells=Math.max(1,ps.length), fr=fitFrame(host),
     N=pickCols(ps.length,cells,host.clientWidth,host.clientHeight,fr.top,fr.bot),
-    {rows,w,h}=floorDims(N,cells);
+    {rows,bw,bh,w,h}=floorDims(N,cells);
   const shell=N+"|"+rows+"|"+ps.map(p=>p.slug).join(",");
   let floor=host.querySelector(".floor");
   if(!floor||host.dataset.shell!==shell){
     host.dataset.shell=shell;
+    // A new floor starts with everyone already where they belong: nobody walks in on load.
+    for(const k in ACT) delete ACT[k];
+    GONE.clear(); HELD=null; ROOM_SIG=""; MEET=null; MEET=meeting(ps);
+    LAY={N,rows,bw,bh,w,h,slugs:ps.map(p=>p.slug),g:floorGraph(N,rows,bw,bh)};
     host.innerHTML=`<div class="key">
         <span><b>Typing, screen scrolling:</b> holds the work now</span>
         <span><b>Hand up, amber rug:</b> waiting on you</span>
+        <span><b>At the cabin table:</b> planning; amber when the plan is ready to finalize</span>
         <span><b>Shaking, red rug:</b> blocked</span>
         <span><b>Asleep on green:</b> ready to deploy</span>
       </div>
-      <span class="hint">Drag to move &middot; scroll to pan &middot; ctrl + scroll to zoom</span>
-      <div class="hud"><button class="ghost" data-z="out" aria-label="Zoom out">&minus;</button>
+      <span class="hint">Pick anyone up, they walk back &middot; drag the floor to move &middot; ctrl + scroll to zoom</span>
+      <div class="hud">${DEMO?`<button class="ghost" data-z="demo">Demo: finalize the plan</button>`:""}
+        <button class="ghost" data-z="out" aria-label="Zoom out">&minus;</button>
         <span id="zoom-pct">100%</span>
         <button class="ghost" data-z="in" aria-label="Zoom in">+</button>
         <button class="ghost" data-z="fit">Fit</button>
         <button class="ghost" data-z="100">100%</button></div>
-      <div class="floor" style="width:${w}px;height:${h}px">
-      ${ps.map((p,i)=>podHTML(p,i,N)).join("")}${orchHTML(ps,N)}
-      <div class="plant" style="left:184px;top:${h-56}px"><i></i><b></b></div>
-      <div class="plant" style="left:${w-40}px;top:${h-56}px"><i></i><b></b></div></div>`;
-    floor=host.querySelector(".floor");
+      <div class="floor" style="width:${w+8}px;height:${h+8}px">
+      <div class="wall-n">${[...Array(N-1).keys()].map(j=>193+COL_DX*j-24).concat(bw+30,bw+106,bw+182)
+        .map(x=>`<i class="win" style="left:${x}px"></i>`).join("")}</div>
+      ${ps.map((p,i)=>podHTML(p,i,N)).join("")}${vacantHTML(ps.length,N*rows,N)}${wingHTML(LAY)}
+      ${plantHTML(`left:6px;top:${bh-30}px`)}${plantHTML(`left:${bw-22}px;top:${bh-30}px`)}</div>`;
+    floor=LAY.floor=host.querySelector(".floor");
     // The key only exists now: if it moves the best column count, lay out once more, here,
     // so the first open lands on its final N instead of re-laying itself on the next update.
     const fr2=fitFrame(host);
@@ -1345,13 +1826,26 @@ function renderOffice(){
     ps.forEach(p=>POD_SIG[p.slug]=podSig(p));
     host.querySelector(".hud").addEventListener("click",e=>{
       const b=e.target.closest("button"); if(!b) return;
+      if(b.dataset.z==="demo"){
+        // the fixture's one gated team, flipped between "plan ready" and "finalized"
+        const q=HALL.pipelines.find(p=>p.slug==="009-messaging-hub"); if(!q) return;
+        const gated=q.status==="awaiting_approval";
+        Object.assign(q,gated?{status:"running",phase:"implement",activeAgent:"coder"}
+                             :{status:"awaiting_approval",phase:"plan",activeAgent:"planner"},
+          {updatedAt:new Date().toISOString()});
+        b.textContent=gated?"Demo: plan ready again":"Demo: finalize the plan";
+        render(); return;
+      }
       if(b.dataset.z==="fit") fitView(); else if(b.dataset.z==="100") setZoom(1); else setZoom(Z*(b.dataset.z==="in"?1.15:1/1.15));
     });
-    fitView(); startWalkers(floor,floorGraph(N,rows));
+    fitView(); startWalkers();
   }else{
+    // Before the pods are patched, so each one is redrawn already knowing who has stood up.
+    const want=meeting(ps);
+    if(want!==MEET) setMeet(want);
     // Patch only the pod that changed, or the whole floor's loops restart - including
     // the walkers, who would teleport back to where they started.
-    const pods=[...floor.querySelectorAll(".pod")];
+    const pods=[...floor.querySelectorAll(".pod[data-slug]")];
     ps.forEach((p,i)=>{
       if(POD_SIG[p.slug]===podSig(p)) return;
       POD_SIG[p.slug]=podSig(p);
@@ -1360,6 +1854,7 @@ function renderOffice(){
       old.replaceWith(t.content.firstElementChild);
     });
   }
+  paintRoom(); tickClock();
   observePods(floor);
 }
 
