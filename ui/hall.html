@@ -577,8 +577,7 @@
   .npc.p2 .who .arm{animation-delay:-480ms}
   .prop.bat{left:20px;top:14px;width:5px;height:7px;border-radius:3px 3px 1px 1px;background:var(--bad);border-color:var(--wood-2)}
   .npc.p2 .prop.bat{left:-1px}
-  @keyframes swing{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
-  .npc .prop.bat{animation:swing 1.3s steps(2) infinite} .npc.p2 .prop.bat{animation-delay:-650ms}
+  .npc .prop.bat{animation:stride 650ms steps(2) infinite alternate} .npc.p2 .prop.bat{animation-delay:-650ms}
   .sink{position:absolute;right:8px;top:6px;width:22px;height:11px;border-radius:2px;background:var(--screen-b);border:1px solid var(--wood-2)}
   .vend{position:absolute;left:228px;top:2px;width:26px;height:38px;border-radius:3px;background:var(--chairc);border:1px solid var(--wood-2)}
   .vend i{position:absolute;left:3px;top:4px;width:13px;height:20px;border-radius:1px;background:var(--screen-b);
@@ -607,7 +606,7 @@
     box-shadow:0 4px 0 var(--table-2),inset 0 0 0 2px color-mix(in srgb,var(--panel) 55%,transparent)}
   .pong::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--panel)}
   .pong i{position:absolute;left:0;top:0;width:4px;height:4px;border-radius:50%;background:var(--bright);
-    animation:rally 2.6s linear infinite}
+    animation:rally 2.6s steps(16) infinite}
   @keyframes rally{0%,100%{transform:translate(8px,10px)}25%{transform:translate(76px,30px)}
     50%{transform:translate(10px,34px)}75%{transform:translate(74px,8px)}}
   .sofa{position:absolute;left:142px;bottom:12px;width:84px;height:28px;border-radius:6px;background:var(--chairc);
@@ -649,7 +648,7 @@
   .actor.held .eye{animation:none;transform:scale(1.4)}
   .actor.held::after{transform:scale(.6);opacity:.5}
   @keyframes land{0%{transform:scale(1.15,.8)}100%{transform:scale(1)}}
-  .actor.land .who{animation:land 200ms var(--ease-out) 1}
+  .actor.land .who{animation:land 200ms steps(2) 1}
 
   .empty{color:var(--muted);font-size:13px;padding:36px 4px;font-family:var(--mono)}
   /* floating chrome over the floor: state key, hint, zoom HUD */
@@ -1348,7 +1347,7 @@ function floorGraph(n,rows,bw,bh){
   const ox=bw+RX, by=ys[rows];
   Object.assign(nodes,{od:[bw+3,ys[1]],oi:[ox+26,ys[1]],ot:[ox+26,154],otr:[ox+240,154],
     ob:[ox+26,280],obr:[ox+240,280],kd:[bw+3,by],ki:[ox+28,by],kc:[ox+28,OFFICE_H+62],
-    sd:[193,bh+8],si:[193,bh+96],sa:[36,bh+96],sb:[bw-36,bh+96]});
+    sd:[193,bh+8],si:[193,bh+96],sa:[36,bh+96],sb:[bw-170,bh+96]});
   edges.push(["1."+L,"od"],["od","oi"],["oi","ot"],["oi","ob"],["ot","otr"],["ob","obr"],["otr","obr"],
     [rows+"."+L,"kd"],["kd","ki"],["ki","kc"],
     [rows+".0","sd"],["sd","si"],["sa","si"],["si","sb"]);

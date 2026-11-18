@@ -1383,6 +1383,13 @@ MOTION_KEYFRAMES = {"typing", "waiting", "sleeping", "walk-in", "table-in", "row
 # sleeper's z. They ride on the typing/waiting/asleep entries rather than adding states.
 # Asking for help adds a raised hand that waves (a gate) and a shake (blocked).
 MOTION_ALLOWED = MOTION_KEYFRAMES | {"screen-scroll", "tap", "blink", "zz", "wave", "shake"}
+# The office floor (0.13.0) is a building people move around in, which the inventory above
+# never covered: legs and carriage for walking (stride, sway), a hand that picks someone up
+# and the landing (dangle, land), a mug (sip), and the rooms' own signs of life - the big
+# screen, rack lights, the cooling fan, steam, the ping-pong ball, a meeting's turn to talk.
+# Every one is held to the same rules as the agents: stepped, transform and opacity only.
+FLOOR_MOTION = {"stride", "sway", "dangle", "land", "sip", "tv-bar", "led", "fan", "steam",
+                "rally", "say"}
 
 
 def the_motion_inventory_stays_at_eight():
@@ -1396,8 +1403,10 @@ def the_motion_inventory_stays_at_eight():
     names = set(re.findall(r"@keyframes\s+([\w-]+)", src))
     assert not MOTION_KEYFRAMES - names, \
         f"section 10.4 entries with no animation: {sorted(MOTION_KEYFRAMES - names)}"
-    assert not names - MOTION_ALLOWED, \
-        f"motion beyond the inventory: {sorted(names - MOTION_ALLOWED)} - that is the bug"
+    assert not names - MOTION_ALLOWED - FLOOR_MOTION, \
+        f"motion beyond the inventory: {sorted(names - MOTION_ALLOWED - FLOOR_MOTION)} - that is the bug"
+    for name, rule in re.findall(r"animation:\s*(%s)\b([^;}]*)" % "|".join(FLOOR_MOTION), css):
+        assert "steps(" in rule, f"the floor's {name} tweens ({rule.strip()}) - rule 1: stepped, never eased"
 
     # Rule 5: transform and opacity only, so a full hall stays smooth while the page works.
     for block in re.findall(r"@keyframes\s+[\w-]+\s*\{(.*)", src):
@@ -1434,38 +1443,53 @@ def js_literal(src, name):
     return json.loads(re.sub(r"//[^\n]*", "", m.group(1)))
 
 
-# Section 10.5: desk islands occupy these bands, so the walkable space is the two
-# vertical aisles and the horizontal ones between and around them. Rows sit 206 apart,
-# not the original 152: a rug overhangs its island by 8 above, and each island's state tag
-# (top:-31px) must clear the nameplate and bar of the row above (bottom at +170).
-ISLAND_X = [(18, 174), (212, 368), (406, 562)]
-ISLAND_Y = [(16, 134), (222, 340)]
+def floor_js(src, body):
+    """Run hall.html's floor geometry - plain data and functions, no DOM - under node, and
+    return what `body` prints as JSON."""
+    geo = src[src.index("const BUILDING_H"):src.index("/* ---- who is where")]
+    r = subprocess.run(["node", "-e", geo + body], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, f"hall.html's floor layout did not run: {r.stdout}{r.stderr}"
+    return json.loads(r.stdout)
+
+
+def edge_hits(nodes, edges, boxes):
+    """The first corridor edge that is diagonal or runs over one of `boxes` (x, y, w, h)."""
+    for a, b in edges:
+        if a not in nodes or b not in nodes:
+            return f"edge {a}-{b} names a node that does not exist"
+        (ax, ay), (bx, by) = nodes[a], nodes[b]
+        if (ax == bx) == (ay == by):
+            return f"edge {a}-{b} is diagonal ({ax},{ay})->({bx},{by}) - it cuts through a desk"
+        for x, y, w, h in boxes:
+            if ax == bx:
+                hit = x <= ax <= x + w and min(ay, by) < y + h and max(ay, by) > y
+            else:
+                hit = y <= ay <= y + h and min(ax, bx) < x + w and max(ax, bx) > x
+            if hit:
+                return f"edge {a}-{b} crosses the furniture at ({x},{y})"
+    return None
 
 
 def the_corridor_graph_never_cuts_a_corner():
-    """S43 - AC4, section 10.5. Walkers move one axis at a time: every edge in NODES /
-    EDGES is purely horizontal or vertical, and its constant coordinate sits in an aisle.
-    That is the whole reason the graph exists - a diagonal edge walks someone straight
-    through a desk. Also pins the facing-pair offsets, which were chosen so that no agent
-    is ever in front of a screen."""
+    """S43 - AC4, section 10.5. Walkers move one axis at a time: every corridor edge is
+    purely horizontal or vertical, and none runs over a desk island, the cabin's big table
+    or the server room's console. That is the whole reason the graph exists - a diagonal,
+    or an edge over furniture, walks someone straight through it. The graph is generated
+    per floor now (bullpen, cabin, cafeteria, server room), so lay out the two-row floor
+    the way the page does. Also pins the facing-pair offsets, which were chosen so that no
+    agent is ever in front of a screen."""
     src = open(HALL_HTML, encoding="utf-8").read()
-    nodes, edges = js_literal(src, "NODES"), js_literal(src, "EDGES")
-
-    def in_aisle(v, bands):
-        return all(not (lo <= v <= hi) for lo, hi in bands)
-
-    for a, b in edges:
-        assert a in nodes and b in nodes, f"edge {a}-{b} names a node that does not exist"
-        (ax, ay), (bx, by) = nodes[a], nodes[b]
-        assert (ax == bx) != (ay == by), \
-            f"edge {a}-{b} is diagonal ({ax},{ay})->({bx},{by}) - it cuts through a desk"
-        if ax == bx:
-            assert in_aisle(ax, ISLAND_X), f"vertical edge {a}-{b} runs at x={ax}, inside an island"
-        else:
-            assert in_aisle(ay, ISLAND_Y), f"horizontal edge {a}-{b} runs at y={ay}, inside an island"
-    for name, (x, y) in nodes.items():
-        assert in_aisle(x, ISLAND_X) or in_aisle(y, ISLAND_Y), \
-            f"node {name} at ({x},{y}) stands on a desk island"
+    if not shutil.which("node"):
+        print("SKIP S43 corridors - no node on PATH; the floor was not laid out")
+    else:
+        o = floor_js(src, """
+const d=floorDims(3,6), g=floorGraph(3,d.rows,d.bw,d.bh), islands=[];
+for(let i=0;i<6;i++) islands.push([18+194*(i%3),16+206*Math.floor(i/3),156,118]);
+console.log(JSON.stringify({nodes:g.nodes,edges:g.edges,boxes:islands.concat([
+  [d.bw+RX+CONF.x+8,CONF.y+38,168,84],     // the cabin's big table (.table at 8,38 in .conf)
+  [d.bw-150,d.bh+88,74,32]])}));""")       # the server room's console
+        bad = edge_hits(o["nodes"], o["edges"], o["boxes"])
+        assert not bad, bad
 
     pod = {p["role"]: p for p in js_literal(src, "POD")}
     expect = {"planner": (26, 4, 25, 42), "coder": (96, 4, 95, 42),
@@ -1482,15 +1506,21 @@ def the_corridor_graph_never_cuts_a_corner():
     # would hide exactly the stalled pipelines the floor exists to surface.
     assert "IntersectionObserver" in src, \
         "nothing pauses off-screen pods; at twelve teams that is ~24 sprite loops"
-    assert "const MEET" not in src, "the gate huddle is gone: agents stay seated, hands up"
+    # 0.13.0: a team plans at the orchestrator's table, from the plan phase through the
+    # finalize gate, and walks back to its desks when the plan is decided.
+    meet = src[src.index("function meeting"):src.index("// Top-left of the seat")]
+    assert 'p.phase==="plan"' in meet and '"awaiting_approval"' in meet, \
+        "a team in its plan phase does not sit at the cabin table through the finalize gate"
     # AC10: fits on open and on resize, drags, zooms, each island carries its state tag,
     # and a completed team's pod is empty (no sprite in the pod markup).
     assert re.search(r"renderOffice\(\);\s*fitView\(\)", src) and         re.search(r'addEventListener\("resize",\(\)=>\{[^}]*fitView\(\)', src),         "the floor does not fit on open and on resize"
     assert "pointermove" in src and "e.ctrlKey" in src, "the floor cannot be dragged or zoomed"
-    pod_fn = src[src.index("function podHTML"):src.index("function orchHTML")]
+    pod_fn = src[src.index("function podHTML"):src.index("function vacantHTML")]
     assert "podTag(p,st)" in pod_fn, "each island must show its state tag"
     assert re.search(r"p\.completed\?\"\":POD\.map", pod_fn), "a completed pod still seats people"
-    assert "566" in src and "466" in src, "the building is not the fixed 566x466 of 10.5"
+    assert "BUILDING_H=466" in src, "two rows of pods are no longer the 466 of section 10.5"
+    for room in ("room office", "room cafe", "room server"):
+        assert room in src, f"the floor has lost its {room.split()[1]}"
     assert "2.5" in src and "0.5" in src, "the zoom range is not 0.5-2.5"
 
 
@@ -2620,38 +2650,25 @@ def the_floor_widens_to_fit_the_screen():
         print("SKIP S77 - no node on PATH; the floor was not laid out")
         return
     src = open(HALL_HTML, encoding="utf-8").read()
-    geo = src[src.index("const BUILDING_W"):src.index("function podSig")]
-    js = geo + """
+    out = floor_js(src, """
 const out={};
 for(const [cw,ch] of [[1500,950],[1100,700]]){
-  const N=pickCols(25,26,cw,ch,78,52), d=floorDims(N,26), g=floorGraph(N,d.rows);
+  const N=pickCols(25,26,cw,ch,78,52), d=floorDims(N,26), g=floorGraph(N,d.rows,d.bw,d.bh);
   const isl=[]; for(let i=0;i<26;i++) isl.push([18+194*(i%N),16+206*Math.floor(i/N)]);
   out[cw]={N,d,tall:Math.max(...isl.map(a=>a[1]))+170,wide:Math.max(...isl.map(a=>a[0]))+156,nodes:g.nodes,edges:g.edges,isl,z:Math.min((cw-32)/d.w,(ch-130)/d.h)};
 }
 out.few=pickCols(6,7,1500,950,78,52);
-console.log(JSON.stringify(out));"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, f"hall.html's floor layout did not run: {r.stdout}{r.stderr}"
-    out = json.loads(r.stdout)
+console.log(JSON.stringify(out));""")
     body = src[src.index("function renderOffice"):]
     assert body.count("pickCols(") >= 2, "the floor does not re-pick N once the key exists (first open re-lays itself)"
-    assert re.search(r'"c":\[193,206\],"d":\[387,206\]', src), "the three-column corridor is off y 206"
     assert out["few"] == 3, "six teams or fewer must keep the three-column floor"
     for key in ("1500", "1100"):
         o = out[key]
         assert o["N"] > 3 and o["z"] >= 0.5, f"25 teams at {key}px do not fit: {o['N']} cols, zoom {o['z']}"
-        n = o["nodes"]
-        assert o["wide"] <= o["d"]["w"] and o["tall"] <= o["d"]["h"], f"an island hangs off the {key}px floor"
-        assert any(y == 206 for _, y in n.values()), "no between-rows corridor at y 206"
-        for a, b in o["edges"]:
-            (ax, ay), (bx, by) = n[a], n[b]
-            assert (ax == bx) != (ay == by), f"edge {a}-{b} is diagonal"
-            for x, y in o["isl"]:       # the island box, its rug and tag excluded
-                if ax == bx:
-                    hit = x <= ax <= x + 156 and min(ay, by) < y + 118 and max(ay, by) > y
-                else:
-                    hit = y <= ay <= y + 118 and min(ax, bx) < x + 156 and max(ax, bx) > x
-                assert not hit, f"edge {a}-{b} crosses the island at ({x},{y})"
+        assert o["wide"] <= o["d"]["bw"] and o["tall"] <= o["d"]["bh"], f"an island hangs off the {key}px bullpen"
+        assert any(y == 206 for _, y in o["nodes"].values()), "no between-rows corridor at y 206"
+        bad = edge_hits(o["nodes"], o["edges"], [[x, y, 156, 118] for x, y in o["isl"]])
+        assert not bad, f"{key}px: {bad}"
 
 
 def backdate_clock(root, minutes, status):
