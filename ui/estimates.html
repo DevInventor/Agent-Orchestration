@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent-Orchestration · estimates</title>
+<style>
+  /* Section 10.1 tokens, the same copy the board carries (S49 / S80 hold all three equal). */
+  :root{
+    --ink:#F5F6F9; --panel:#FFFFFF; --sunk:#ECEEF3; --raise:#FFFFFF;
+    --line:#DCE0E7; --line-2:#C2C9D4;
+    --text:#3A424F; --bright:#0E131B; --muted:#6B7585; --faint:#98A1AF;
+    --planner:#9A6B10; --coder:#1A6CA8; --tester:#A33468; --reviewer:#1B7A52; --orch:#6B4FA8;
+    --ok:#1B7A52; --warn:#9A6B10; --bad:#B03A34;
+    --mono:"Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:"Fira Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+      --line:#1D2531; --line-2:#2C3644;
+      --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+      --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+      --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#090C12; --panel:#11151D; --sunk:#0D1118; --raise:#171D28;
+    --line:#1D2531; --line-2:#2C3644;
+    --text:#C7CEDA; --bright:#EDF1F6; --muted:#7A8496; --faint:#4A5464;
+    --planner:#F2C14E; --coder:#4FA6E0; --tester:#E06C9F; --reviewer:#5FCF9B; --orch:#A98BEA;
+    --ok:#5FCF9B; --warn:#F2C14E; --bad:#E0655F;
+  }
+  /* The three quantities every row compares, one colour each, used the same way everywhere. */
+  :root{ --c-rules:var(--line-2); --c-cal:var(--orch); --c-act:var(--coder); color-scheme:light }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ color-scheme:dark } }
+  :root[data-theme="dark"]{ color-scheme:dark }
+
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 18px;
+    border-bottom:1px solid var(--line);background:var(--panel)}
+  .back{font-family:var(--mono);font-size:11px;color:var(--text);text-decoration:none;
+    border:1px solid var(--line);border-radius:3px;padding:4px 11px}
+  .back:hover{border-color:var(--line-2);color:var(--bright)}
+  .b-name{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--bright)}
+  .chip{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);
+    border-radius:3px;padding:2px 8px;background:var(--sunk);white-space:nowrap}
+  .spacer{margin-left:auto}
+  .key{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted)}
+  .key span{display:inline-flex;align-items:center;gap:6px}
+  .key i{width:14px;height:6px;border-radius:2px;background:var(--c)}
+
+  main{max-width:1240px;margin:0 auto;padding:18px 18px 40px;display:flex;flex-direction:column;gap:16px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line);
+    background:var(--sunk)}
+  .sh .c{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .sb{padding:12px 14px}
+  .hint{color:var(--muted);font-size:12.5px;line-height:1.55}
+  .hint code,.empty code{font-family:var(--mono);font-size:11.5px;color:var(--text)}
+  .empty{color:var(--muted);font-size:13px;padding:22px 14px}
+
+  /* the headline: how good the estimate is */
+  .figs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:var(--line)}
+  .fig{background:var(--panel);padding:12px 14px;min-width:0}
+  .fig .k{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .fig .v{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--bright);font-variant-numeric:tabular-nums;line-height:1.25}
+  .fig .s{font-size:11.5px;color:var(--muted);line-height:1.4;margin-top:2px}
+  .fig .v.on{color:var(--ok)} .fig .v.off{color:var(--warn)}
+  .v.ok,.n.ok{color:var(--ok)} .v.warn,.n.warn{color:var(--warn)} .v.bad,.n.bad{color:var(--bad)}
+
+  /* tables */
+  .tw{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
+    font-weight:400;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child>td{border-bottom:0}
+  .n{font-family:var(--mono);font-size:11.5px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  th.n{text-align:right;font-size:11px}
+  .nowrap{white-space:nowrap}
+  .nm{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--bright);white-space:nowrap}
+  .nm a{color:inherit;text-decoration:none} .nm a:hover{text-decoration:underline}
+  .sub{font-size:11px;color:var(--muted)}
+  .dim{color:var(--faint)}
+  .tag{font-family:var(--mono);font-size:11px;letter-spacing:.03em;text-transform:uppercase;border:1px solid var(--line-2);
+    border-radius:3px;padding:1px 6px;color:var(--muted);white-space:nowrap}
+  .tag.cal{color:var(--orch);border-color:color-mix(in srgb,var(--orch) 45%,var(--line))}
+  .tag.high{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+  .tag.medium{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+
+  /* three bars on one scale: rules, calibrated, actual */
+  .bars{display:flex;flex-direction:column;gap:2px;min-width:180px}
+  .bars i{display:block;height:5px;border-radius:2px;background:var(--c);min-width:1px}
+  .bars i.none{background:none;border-top:1px dashed var(--line-2);height:0;margin:2px 0}
+
+  /* a run opens into its phases, fix rounds and tasks */
+  tr.run{cursor:pointer}
+  tr.run:hover>td{background:var(--sunk)}
+  tr.run td:first-child::before{content:"▸";display:inline-block;width:14px;color:var(--faint);font-size:11px}
+  tr.run.open td:first-child::before{content:"▾"}
+  tr.more>td{background:var(--sunk);padding:12px 14px 14px 28px}
+  .more-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:18px}
+  .more-grid h4{margin:0 0 6px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);font-weight:400}
+  .more-grid table{background:var(--panel);border:1px solid var(--line);border-radius:4px}
+
+  /* the factor axis: x0.25 .. x1 .. x4 on a log scale, 1 in the middle */
+  .axis{position:relative;height:14px;min-width:120px;background:linear-gradient(var(--line),var(--line)) center/100% 1px no-repeat}
+  .axis::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line-2)}
+  .axis .seg{position:absolute;top:4px;height:6px;border-radius:2px;background:var(--c)}
+  .axis .dot{position:absolute;top:2px;width:10px;height:10px;margin-left:-5px;border-radius:50%;
+    border:2px solid var(--c);background:var(--panel)}
+  .axlab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--faint);min-width:120px;
+    letter-spacing:0;text-transform:none}
+
+  .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+  .two>section{min-width:0}
+  .counts{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .stack{display:flex;height:10px;border-radius:3px;overflow:hidden;min-width:160px;flex:1}
+  .stack i{display:block;height:100%;background:var(--c)}
+
+  @media (max-width:980px){
+    .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .two,.more-grid{grid-template-columns:minmax(0,1fr)}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="/">&larr; Hall</a>
+  <span class="b-name">Estimates</span>
+  <span class="chip" id="stamp">&hellip;</span>
+  <span class="spacer"></span>
+  <span class="key">
+    <span style="--c:var(--c-rules)"><i></i>fixed rules</span>
+    <span style="--c:var(--c-cal)"><i></i>calibrated</span>
+    <span style="--c:var(--c-act)"><i></i>actual work</span>
+  </span>
+</header>
+<main id="page"><div class="empty">loading&hellip;</div></main>
+
+<script>
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const PHASES=["spec","plan","implement","test","review","qa"];
+const dur=m=>{if(m==null) return "—";m=Math.max(0,Math.round(m));return m>=60?`${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m`:`${m}m`;};
+const sum=o=>Object.values(o||{}).reduce((a,b)=>a+(+b||0),0);
+const xf=f=>f==null?"—":"×"+f.toFixed(2);
+const median=a=>{if(!a.length) return null;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+const when=t=>{if(!t) return "";const d=new Date(t);return d.toLocaleDateString([],{day:"numeric",month:"short"})+" "+
+  d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false});};
+/* "Off by": how many times too long (over) or too short (under) the estimate was. */
+function miss(est,act){
+  if(!est||!act) return {t:"—",cls:""};
+  const r=est/act, f=r>=1?r:1/r;
+  return {t:`${xf(f)} ${r>=1?"over":"under"}`,cls:f<=1.5?"ok":f<=3?"warn":"bad",f};
+}
+/* One row's three bars, on a scale shared by the whole table. */
+function bars(rules,cal,act,top){
+  const w=v=>`${Math.max(.5,v/top*100).toFixed(1)}%`;
+  return `<div class="bars">
+    <i style="--c:var(--c-rules);width:${w(rules)}" title="fixed rules ${dur(rules)}"></i>
+    ${cal==null?`<i class="none" title="nothing before it to learn from"></i>`:`<i style="--c:var(--c-cal);width:${w(cal)}" title="calibrated ${dur(cal)}"></i>`}
+    <i style="--c:var(--c-act);width:${w(act)}" title="actual work ${dur(act)}"></i></div>`;
+}
+/* A factor on a log axis from x0.25 to x4, 1 in the middle: left means the work took less
+   than the rules said. `seg` draws from 1 to the value, `dot` marks one point. */
+const AX=f=>Math.min(100,Math.max(0,50+Math.log2(f)/2*50));
+function axis(marks){
+  return `<div class="axis">${marks.map(m=>m.f==null?"":m.kind==="seg"
+    ?`<span class="seg" style="--c:${m.c};left:${Math.min(50,AX(m.f))}%;width:${Math.abs(AX(m.f)-50)}%"></span>`
+    :`<span class="dot" style="--c:${m.c};left:${AX(m.f)}%" title="${esc(m.t||"")}"></span>`).join("")}</div>`;
+}
+const axlab=`<div class="axlab"><span>×0.25</span><span>×1</span><span>×4</span></div>`;
+
+function headline(rep,used){
+  const cal=rep.calibration||{}, bt=rep.backtest||{};
+  const waited=used.reduce((a,r)=>a+(r.waitMin||0)+(r.pausedMin||0),0);
+  const rm=bt.rulesMiss, cm=bt.calibratedMiss;
+  const cls=f=>f==null?"":f<=1.5?"ok":f<=3?"warn":"bad";
+  return `<section><div class="figs">
+    <div class="fig"><div class="k">Calibration</div><div class="v ${cal.on?"on":"off"}">${cal.on?"On":"Off"}</div>
+      <div class="s">${esc(cal.on?"new runs are priced from history":"new runs use the fixed rules")}</div></div>
+    <div class="fig"><div class="k">Fixed rules missed by</div><div class="v ${cls(rm)}">${rm==null?"—":xf(rm)}</div>
+      <div class="s">typical miss, on the ${bt.runs||0} run${bt.runs===1?"":"s"} both can be scored on</div></div>
+    <div class="fig"><div class="k">Calibrated missed by</div><div class="v ${cls(cm)}">${cm==null?"—":xf(cm)}</div>
+      <div class="s">the same run${bt.runs===1?"":"s"}, each priced only from the runs before it</div></div>
+    <div class="fig"><div class="k">Learned from</div><div class="v">${cal.runs||0} <span class="sub">runs</span> · ${cal.tasks||0} <span class="sub">tasks</span></div>
+      <div class="s">the latest 20 finished runs count</div></div>
+    <div class="fig"><div class="k">Not counted as work</div><div class="v">${dur(waited)}</div>
+      <div class="s">waiting on you and paused, across measured runs</div></div>
+  </div><div class="sb hint">${esc(cal.why||"")}. Actual is <b>work only</b>: time a run waited on you (a gate,
+    or blocked) and time it sat paused (silent over 15 minutes) is never counted. A miss of ×2 means the
+    estimate was double, or half, the work.</div></section>`;
+}
+
+function runDetail(r){
+  const top=Math.max(1,...PHASES.map(p=>Math.max(r.rules[p]||0,(r.calibrated||{})[p]||0,r.actual[p]||0)));
+  const ph=PHASES.map(p=>{const m=miss(r.rules[p],r.actual[p]);
+    return `<tr><td>${p}</td><td>${bars(r.rules[p]||0,r.calibrated?r.calibrated[p]||0:null,r.actual[p]||0,top)}</td>
+      <td class="n">${dur(r.rules[p])}</td><td class="n">${r.calibrated?dur(r.calibrated[p]):"—"}</td>
+      <td class="n">${r.actual[p]!=null?dur(r.actual[p]):"·"}</td></tr>`;}).join("");
+  const rounds=Object.entries(r.rounds||{}).map(([s,[want,got]])=>
+    `<span class="tag">${esc(s==="null"?"service":s)}: ${want} expected · ${got} used</span>`).join(" ");
+  const tasks=(r.tasks||[]).map(t=>{
+    const act=t.work!=null?t.work:t.wallMin, m=t.work!=null?miss(t.est,t.work):null;
+    return `<tr><td class="n" style="text-align:left">${esc(t.id)}</td>
+      <td><span class="tag">${esc(t.size||"?")}</span> <span class="tag ${esc(t.complexity||"")}">${esc(t.complexity||"?")}</span>
+        <span class="sub">${esc(t.title)}</span></td>
+      <td class="n">${dur(t.est)}</td>
+      <td class="n${t.work==null?" dim":""}" title="${t.work==null?"wall time from start to done - includes any waiting":"work measured by the clock"}">${act==null?"·":dur(act)+(t.work==null?" wall":"")}</td>
+      <td class="n ${m?m.cls:""}">${m?m.t:"—"}</td></tr>`;}).join("");
+  return `<div class="more-grid">
+    <div><h4>Phases</h4><table><tr><th>phase</th><th></th><th class="n">rules</th><th class="n">calibrated</th><th class="n">actual</th></tr>${ph}</table>
+      <div class="hint" style="margin-top:8px">Fix rounds: ${rounds||"—"}<br>Waited on you ${dur(r.waitMin)} · paused ${dur(r.pausedMin)}${
+        r.models?` · models ${esc(Object.entries(r.models).map(([k,v])=>k+" "+v).join(", "))}`:""}${r.pipeVersion?` · pipe ${esc(r.pipeVersion)}`:""}</div></div>
+    <div><h4>Tasks</h4>${tasks?`<table><tr><th>id</th><th>size · complexity</th><th class="n">estimate</th><th class="n">actual</th><th class="n">off by</th></tr>${tasks}</table>
+      <div class="hint" style="margin-top:8px">A task's work is measured from 0.12 on. Earlier tasks show wall time, which
+        counts any waiting, and are not used. Under ${2} minutes of work means it was marked done in a burst.</div>`
+      :`<div class="hint">No tasks.</div>`}</div></div>`;
+}
+
+let OPEN=new Set();
+function finished(used){
+  if(!used.length) return `<section><div class="sh"><span class="eyebrow">Finished runs</span></div>
+    <div class="empty">No finished run with a full clock yet. A run counts once it finishes with its plan and
+      implement phases timed.</div></section>`;
+  const top=Math.max(1,...used.map(r=>Math.max(r.rulesMin,r.calibrated?sum(r.calibrated):0,r.actualMin)));
+  const rows=used.map(r=>{
+    const cal=r.calibrated?sum(r.calibrated):null, mr=miss(r.rulesMin,r.actualMin), mc=cal==null?null:miss(cal,r.actualMin);
+    const open=OPEN.has(r.slug);
+    return `<tr class="run${open?" open":""}" data-slug="${esc(r.slug)}">
+      <td><span class="nm">${esc(r.slug)}</span><div class="sub">${esc(when(r.at))}</div></td>
+      <td>${bars(r.rulesMin,cal,r.actualMin,top)}</td>
+      <td class="n">${dur(r.rulesMin)}</td><td class="n">${cal==null?"—":dur(cal)}</td><td class="n">${dur(r.actualMin)}</td>
+      <td class="n" style="color:var(--warn)">${dur((r.waitMin||0)+(r.pausedMin||0))}</td>
+      <td class="n ${mr.cls}">${mr.t}</td><td class="n ${mc?mc.cls:""}">${mc?mc.t:"—"}</td></tr>
+      ${open?`<tr class="more"><td colspan="8">${runDetail(r)}</td></tr>`:""}`;}).join("");
+  return `<section><div class="sh"><span class="eyebrow">Finished runs</span><span class="hint">click a run for its phases, fix rounds and tasks</span>
+    <span class="c">${used.length} measured</span></div><div class="tw"><table>
+    <tr><th>run</th><th>estimate against actual</th><th class="n">rules</th><th class="n">calibrated</th><th class="n">actual work</th>
+      <th class="n">waited / paused</th><th class="n">rules off by</th><th class="n">calibrated off by</th></tr>${rows}</table></div></section>`;
+}
+
+function byPhase(rep,used){
+  const f=(rep.calibration||{}).phase||{};
+  const rows=PHASES.map(p=>{
+    const est=used.reduce((a,r)=>a+(r.rules[p]||0),0), act=used.reduce((a,r)=>a+(r.actual[p]||0),0);
+    const ratios=used.filter(r=>r.rules[p]).map(r=>Math.max(r.actual[p]||0,.1)/r.rules[p]);
+    const med=median(ratios);
+    return `<tr><td>${p}</td><td class="n">${dur(est)}</td><td class="n">${dur(act)}</td>
+      <td>${axis([{kind:"seg",f:med,c:"var(--c-act)"},{kind:"dot",f:f[p],c:"var(--c-cal)",t:"factor in use "+xf(f[p])}])}</td>
+      <td class="n">${med==null?"—":xf(med)}</td><td class="n" style="color:var(--c-cal)">${xf(f[p])}</td></tr>`;}).join("");
+  return `<section><div class="sh"><span class="eyebrow">By phase</span><span class="c">summed over measured runs</span></div>
+    <div class="tw"><table><tr><th>phase</th><th class="n">rules said</th><th class="n">took</th><th>actual ÷ rules ${axlab}</th>
+      <th class="n">median</th><th class="n">factor</th></tr>${rows}</table></div>
+    <div class="sb hint">The bar is what the runs showed; the ring is the factor now in use. It sits between the
+      bar and ×1 on purpose: a few runs move it a little, twenty move it most of the way.</div></section>`;
+}
+
+function bySize(rep,rows){
+  const f=(rep.calibration||{}).size||{};
+  const all=rows.flatMap(r=>r.tasks||[]);
+  const BASE={S:5,M:10,L:25};
+  const lines=["S","M","L"].map(s=>{
+    const mine=all.filter(t=>t.size===s), used=mine.filter(t=>t.use);
+    const med=median(used.map(t=>t.work/t.est));
+    return `<tr><td class="nowrap"><span class="tag">${s}</span> <span class="sub">${BASE[s]}m base</span></td>
+      <td class="n">${used.length} / ${mine.length}</td>
+      <td class="n">${dur(median(used.map(t=>t.est)))}</td><td class="n">${dur(median(used.map(t=>t.work)))}</td>
+      <td>${axis([{kind:"seg",f:med,c:"var(--c-act)"},{kind:"dot",f:f[s],c:"var(--c-cal)",t:"factor in use "+xf(f[s])}])}</td>
+      <td class="n" style="color:var(--c-cal)">${xf(f[s])}</td></tr>`;}).join("");
+  const cx={low:0,medium:0,high:0}; all.forEach(t=>{if(t.complexity in cx) cx[t.complexity]++;});
+  const n=all.length||1, C={low:"var(--line-2)",medium:"var(--warn)",high:"var(--bad)"};
+  return `<section><div class="sh"><span class="eyebrow">By task size</span><span class="c">${all.length} planned tasks</span></div>
+    <div class="tw"><table><tr><th>size</th><th class="n">measured / planned</th><th class="n">med. est.</th>
+      <th class="n">med. work</th><th>work ÷ estimate ${axlab}</th><th class="n">factor</th></tr>${lines}</table></div>
+    <div class="sb"><div class="eyebrow" style="margin-bottom:6px">How the planner rated complexity</div>
+      <div class="counts"><div class="stack">${Object.keys(cx).map(k=>`<i style="--c:${C[k]};width:${cx[k]/n*100}%" title="${k} ${cx[k]}"></i>`).join("")}</div>
+      ${Object.keys(cx).map(k=>`<span class="tag ${k}">${k} ${cx[k]}</span>`).join(" ")}</div>
+      <div class="hint" style="margin-top:8px">A size without measured tasks takes the implement factor. Complexity
+        that is nearly always one value does not separate tasks, and the band it sets is the planner's only lever.</div></div></section>`;
+}
+
+function running(live){
+  if(!live.length) return "";
+  const rows=live.map(p=>{
+    const e=p.eta||{}, c=p.clock||{}, cal=p.calibration||{};
+    const priced=e.calibrated?`<span class="tag cal">calibrated · ${cal.runs} runs</span>`
+      :`<span class="tag" title="${esc(cal.why||"planned before calibration, or by a pipe.py older than 0.12")}">fixed rules</span>`;
+    return `<tr><td><span class="nm"><a href="/r/${encodeURIComponent(p.slug)}">${esc(p.slug)}</a></span><div class="sub">${esc(p.phase)} · ${esc(p.status)}</div></td>
+      <td>${priced}</td><td class="n">${dur(e.totalMin)}</td><td class="n">${e.calibrated?dur(e.planMin):"—"}</td>
+      <td class="n">${dur(sum(c.work))}</td><td class="n">${dur(e.leftMin)}</td>
+      <td class="n" style="color:var(--warn)">${dur((c.waitMin||0)+(c.pausedMin||0))}</td></tr>`;}).join("");
+  return `<section><div class="sh"><span class="eyebrow">Running now</span><span class="c">${live.length}</span></div>
+    <div class="tw"><table><tr><th>run</th><th>priced by</th><th class="n">estimate</th><th class="n">rules alone</th>
+      <th class="n">worked so far</th><th class="n">work left</th><th class="n">waited / paused</th></tr>${rows}</table></div>
+    <div class="sb hint">A run is priced once, when its plan first carries an estimate, so the time you planned
+      around does not move because another team finished.</div></section>`;
+}
+
+function excluded(rep,rest){
+  if(!rest.length&&!rep.skipped) return "";
+  return `<section><div class="sh"><span class="eyebrow">Not measured</span></div><div class="sb hint">
+    ${rest.map(r=>`<div><span class="nm" style="font-size:11.5px">${esc(r.slug)}</span> &mdash; ${esc(r.why)}</div>`).join("")}
+    ${rep.skipped?`<div style="margin-top:6px">${rep.skipped} older run${rep.skipped===1?"":"s"} predate per-task estimates and are not counted.</div>`:""}
+  </div></section>`;
+}
+
+function pageHTML(D){
+  const rep=D&&D.report;
+  if(!rep) return `<div class="empty">No estimates report yet. <code>pipe.py</code> writes one when a run is planned
+    or finishes; run <code>pipe.py calibration</code> to make it now.</div>`;
+  const runs=rep.runs||[], used=runs.filter(r=>r.use).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+  const live=(D.live||[]);
+  const rest=runs.filter(r=>!r.use&&!live.some(l=>l.slug===r.slug));
+  return headline(rep,used)+finished(used)+`<div class="two">${byPhase(rep,used)}${bySize(rep,runs)}</div>`
+    +running(live)+excluded(rep,rest);
+}
+
+/* boot */
+let D=null, SIG="";
+// The board links here with ?open=<slug>, so a run arrives opened.
+const OPEN_Q=new URLSearchParams(location.search).get("open"); if(OPEN_Q) OPEN.add(OPEN_Q);
+function draw(){
+  document.getElementById("page").innerHTML=pageHTML(D);
+  const rep=D&&D.report;
+  document.getElementById("stamp").textContent=rep?"measured "+when(rep.at):"no report";
+}
+document.getElementById("page").addEventListener("click",e=>{
+  const tr=e.target.closest("tr.run"); if(!tr) return;
+  const s=tr.dataset.slug; OPEN.has(s)?OPEN.delete(s):OPEN.add(s); draw();
+});
+async function pull(){
+  try{
+    const r=await fetch("/api/estimates",{cache:"no-store"});
+    if(!r.ok) throw new Error("/api/estimates returned "+r.status);
+    const txt=await r.text();
+    if(txt!==SIG){ SIG=txt; D=JSON.parse(txt); draw(); }
+  }catch(err){
+    if(!D) document.getElementById("page").innerHTML=`<div class="empty">cannot reach the dashboard server &mdash; ${esc(err.message)}</div>`;
+  }
+}
+pull(); setInterval(pull,30000);
+</script>
+</body>
+</html>

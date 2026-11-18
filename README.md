@@ -114,6 +114,12 @@ Every run carries an estimate from the moment its plan exists (ADR-0006):
   chain; and it recomputes what is left on every bus write.
 - `pipe.py eta` prints work left, an **expected** time and a **likely by** time on your
   local clock. The orchestrator quotes it at the plan gate.
+- **Estimates calibrate themselves** (ADR-0007). Once two runs have finished, `pipe.py`
+  backtests what they took against what the rules said and, if history predicts better,
+  prices each new run from it, per phase and per task size. Actuals are work only: time
+  waiting on you and time paused never count. `pipe.py calibration` prints the factors,
+  and the dashboard's **Estimates** page (`/estimates`, linked from the hall and each
+  board) shows estimate against actual for every run.
 
 A green `qa-check` marks the run **work completed** and lists the steps left for you
 (merge, deploy, verify, close). Once it is deployed, press the hall's one button or run

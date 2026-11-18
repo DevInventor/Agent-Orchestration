@@ -93,6 +93,18 @@ complexity, and derived per phase by the bus. Counts time on the clock: parallel
 cost the longest chain, not the sum.
 _Avoid_: ETA (say *expected* or *likely by* for a clock time), story points
 
+**Calibration**:
+The factors finished runs give the estimate: actual work over the fixed rules' figure, per
+phase and per task size, used only while a backtest says they beat the rules. A run is
+priced once, when its plan first carries an estimate. The planner's minutes are not changed.
+_Avoid_: learning, training, correction (it adjusts the price, not the planner)
+
+**Work**:
+The time an estimate is measured against: the clock's minutes while a run was running and
+not paused. A task's work is its share of that while it was in progress. Never includes
+*waiting on you*.
+_Avoid_: elapsed, wall time (both count the waiting)
+
 **Waiting on you**:
 Time a run spent at a gate or blocked. Not work, never estimated, and it pushes the
 finish time out. *Paused* is the same for a silence over 15 minutes while running.

@@ -29,6 +29,8 @@ const HALL = path.join(__dirname, "hall.html");
 // Section 10.6's three-pane board. index.html stays as the fallback so a bus served in
 // single-run mode, and any older install, still renders something.
 const BOARD = path.join(__dirname, "board.html");
+// ADR-0007: estimate against actual across every run, and what calibration learned.
+const ESTIMATES = path.join(__dirname, "estimates.html");
 
 function readJSON(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, "utf8")); }
@@ -223,6 +225,23 @@ function hall() {
     };
   });
   return { registry: registry(), root: pipelinesRoot(), pipelines, limit: usageLimit(pipelines) };
+}
+
+// The estimates page (ADR-0007). pipe.py measures every run and works out the calibration,
+// and writes the report beside pipelines/ when a run is planned or finishes; this only
+// reads it, and adds the runs still going so the page can set their estimate against the
+// work so far. Nothing is recomputed here, and nothing is spawned.
+const reportPath = () => path.join(path.dirname(pipelinesRoot()), "estimates.json");
+function estimates() {
+  const live = scanPipelines()
+    .filter((p) => p.run && p.run.eta && p.run.status !== "done")
+    .map((p) => {
+      const r = p.run;
+      return { slug: p.slug, feature: r.feature, phase: r.phase, status: r.status,
+               eta: r.eta, clock: r.clock || null, calibration: r.calibration || null,
+               pipeVersion: r.pipeVersion || null };
+    });
+  return { report: readJSON(reportPath(), null), live };
 }
 
 // Each client records the bus it subscribed to (null = the hall stream) and receives
@@ -424,6 +443,8 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/hide" && req.method === "POST") return apiHide(req, res);
   if (url.pathname === "/api/complete" && req.method === "POST") return apiComplete(req, res);
   if (url.pathname === "/api/hall") return sendJSON(res, 200, hall());
+  if (url.pathname === "/estimates") return serveHTML(res, ESTIMATES);
+  if (url.pathname === "/api/estimates") return sendJSON(res, 200, estimates());
   if (url.pathname === "/api/state") {
     const p = findPipeline(slug);
     if (!p) return sendJSON(res, 404, { error: "unknown run", field: "run" });

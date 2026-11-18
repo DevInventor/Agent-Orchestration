@@ -130,6 +130,7 @@ $PIPE svc --name oauth_v3.8.0 --phase test --loop-count 2 --loop-max 5 \
           --agent tester --status running --passed 8 --failed 1   # per-service header state
 $PIPE status                               # print run.json
 $PIPE eta [--slug <slug>]                  # work left, expected and likely-by (read-only)
+$PIPE calibration [--json]                 # what finished runs say about the estimate (ADR-0007)
 $PIPE complete [<slug>]                    # the HUMAN's stamp after deploying - never an agent's
 $PIPE config                               # load+validate optional agent-orchestration.config.json
 $PIPE review --from findings.json [--service oauth_v3.8.0]   # reviewer only: validate + persist

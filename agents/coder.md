@@ -41,7 +41,10 @@ is the point - one coder carrying a whole service grew to 438k tokens on a real 
    worked this service, its work is on the branch, not in your memory: read
    `pipeline/code/changes.json` and `git log --oneline <base>..HEAD` before you start.
 2. For each task you were handed, in order:
-   - `$PIPE task update --id T# --status in_progress` and emit a `status` event.
+   - `$PIPE task update --id T# --status in_progress` and emit a `status` event. Mark it
+     as you start it and `done` as you finish it, one task at a time, never in a batch:
+     the clock between the two is the task's measured work, and later runs are priced
+     from it (ADR-0007).
    - Implement it in the repo, following existing code patterns and conventions.
    - Run the design rules' self-check over this task's changes and fix what it finds now:
      a violation fixed in your turn costs nothing, one the reviewer finds costs a round.

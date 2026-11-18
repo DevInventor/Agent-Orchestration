@@ -1,14 +1,14 @@
 ---
 name: estimation-rules
-description: General rules for estimating how long a planned task takes an agent team - a size by scope, a complexity by named signals, and minutes inside a band - plus how those figures become phase estimates and a time on the clock. Use when writing or reviewing a plan's task estimates, when validate-plan rejects a task's size, complexity or minutes, or when asked why a run's estimated time to complete is what it is.
+description: General rules for estimating how long a planned task takes an agent team - a size by scope, a complexity by named signals, and minutes inside a band - plus how those figures become phase estimates and a time on the clock, and how finished runs calibrate them. Use when writing or reviewing a plan's task estimates, when validate-plan rejects a task's size, complexity or minutes, or when asked why a run's estimated time to complete is what it is.
 ---
 
 # Estimation rules
 
 The planner estimates every task once, while it writes the plan. After that nothing asks
-an agent how long is left: `pipe.py` does the arithmetic on the bus (ADR-0006). So the
-whole estimate is only as good as the three fields below. They refer to things every plan
-has, so they hold in any project.
+an agent how long is left: `pipe.py` does the arithmetic on the bus (ADR-0006) and prices
+it from finished runs (ADR-0007, below). So the whole estimate is only as good as the
+three fields below. They refer to things every plan has, so they hold in any project.
 
 ## Per task: four fields in `plan.json`
 
@@ -72,6 +72,22 @@ and a quarter of the work left.
 
 So dependencies are part of the estimate: declare `dependsOnServices` only for a real
 ordering constraint. A dependency that is not real makes the run look longer than it is.
+
+## Calibration: what finished runs do to your figures (ADR-0007)
+
+Your minutes are kept as you wrote them. When the plan first carries an estimate, `pipe.py`
+prices it from the runs that finished before it: each phase, and each task size, is
+multiplied by the factor those runs showed (actual work over the rules' estimate),
+pulled toward 1 while there are few of them and clamped to ×0.25–×2. It is used only
+while a backtest says it beats the rules; otherwise the run takes the rules above.
+
+- **Do not pad or shave your minutes to correct for history.** Calibration already does,
+  and a figure bent to fit it is counted twice. Size what you read in the code.
+- **Rate complexity by the signals, not by habit.** Most tasks rated `medium` tells the
+  pipeline nothing; a `low` task with no signals is a true `low`.
+- `pipe.py calibration` prints the factors, the backtest and every run measured;
+  `/estimates` in the dashboard shows the same. Actual there is work only: time waiting
+  on you and time paused are never counted.
 
 ## Example
 

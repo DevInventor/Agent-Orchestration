@@ -90,6 +90,7 @@
   .ghost{background:transparent;border:1px solid var(--line);border-radius:3px;color:var(--muted);
     font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
   .ghost:hover{border-color:var(--line-2);color:var(--text)}
+  a.ghost{text-decoration:none}
   /* The bell says its state in words - on, off, blocked - so it never rides on colour. */
   .bell{display:inline-flex;align-items:center;gap:6px}
   .bell svg{width:13px;height:13px;flex:0 0 auto}
@@ -525,6 +526,7 @@
   </div>
   <span class="legend" id="legend"></span>
   <span class="spacer"></span>
+  <a class="ghost" href="/estimates" title="Estimate against actual work, every run">Estimates</a>
   <span class="conn" id="conn"><span class="led"></span><span id="conn-txt">offline</span></span>
   <button class="ghost bell" id="alerts" type="button" aria-pressed="false"><span>Alerts off</span></button>
   <button class="ghost" id="theme">theme</button>

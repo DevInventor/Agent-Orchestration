@@ -28,10 +28,11 @@ Usage examples:
     pipe.py task add --id T1 --title "Add /logout controller" --owner coder
     pipe.py task update --id T1 --status done
     pipe.py eta [--slug <slug>]
+    pipe.py calibration [--json]
     pipe.py complete [<slug>]
     pipe.py status
 """
-import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, json, math, os, re, shutil, statistics, subprocess, sys, tempfile, time
 from datetime import datetime, timedelta, timezone
 
 PHASES = ["spec", "plan", "implement", "test", "review", "qa", "done"]
@@ -55,6 +56,16 @@ RECOMMENDATIONS = ["approve", "approve-with-notes", "changes-required"]
 SIZE_MIN = {"S": 5, "M": 10, "L": 25}
 COMPLEXITY_BAND = {"low": (1, 1), "medium": (1.5, 2), "high": (2, 3)}
 SUITE_MIN = {"fast": 2, "medium": 10, "slow": 25}
+# Calibration (ADR-0007). The planner still reads the change and picks the size, complexity
+# and minutes; finished runs set what those minutes cost on this machine with these models.
+# Each factor is the median of log(actual work / estimate), pulled toward its parent by
+# PRIOR samples' worth of weight - a phase toward the whole run, a task size toward
+# implement, the whole run toward the fixed rules - so two runs move it a little and twenty
+# move it most of the way. It is used only while a backtest says it beats the rules.
+CAL_RUNS = 20                       # the latest finished runs that price the next one
+CAL_PRIOR_RUNS, CAL_PRIOR_TASKS = 3, 5
+CAL_CLAMP = (0.25, 2.0)             # one odd run moves the estimate by a band, never by 10x
+CAL_MIN_TASK = 2                    # under 2 minutes of work, a task was marked in a burst
 # A silence longer than this while the run says `running` is a pause, not work: above the
 # longest normal silent build, well below an overnight gap. ui/hall.html carries the same 15.
 IDLE_MIN = 15
@@ -349,12 +360,15 @@ def minutes_between(a, b):
         return 0.0
 
 
-def tick(run, now):
+def tick(run, now, active=None):
     """Sort the time since the last bus write into work, waiting or paused.
 
     An accumulator rather than a log: every write already passes through save_run, so
     the gap since the previous write is known here for free, and the status and phase
-    that gap was spent in are the ones recorded last time. Nobody reports their timing."""
+    that gap was spent in are the ones recorded last time. Nobody reports their timing.
+    The tasks in progress at the last write share its work the same way (ADR-0007), so a
+    task's actual excludes the time the run waited on you or sat paused - wall time from
+    startedAt to doneAt counted both."""
     c = run.setdefault("clock", {"work": {}, "waitMin": 0, "pausedMin": 0})
     gap = minutes_between(c.get("at"), now) if c.get("at") else 0
     if c.get("status") in WAITING:
@@ -363,17 +377,48 @@ def tick(run, now):
         c["pausedMin"] = round(c["pausedMin"] + gap, 2)
     elif c.get("status") == "running":
         c["work"][c.get("phase")] = round(c["work"].get(c.get("phase"), 0) + gap, 2)
+        for tid, share in (c.get("active") or {}).items():
+            spent = c.setdefault("tasks", {})
+            spent[tid] = round(spent.get(tid, 0) + gap * share, 2)
     c["at"], c["status"], c["phase"] = now, run.get("status"), run.get("phase")
+    if active is not None:
+        # A task started before this pipe kept task time has only part of its work here;
+        # calibration takes a task as a sample only when it started after this mark.
+        c.setdefault("tasksSince", now)
+        c["active"] = active
 
 
-def estimate(root, run, now):
+def active_tasks(root):
+    """The tasks in progress now, each with its share of the next gap. One coder works one
+    task at a time, so two marked in progress in one service split it; services run side
+    by side, so each of theirs takes the whole gap."""
+    live = [t for t in read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])
+            if isinstance(t, dict) and t.get("id") and t.get("status") == "in_progress"]
+    per = {}
+    for t in live:
+        per[t.get("service")] = per.get(t.get("service"), 0) + 1
+    return {t["id"]: round(1 / per[t.get("service")], 4) for t in live}
+
+
+def calibration_in_use(run):
+    cal = run.get("calibration")
+    return cal if isinstance(cal, dict) and cal.get("on") else {}
+
+
+def estimate(root, run, now, cal=None):
     """Minutes per phase and minutes left, from the planner's per-task figures.
 
     None when the plan carries no estimate (a plan written before ADR-0006). Services
     that do not depend on each other run side by side, so a phase costs its longest
     dependency chain, not the sum - that is what puts a time on the clock.
+    `cal` prices it (ADR-0007): None takes the run's own stamped calibration, {} the fixed
+    rules. The planner's minutes are never rewritten; a factor multiplies them here.
     ponytail: phases are costed one after another, so a service that finishes testing
     early does not start review early. Upgrade path: cost each service's whole chain."""
+    cal = calibration_in_use(run) if cal is None else cal
+    fp = lambda ph: (cal.get("phase") or {}).get(ph, 1)
+    fs = lambda size: (cal.get("size") or {}).get(size, fp("implement"))
+    price = lambda t: t["minutes"] * fs(t.get("size"))
     plan = read_json(os.path.join(root, "plan.json"), None)
     tasks = plan.get("tasks") if isinstance(plan, dict) else None
     if not isinstance(tasks, list) or not tasks or not all(
@@ -396,28 +441,35 @@ def estimate(root, run, now):
             return memo[s]
         return max((go(s) for s in cost), default=0)
 
-    impl, left, test, review, extra = {}, {}, {}, {}, 0
+    worked_on = (run.get("clock") or {}).get("tasks") or {}
+    since = (run.get("clock") or {}).get("tasksSince")
+    impl, left, test, review, extra, rounds_by = {}, {}, {}, {}, 0, {}
     for n in names:
         mine = [t for t in tasks if t.get("service") == n]
         high = len([t for t in mine if t.get("complexity") == "high"])
         medium = len([t for t in mine if t.get("complexity") == "medium"])
         suite = SUITE_MIN.get(next((s.get("suite") for s in svcs if s["name"] == n), None), 10)
-        rounds = min(3, 1 + bool(high) + (n in needed))
-        impl[n] = sum(t["minutes"] for t in mine)
+        rounds = rounds_by[n] = min(3, 1 + bool(high) + (n in needed))
+        impl[n] = sum(price(t) for t in mine)
         left[n] = 0
         for t in mine:
             cur = live.get(t.get("id"), {})
             if cur.get("status") == "done":
                 continue
-            spent = minutes_between(cur.get("startedAt"), now) \
-                if cur.get("status") == "in_progress" else 0
-            left[n] += max(0, t["minutes"] - spent)
-        test[n] = 15 + 5 * medium + 10 * high + suite * (1 + rounds) + 15 * rounds
-        review[n] = 10 + len(mine) + 3 * high
-        extra = max(extra, suite + 15)
-    phases = {"spec": 5, "plan": round(10 + 1.5 * len(tasks)), "implement": chain(impl),
-              "test": max(test.values()), "review": max(review.values()),
-              "qa": 10 + 5 * (len(names) - 1)}
+            # Work, where the clock measured it: wall time kept shrinking what was left
+            # while the run sat at a gate. A task already going when task time began keeps
+            # wall time, or its work so far would vanish at the upgrade.
+            measured = since and str(cur.get("startedAt") or "") >= since
+            spent = 0 if cur.get("status") != "in_progress" else \
+                worked_on.get(t.get("id"), 0) if measured else \
+                minutes_between(cur.get("startedAt"), now)
+            left[n] += max(0, price(t) - spent)
+        test[n] = (15 + 5 * medium + 10 * high + suite * (1 + rounds) + 15 * rounds) * fp("test")
+        review[n] = (10 + len(mine) + 3 * high) * fp("review")
+        extra = max(extra, (suite + 15) * fp("test"))
+    phases = {"spec": 5 * fp("spec"), "plan": round(10 + 1.5 * len(tasks)) * fp("plan"),
+              "implement": chain(impl), "test": max(test.values()),
+              "review": max(review.values()), "qa": (10 + 5 * (len(names) - 1)) * fp("qa")}
     idx = PHASES.index(run.get("phase")) if run.get("phase") in PHASES else 0
     worked = (run.get("clock") or {}).get("work") or {}
     remaining = 0
@@ -427,21 +479,172 @@ def estimate(root, run, now):
         elif i == idx:
             remaining += chain(left) if ph == "implement" \
                 else max(0, phases[ph] - worked.get(ph, 0))
-    # "Likely by": one more fix round than expected, plus a quarter of what is left.
-    likely = remaining * 1.25 + (extra if idx <= PHASES.index("test") else 0)
+    # "Likely by": one more fix round than expected, plus a quarter of what is left - or,
+    # once calibrated, the spread that finished runs actually showed.
+    likely = remaining * cal.get("spread", 1.25) + (extra if idx <= PHASES.index("test") else 0)
     done = run.get("status") == "done"
-    return {"phases": {k: round(v) for k, v in phases.items()},
-            "totalMin": round(sum(phases.values())),
-            "leftMin": 0 if done else round(remaining),
-            "likelyMin": 0 if done else round(likely)}
+    out = {"phases": {k: round(v) for k, v in phases.items()},
+           "totalMin": round(sum(phases.values())),
+           "leftMin": 0 if done else round(remaining),
+           "likelyMin": 0 if done else round(likely),
+           "rounds": rounds_by}
+    if cal:
+        out["calibrated"] = True
+        out["planMin"] = estimate(root, run, now, {})["totalMin"]   # what the rules alone say
+        out["taskMin"] = {t.get("id"): round(price(t), 1) for t in tasks}
+    return out
+
+
+def role_models():
+    """The model each role runs on (ADR-0003), read from the agents' own frontmatter and
+    stamped beside a run's calibration, so a run on another model shows as one."""
+    d, out = os.path.join(os.path.dirname(SKILLS), "agents"), {}
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        try:
+            with open(os.path.join(d, name), encoding="utf-8") as f:
+                m = re.search(r"^model:\s*(\S+)", f.read(), re.M)
+        except OSError:
+            continue
+        if name.endswith(".md") and m:
+            out[name[:-3]] = m.group(1)
+    return out
+
+
+def estimates_path():
+    """The page's report, beside pipelines/ like usage-limit.json: derived from the buses,
+    rewritten whenever calibration is worked out, never read back by pipe.py."""
+    return os.path.join(os.path.dirname(pipelines_root()), "estimates.json")
+
+
+def measure(p, now):
+    """One bus as a row of the estimates report: the rules' estimate per phase, the work the
+    clock measured (never waiting on you, never paused), the tasks, and whether the run
+    can be a calibration sample. None when its plan carries no estimate."""
+    run, root = p["run"], p["root"]
+    rules = estimate(root, run, now, {})
+    if not rules:
+        return None
+    c = run.get("clock") or {}
+    work = {k: round(v, 1) for k, v in (c.get("work") or {}).items() if k in PHASES}
+    since = c.get("tasksSince")
+    live = {t.get("id"): t for t in read_json(os.path.join(root, "tasks.json"), {}).get("tasks", [])
+            if isinstance(t, dict)}
+    done = run.get("status") == "done"
+    tasks = []
+    for t in read_json(os.path.join(root, "plan.json"), {}).get("tasks") or []:
+        cur = live.get(t.get("id"), {})
+        w = (c.get("tasks") or {}).get(t.get("id"))
+        clean = bool(since and w is not None and str(cur.get("startedAt") or "") >= since)
+        tasks.append({"id": t.get("id"), "title": str(t.get("title") or "")[:80],
+                      "service": t.get("service"), "size": t.get("size"),
+                      "complexity": t.get("complexity"), "est": t.get("minutes"),
+                      "work": round(w, 1) if clean else None,
+                      "wallMin": round(minutes_between(cur["startedAt"], cur["doneAt"]), 1)
+                      if cur.get("startedAt") and cur.get("doneAt") else None,
+                      "use": bool(done and clean and cur.get("status") == "done"
+                                  and w >= CAL_MIN_TASK)})
+    svcs = run.get("services") or {}
+    rounds = {n: [want, ((svcs.get(n) or {}).get("loop") or
+                         (run.get("loop") if len(rules["rounds"]) == 1 else None) or {}).get("count", 0)]
+              for n, want in rules["rounds"].items()}
+    why = ("not finished yet" if not done else
+           "the clock started after planning, so the run's actual is partial"
+           if not (work.get("plan") and work.get("implement")) else "")
+    return {"slug": p["slug"], "feature": run.get("feature"), "status": run.get("status"),
+            "phase": run.get("phase"), "at": run.get("workCompletedAt") or run.get("updatedAt"),
+            "use": not why, "why": why, "rules": rules["phases"], "rulesMin": rules["totalMin"],
+            "actual": work, "actualMin": round(sum(work.values()), 1),
+            "waitMin": round(c.get("waitMin", 0), 1), "pausedMin": round(c.get("pausedMin", 0), 1),
+            "rounds": rounds, "models": run.get("models"), "pipeVersion": run.get("pipeVersion"),
+            "tasks": tasks, "_p": p}
+
+
+def _shrink(logs, parent, k):
+    return (len(logs) * statistics.median(logs) + k * parent) / (len(logs) + k) if logs else parent
+
+
+def fit(rows):
+    """The factors a set of measured runs gives. Pure arithmetic on report rows."""
+    lo, hi = CAL_CLAMP
+    whole = [math.log(r["actualMin"] / r["rulesMin"]) for r in rows]
+    g = _shrink(whole, 0.0, CAL_PRIOR_RUNS)
+    lp = {ph: _shrink([math.log(max(r["actual"].get(ph, 0), 0.1) / r["rules"][ph])
+                       for r in rows if r["rules"].get(ph)], g, CAL_PRIOR_RUNS)
+          for ph in PHASES[:-1]}
+    tasks = [t for r in rows for t in r["tasks"] if t["use"] and t.get("est")]
+    ls = {s: _shrink([math.log(t["work"] / t["est"]) for t in tasks if t["size"] == s],
+                     lp["implement"], CAL_PRIOR_TASKS) for s in SIZE_MIN}
+    f = lambda x: round(min(max(math.exp(x), lo), hi), 3)
+    # How far a run lands from its calibrated figure, at the 80th percentile: "likely by".
+    resid = sorted(x - g for x in whole)
+    spread = 1.25 if len(resid) < 5 else \
+        round(min(2.0, max(1.1, math.exp(resid[int(0.8 * (len(resid) - 1))]))), 3)
+    return {"phase": {k: f(v) for k, v in lp.items()}, "size": {k: f(v) for k, v in ls.items()},
+            "spread": spread, "runs": len(rows), "tasks": len(tasks)}
+
+
+def calibrate(now=None):
+    """Every bus with an estimate, measured; the factors the latest finished ones give; and
+    the backtest that decides whether they are used: each finished run re-estimated from
+    only the runs before it, against the fixed rules. Rewrites estimates.json for the page."""
+    now = now or now_iso()
+    rows, skipped = [], 0
+    for p in scan_pipelines():
+        try:
+            r = measure(p, now)
+        except (TypeError, ValueError, KeyError, AttributeError, ZeroDivisionError):
+            r = None            # a bus hand-edited out of shape is not history
+        if r:
+            rows.append(r)
+        else:
+            skipped += 1
+    used = sorted((r for r in rows if r["use"]), key=lambda r: r["at"] or "")
+    for i, r in enumerate(used):
+        prior = used[max(0, i - CAL_RUNS):i]
+        if prior:
+            r["calibrated"] = estimate(r["_p"]["root"], r["_p"]["run"], now,
+                                       dict(fit(prior), on=True))["phases"]
+    miss = lambda est, r: abs(math.log(sum(est.values()) / r["actualMin"]))
+    pts = [r for r in used if r.get("calibrated")]
+    rules_err = statistics.mean(miss(r["rules"], r) for r in pts) if pts else None
+    cal_err = statistics.mean(miss(r["calibrated"], r) for r in pts) if pts else None
+    on = bool(pts) and cal_err < rules_err
+    why = ("no finished run with a full clock to learn from yet" if not used else
+           "one finished run - nothing to test the factors against yet" if not pts else
+           f"backtest over {len(pts)} run(s): calibrated estimates missed by "
+           f"x{math.exp(cal_err):.2f}, the fixed rules by x{math.exp(rules_err):.2f}")
+    cal = {"on": on, "why": why, **(fit(used[-CAL_RUNS:]) if used else {"runs": 0, "tasks": 0})}
+    report = {"at": now, "pipeVersion": VERSION, "calibration": cal, "skipped": skipped,
+              "backtest": {"runs": len(pts),
+                           "rulesMiss": round(math.exp(rules_err), 3) if pts else None,
+                           "calibratedMiss": round(math.exp(cal_err), 3) if pts else None},
+              "runs": [{k: v for k, v in r.items() if k != "_p"}
+                       for r in sorted(rows, key=lambda r: r["at"] or "", reverse=True)]}
+    if os.path.isdir(os.path.dirname(estimates_path())):
+        try:
+            atomic_write(estimates_path(), json.dumps(report, indent=2))
+        except OSError:
+            pass                # the page shows an older report; the estimate is unaffected
+    return report
 
 
 def save_run(root, run):
     run["updatedAt"] = now_iso()
     if VERSION:
         run["pipeVersion"] = VERSION
-    tick(run, run["updatedAt"])
+    tick(run, run["updatedAt"], active_tasks(root))
     eta = estimate(root, run, run["updatedAt"])
+    if eta and "calibration" not in run and run.get("status") != "done":
+        # Priced once, the first time the plan carries an estimate: the figure you planned
+        # around does not move because another team finished meanwhile. A run that finished
+        # before calibration keeps the rules it ran under.
+        try:
+            cal = calibrate(run["updatedAt"])["calibration"]
+        except Exception as e:  # every agent writes through here; history must not stop it
+            cal = {"on": False, "why": f"calibration failed: {type(e).__name__}: {e}"}
+        run["calibration"] = {**cal, "at": run["updatedAt"]}
+        run["models"] = role_models()
+        eta = estimate(root, run, run["updatedAt"])
     if eta:
         run["eta"] = eta
     else:
@@ -1128,6 +1331,10 @@ def cmd_qa_check(root, args):
             run = load_run(root)
             complete_work(run)
             save_run(root, run)
+        try:
+            calibrate()         # a finished run is new history: the page shows it now
+        except Exception as e:
+            print(f"note: the estimates report was not refreshed ({type(e).__name__}: {e})")
         print("work completed - the steps left are the human's:")
         for i, step in enumerate(run["humanSteps"], 1):
             print(f"  {i}. {step}")
@@ -1485,10 +1692,47 @@ def cmd_eta(root, args):
               + (", if it resumes now)" if held else ")"))
         print(f"likely by        {local(eta['likelyMin'])}  (local)")
     print(f"waited on you    {fmt_min(waited)}" + ("  and counting" if held else ""))
+    cal = run.get("calibration") or {}
+    if eta.get("calibrated"):
+        print(f"priced from      {cal.get('runs')} finished run(s); the fixed rules alone say "
+              f"{fmt_min(eta['planMin'])}")
+    else:
+        print(f"priced by        the fixed rules" + (f" ({cal['why']})" if cal.get("why") else ""))
     print(f"\n{'phase':<10} {'estimate':>9} {'actual':>8}")
     for ph, est in eta["phases"].items():
         print(f"{ph:<10} {fmt_min(est):>9} {fmt_min(work.get(ph, 0)):>8}")
     print(f"{'total':<10} {fmt_min(eta['totalMin']):>9} {fmt_min(sum(work.values())):>8}")
+
+
+def cmd_calibration(root, args):
+    """What finished runs say about the estimate (ADR-0007): the factors, what they rest
+    on, the backtest that switches them on, and every run measured. Refreshes the
+    estimates page's report as it goes. A run already planned keeps the price it got."""
+    rep = calibrate()
+    if args.json:
+        print(json.dumps(rep, indent=2))
+        return
+    cal, bt = rep["calibration"], rep["backtest"]
+    print(f"calibration {'ON' if cal['on'] else 'off'} - {cal['why']}")
+    print(f"learned from {cal['runs']} finished run(s) and {cal['tasks']} measured task(s)")
+    if cal.get("phase"):
+        print("\nfactor  (actual work / the rules' estimate; 1.00 = the rules were right)")
+        for k, v in list(cal["phase"].items()) + [(f"{s} task", v) for s, v in cal["size"].items()]:
+            print(f"  {k:<10} x{v:.2f}")
+        print(f"  likely by  x{cal['spread']:.2f} of the work left")
+    print(f"\n{'run':<34} {'rules':>8} {'calibrated':>11} {'actual':>8} {'waited':>8}")
+    for r in rep["runs"]:
+        if not r["use"]:
+            continue
+        calc = fmt_min(sum(r["calibrated"].values())) if r.get("calibrated") else "-"
+        print(f"{r['slug'][:34]:<34} {fmt_min(r['rulesMin']):>8} {calc:>11} "
+              f"{fmt_min(r['actualMin']):>8} {fmt_min(r['waitMin'] + r['pausedMin']):>8}")
+    rest = [r for r in rep["runs"] if not r["use"]]
+    if rest:
+        print(f"\nnot measured: " + "; ".join(f"{r['slug']} ({r['why']})" for r in rest))
+    if rep["skipped"]:
+        print(f"{rep['skipped']} run(s) predate estimates and are not counted")
+    print("\nactual = work only; waiting on you and paused time are never counted as work")
 
 
 def completed_path(root):
@@ -1586,6 +1830,7 @@ def build_parser():
     s = sub.add_parser("validate-plan"); s.add_argument("--file", default=None)
     s = sub.add_parser("qa-check"); s.add_argument("--service", default=None)
     s = sub.add_parser("eta"); s.add_argument("--slug", default=None)
+    s = sub.add_parser("calibration"); s.add_argument("--json", action="store_true")
     s = sub.add_parser("complete"); s.add_argument("slug", nargs="?")
     s = sub.add_parser("next"); s.add_argument("--service", default=None); s.add_argument("--max", type=int, default=2)
     s = sub.add_parser("worktree")
@@ -1630,7 +1875,7 @@ def main():
         "review": cmd_review, "results": cmd_results,
         "validate-plan": cmd_validate_plan, "qa-check": cmd_qa_check, "next": cmd_next,
         "worktree": cmd_worktree, "finish": cmd_finish,
-        "eta": cmd_eta, "complete": cmd_complete,
+        "eta": cmd_eta, "complete": cmd_complete, "calibration": cmd_calibration,
     }[args.cmd](root, args)
 
 

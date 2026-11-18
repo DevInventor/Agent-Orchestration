@@ -1,6 +1,7 @@
 # ADR-0006 — Estimated time to complete: the planner sizes once, the bus does the arithmetic
 
-**Status:** accepted · **Date:** 2026-11-11
+**Status:** accepted; its rejection of pricing from past runs is superseded by ADR-0007 ·
+**Date:** 2026-11-11
 
 ## Context
 
@@ -42,7 +43,8 @@ ranged from 16m to over 6h, and elapsed time was dominated by waiting on a human
 
 - **Pricing sizes from past runs, with an automatic correction factor.** Rejected by the
   owner: estimates should come from the planner's reading of the change under fixed
-  rules, not from history. The cost is stated below.
+  rules, not from history. The cost is stated below. *Reversed by ADR-0007 once real runs
+  showed the rules ×2–×5 over: the planner still reads the change, history prices it.*
 - **Re-estimating with the LLM at each phase change.** Costs tokens on every run for a
   figure the bus can already derive.
 - **Detecting deployment from git.** A merge is not a deploy, and several real runs were

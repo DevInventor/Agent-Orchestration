@@ -244,6 +244,7 @@
 
 <header>
   <a class="back" href="/">&larr; Hall</a>
+  <a class="back" href="/estimates">Estimates</a>
   <span class="b-name" id="b-name">&hellip;</span>
   <span class="chip br" id="b-branch"></span>
   <span class="chip" id="b-repos"></span>
@@ -428,13 +429,26 @@ function comms(body){
   body.append(f,list);
 }
 
-/* What a task cost against what the planner said it would. Wall time between the coder
-   taking it and finishing it - close enough per task, and nobody has to report it. */
+/* What a task cost against what it was priced at (ADR-0007). The actual is the work the
+   clock measured while the task was in progress - time the run waited on you or sat paused
+   is not the task's. A task started before pipe.py kept task time falls back to wall time
+   from start to done, which counts any waiting. The estimate is the calibrated price when
+   the run has one, else the planner's minutes. */
 function taskTime(t){
-  const est=typeof t.minutes==="number"?t.minutes:null;
+  const r=S.run||{}, e=r.eta||{}, c=r.clock||{};
+  const est=e.taskMin&&typeof e.taskMin[t.id]==="number"?e.taskMin[t.id]
+           :typeof t.minutes==="number"?t.minutes:null;
   const live=String(t.status)==="in_progress"&&t.startedAt;
-  const act=t.startedAt&&t.doneAt?mins(t.startedAt,t.doneAt):live?mins(t.startedAt,Date.now()):null;
-  return {est,act,live};
+  const measured=!!(c.tasksSince&&t.startedAt&&String(t.startedAt)>=c.tasksSince);
+  let act;
+  if(measured){
+    // Since the last bus write a live task keeps earning its share of the gap - while the
+    // run works, and not past the 15 minutes after which the gap is a pause.
+    const gap=live&&c.at&&r.status==="running"?mins(c.at,Date.now()):0;
+    act=((c.tasks||{})[t.id]||0)+(gap<=IDLE_MIN?gap*((c.active||{})[t.id]||0):0);
+    if(!live&&!t.doneAt&&!act) act=null;
+  } else act=t.startedAt&&t.doneAt?mins(t.startedAt,t.doneAt):live?mins(t.startedAt,Date.now()):null;
+  return {est,act,live,measured};
 }
 /* The chip's time: live "12 of 65m", done its actual, not started its estimate. */
 function chipTime(t){
@@ -446,9 +460,10 @@ function chipTime(t){
 function svcLeft(list){
   let any=false, left=0;
   for(const t of list){
-    if(typeof t.minutes!=="number"||String(t.status).toLowerCase()==="done") continue;
-    any=true; const {act,live}=taskTime(t);
-    left+=Math.max(0,t.minutes-(live&&act?act:0));
+    if(String(t.status).toLowerCase()==="done") continue;
+    const {est,act,live}=taskTime(t);
+    if(est==null) continue;
+    any=true; left+=Math.max(0,est-(live&&act?act:0));
   }
   return any?left:null;
 }
@@ -509,7 +524,8 @@ function state(body){
 }
 function taskTab(){
   const t=picked(); if(!t) return `<span class="hint">No task yet.</span>`;
-  const {est,act,live}=taskTime(t), col=COLS[CIX[column(t)]].n;
+  const {est,act,live,measured}=taskTime(t), col=COLS[CIX[column(t)]].n;
+  const cal=((S.run||{}).eta||{}).taskMin&&typeof t.minutes==="number"&&est!==t.minutes;
   const base={S:5,M:10,L:25}[t.size], top=Math.max(est||0,act||0,1);
   const row=(k,v)=>v?`<dt>${k}</dt><dd>${v}</dd>`:"";
   return `<h3>${esc(t.id)} · ${esc(t.title||"")}</h3>
@@ -523,7 +539,9 @@ function taskTab(){
     `<div class="cmp"><div class="row"><span>Estimate</span><span class="trk"><i style="width:${est/top*100}%;--c:var(--line-2)"></i></span><span>${dur(est)}</span></div>
       <div class="row"><span>Actual</span><span class="trk"><i style="width:${(act||0)/top*100}%;--c:${act>est?"var(--bad)":"var(--coder)"}"></i></span>
         <span>${act==null?"not started":dur(act)+(live?" so far":"")}</span></div>
-      ${!live&&act>est?`<div class="hint">${dur(act-est)} over its estimate</div>`:""}</div>`}`;
+      ${!live&&act>est?`<div class="hint">${dur(act-est)} over its estimate</div>`:""}
+      ${cal?`<div class="hint">Calibrated from the planner's ${dur(t.minutes)} by what finished runs took.</div>`:""}
+      ${act!=null&&!measured?`<div class="hint">Wall time: this task started before task work was measured, so it counts any waiting.</div>`:""}</div>`}`;
 }
 function timeTab(){
   const t=etc(), c=(S.run||{}).clock||{};
@@ -535,7 +553,9 @@ function timeTab(){
         <span class="n">${dur(t.phases[n])}</span><span class="n${a>t.phases[n]?" over":""}">${a?dur(a):"·"}</span></div>`;}).join("")}
     <div class="phr"><span>waiting</span><span class="hint">at a gate or blocked</span><span class="n">·</span><span class="n hold">${dur((c.waitMin||0)+(t.waiting?mins(c.at,Date.now()):0))}</span></div>
     <div class="phr"><span>paused</span><span class="hint">silent over ${IDLE_MIN}m</span><span class="n">·</span><span class="n hold">${dur((c.pausedMin||0)+(t.paused?mins(c.at,Date.now()):0))}</span></div></div>
-    <span class="hint">Services that do not depend on each other run side by side, so a phase costs its longest chain, not the sum of its tasks.</span>`;
+    <span class="hint">Services that do not depend on each other run side by side, so a phase costs its longest chain, not the sum of its tasks.</span>
+    <span class="hint">${(S.run.eta||{}).calibrated?`Priced from ${esc((S.run.calibration||{}).runs)} finished runs; the fixed rules alone say ${dur(S.run.eta.planMin)}.`
+      :"Priced by the fixed rules."} <a href="/estimates?open=${encodeURIComponent(SLUG)}" style="color:var(--coder)">Estimate against actual, every run &rarr;</a></span>`;
 }
 function critTab(){
   const crit=(S.plan||{}).acceptanceCriteria||[];

@@ -9,6 +9,12 @@ import urllib.error, urllib.request
 
 PIPE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipe.py")
 
+# No scenario reads the real ~/.agent-orchestration. Calibration (ADR-0007) prices a run
+# from every finished bus under it, so a developer's own history would move the minutes
+# the estimate scenarios assert. Set at import, so a scenario called on its own is isolated
+# too; scenarios that need a home of their own still pass one.
+os.environ["AGENT_ORCHESTRATION_HOME"] = tempfile.mkdtemp(prefix="ao-test-home-")
+
 # Section 9's reference table, verbatim: every spec path these buses have ever loaded.
 SECTION_9_SLUGS = [
     ("crm/docs/superpowers/specs/2026-07-14-calculator-improvements-design.md", "calculator-improvements"),
@@ -2648,6 +2654,252 @@ console.log(JSON.stringify(out));"""
                 assert not hit, f"edge {a}-{b} crosses the island at ({x},{y})"
 
 
+def backdate_clock(root, minutes, status):
+    """Move the clock's last write back, as if the gap since had passed in `status`."""
+    r = read_run(root)
+    r["clock"]["at"] = time.strftime("%Y-%m-%dT%H:%M:%S+00:00",
+                                     time.gmtime(time.time() - minutes * 60))
+    r["clock"]["status"] = status
+    write(os.path.join(root, "run.json"), json.dumps(r))
+
+
+THREE_M_TASKS = {"services": [{"name": "api", "dependsOnServices": []}],
+                 "acceptanceCriteria": ["AC1 - it works"],
+                 "tasks": [{"id": f"T{i}", "title": f"T{i}", "service": "api",
+                            "criteriaRef": ["AC1"], "size": "M", "complexity": "low",
+                            "minutes": 10} for i in (1, 2, 3)]}
+# What the fixed rules give THREE_M_TASKS: implement 3 x 10; test 15 + a medium suite run
+# twice + one fix round; review 10 + 3 tasks; plan round(10 + 1.5 x 3).
+THREE_M_RULES = {"spec": 5, "plan": 14, "implement": 30, "test": 50, "review": 13, "qa": 10}
+
+
+def finished_bus(home, slug, ratio, at, task_work=None):
+    """A finished run under `home` whose clock says each phase took `ratio` of what the
+    rules gave it, after 45 minutes waiting on you and 30 paused."""
+    root = os.path.join(home, "pipelines", slug, "pipeline")
+    os.makedirs(root)
+    write(os.path.join(root, "plan.json"), json.dumps(THREE_M_TASKS))
+    write(os.path.join(root, "tasks.json"), json.dumps({"tasks": [
+        {"id": t["id"], "title": t["title"], "service": "api", "status": "done",
+         "startedAt": "2026-01-01T00:00:00+00:00", "doneAt": "2026-01-01T03:00:00+00:00"}
+        for t in THREE_M_TASKS["tasks"]]}))
+    write(os.path.join(root, "run.json"), json.dumps({
+        "runId": slug, "slug": slug, "feature": slug, "status": "done", "phase": "done",
+        "workCompletedAt": at, "updatedAt": at,
+        "clock": {"work": {k: v * ratio for k, v in THREE_M_RULES.items()}, "waitMin": 45,
+                  "pausedMin": 30, "at": at, "status": "done", "phase": "done",
+                  "tasksSince": "2000-01-01T00:00:00+00:00", "tasks": task_work or {}}}))
+    return root
+
+
+def a_task_is_measured_in_work_not_wall_time():
+    """S79 - ADR-0007. A task's actual is the work the clock measured while it was in
+    progress: two tasks in one service split a gap, services each take theirs, and time
+    waiting on you or paused is no task's. The work left follows that work, not the wall
+    clock, and none of it is written into tasks.json."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = os.path.join(tmp, "pipeline")
+        run(root, "init", "--feature", "Measured")
+        plan = json.loads(json.dumps(THREE_M_TASKS))
+        plan["services"].append({"name": "web", "dependsOnServices": []})
+        plan["tasks"][2]["service"] = "web"
+        write(os.path.join(root, "plan.json"), json.dumps(plan))
+        run(root, "validate-plan")
+        for t in plan["tasks"]:
+            run(root, "task", "add", "--id", t["id"], "--title", t["id"], "--service", t["service"])
+        run(root, "phase", "implement")
+        run(root, "task", "update", "--id", "T1", "--status", "in_progress")
+        run(root, "task", "update", "--id", "T3", "--status", "in_progress")
+        backdate_clock(root, 6, "running")              # api's T1 and web's T3 each work 6
+        run(root, "agent", "coder")
+        run(root, "task", "update", "--id", "T2", "--status", "in_progress")
+        backdate_clock(root, 4, "running")              # api's two split 4; web's one takes 4
+        run(root, "agent", "coder")
+        run(root, "set-status", "awaiting_approval")
+        backdate_clock(root, 30, "awaiting_approval")   # waiting on you is no task's work
+        run(root, "agent", "coder")
+        run(root, "set-status", "running")
+        backdate_clock(root, 20, "running")             # nor is a pause
+        run(root, "agent", "coder")
+        c = read_run(root)["clock"]
+        got = c["tasks"]
+        assert 7.9 < got["T1"] < 8.3 and 1.9 < got["T2"] < 2.3 and 9.9 < got["T3"] < 10.3, got
+        assert 29.9 < c["waitMin"] < 30.3 and 19.9 < c["pausedMin"] < 20.3, c
+        assert c["active"] == {"T1": 0.5, "T2": 0.5, "T3": 1.0}, c["active"]
+        assert c.get("tasksSince"), "the clock does not say when it began timing tasks"
+        for t in read_json(os.path.join(root, "tasks.json"))["tasks"]:
+            assert set(t) <= {"id", "title", "owner", "status", "service", "createdAt",
+                              "updatedAt", "startedAt"}, f"the clock wrote into tasks.json: {t}"
+
+        # T1 started 90 minutes ago by the wall clock but has worked 8, so 2 of its 10 are
+        # left. Wall time said none for T1 - and left web's T3, which worked its 10 in a
+        # few seconds of wall time, nearly all 10 to do.
+        run(root, "task", "update", "--id", "T2", "--status", "done")
+        ago = lambda m: time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - m * 60))
+        tp = os.path.join(root, "tasks.json")
+        data = read_json(tp)
+        data["tasks"][0]["startedAt"] = ago(90)
+        write(tp, json.dumps(data))
+        r = read_run(root)
+        r["clock"]["tasksSince"] = ago(120)             # measured since before T1 began
+        write(os.path.join(root, "run.json"), json.dumps(r))
+        run(root, "agent", "coder")
+        left_by_work = read_run(root)["eta"]["leftMin"]
+        r = read_run(root)                              # the same task, started before the
+        r["clock"]["tasksSince"] = ago(60)              # clock timed tasks: wall time, as
+        write(os.path.join(root, "run.json"), json.dumps(r))   # before - its 90 > 10, none left
+        run(root, "agent", "coder")
+        assert read_run(root)["eta"]["leftMin"] < left_by_work, \
+            "a task started before task time began lost its wall time at the upgrade"
+        r = read_run(root)
+        r["clock"]["tasksSince"] = ago(120)
+        write(os.path.join(root, "run.json"), json.dumps(r))
+        run(root, "agent", "coder")
+        eta = read_run(root)["eta"]
+        after_implement = sum(eta["phases"][p] for p in ("test", "review", "qa"))
+        assert 1 <= eta["leftMin"] - after_implement <= 3, \
+            f"implement left should be T1's 2 of 10 by work, not wall time: {eta}"
+
+
+def finished_runs_price_the_next_estimate():
+    """S80 - ADR-0007. One finished run is not enough to test a factor, so the next run is
+    priced by the rules. Two that took 0.4 of their estimate backtest better than the rules,
+    so the run planned after them is calibrated: its minutes shrink, the rules' figure is
+    kept beside them, and a run already planned keeps the price it got. History that would
+    have made things worse stays off. Waiting and paused time are never an actual; a task
+    marked in a burst is not a sample; no factor leaves its clamp."""
+    pipe = import_pipe()
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+
+        def planned(slug):
+            root = os.path.join(home, "pipelines", slug, "pipeline")
+            run(root, "init", "--feature", slug, env=env)
+            write(os.path.join(root, "plan.json"), json.dumps(THREE_M_TASKS))
+            run(root, "validate-plan", env=env)
+            for t in THREE_M_TASKS["tasks"]:
+                run(root, "task", "add", "--id", t["id"], "--title", t["id"], "--service", "api", env=env)
+            run(root, "phase", "implement", env=env)
+            return root
+
+        first = finished_bus(home, "first", 0.4, "2026-01-01T10:00:00+00:00",
+                             {"T1": 4, "T2": 4, "T3": 1})   # T3: under 2 minutes, a burst
+        one = planned("after-one")
+        r = read_run(one)
+        assert r["calibration"]["on"] is False and "one finished run" in r["calibration"]["why"], r["calibration"]
+        assert r["eta"]["phases"] == THREE_M_RULES and not r["eta"].get("calibrated"), r["eta"]
+        assert r.get("models", {}).get("coder"), "the run does not record the model each role ran on"
+
+        finished_bus(home, "second", 0.4, "2026-01-02T10:00:00+00:00", {"T1": 4, "T2": 4, "T3": 4})
+        two = planned("after-two")
+        r = read_run(two)
+        cal, eta = r["calibration"], r["eta"]
+        assert cal["on"] is True and "backtest over 1 run" in cal["why"], cal
+        assert eta["calibrated"] and eta["planMin"] == sum(THREE_M_RULES.values()), eta
+        assert eta["totalMin"] < eta["planMin"] and eta["phases"]["implement"] < 30, eta
+        assert eta["taskMin"]["T1"] < 10, "a calibrated task keeps the planner's price"
+        assert cal["runs"] == 2 and cal["tasks"] == 5, f"the burst task was a sample: {cal}"
+        assert cal["size"]["M"] != cal["phase"]["implement"] == cal["size"]["S"] == cal["size"]["L"], \
+            f"measured M tasks did not move M off the implement factor, or S/L moved without samples: {cal}"
+        out = run(two, "eta", env=env)
+        assert "priced from" in out and "fixed rules alone" in out, out
+
+        run(one, "agent", "coder", env=env)
+        assert read_run(one)["calibration"]["on"] is False, "a planned run was re-priced by later history"
+        run(first, "agent", "orchestrator", env=env)
+        assert "calibration" not in read_run(first), "a run finished under the rules was re-priced"
+
+        out = run(tmp, "calibration", env=env)
+        for want in ("calibration ON", "first", "second", "after-one (not finished yet)",
+                     "never counted as work"):
+            assert want in out, f"`calibration` prints no {want!r}:\n{out}"
+        rep = read_json(os.path.join(home, "estimates.json"))
+        row = {x["slug"]: x for x in rep["runs"]}
+        assert row["second"]["use"] and abs(row["second"]["actualMin"] - 0.4 * 122) < 0.5, \
+            f"the actual is not work only - 75 minutes waiting and paused crept in: {row['second']}"
+        assert row["second"]["waitMin"] == 45 and row["second"]["pausedMin"] == 30, row["second"]
+        assert row["second"]["calibrated"] and not row["first"].get("calibrated"), \
+            "the backtest priced a run from itself, or the first run from nothing"
+        assert row["second"]["rounds"] == {"api": [1, 0]}, row["second"]["rounds"]
+        assert rep["backtest"]["calibratedMiss"] < rep["backtest"]["rulesMiss"], rep["backtest"]
+        assert json.loads(run(tmp, "calibration", "--json", env=env))["calibration"]["on"] is True
+
+        worse = os.path.join(tmp, "worse")              # history that would mislead stays off
+        finished_bus(worse, "fast", 0.3, "2026-01-01T10:00:00+00:00")
+        finished_bus(worse, "slow", 3.0, "2026-01-02T10:00:00+00:00")
+        root = os.path.join(worse, "pipelines", "next", "pipeline")
+        run(root, "init", "--feature", "next", env={"AGENT_ORCHESTRATION_HOME": worse})
+        write(os.path.join(root, "plan.json"), json.dumps(THREE_M_TASKS))
+        run(root, "phase", "plan", env={"AGENT_ORCHESTRATION_HOME": worse})
+        cal = read_run(root)["calibration"]
+        assert cal["on"] is False and "the fixed rules by" in cal["why"], cal
+
+    row = lambda ratio: {"rulesMin": 100, "actualMin": 100 * ratio, "tasks": [],
+                         "rules": {p: 10 for p in pipe.PHASES[:-1]},
+                         "actual": {p: 10 * ratio for p in pipe.PHASES[:-1]}}
+    for ratio, edge in ((0.001, 0.25), (1000, 2.0)):
+        f = pipe.fit([row(ratio)] * 40)
+        assert set(f["phase"].values()) == {edge} == set(f["size"].values()), \
+            f"a factor left its clamp at ratio {ratio}: {f}"
+
+
+def the_estimates_page_reads_the_report():
+    """S81 - ADR-0007. /estimates serves the page and /api/estimates the report pipe.py wrote
+    plus the runs still going, reading only. The page's own pageHTML(), run in node over a
+    real report, draws the headline, every finished run, the phase and size matrices and
+    the runs still going; with no report it says how to make one. It carries the hall's
+    palette, reaches no network, and the hall and the board link to it."""
+    if not shutil.which("node"):
+        print("SKIP S81 - no node on PATH; the estimates page was not exercised")
+        return
+    src = open(os.path.join(REPO, "ui", "estimates.html"), encoding="utf-8").read()
+    hall = open(HALL_HTML, encoding="utf-8").read()
+    assert "fonts.googleapis" not in src and not re.search(r"<(?:link|script)[^>]+(?:href|src)=[\"']https?:", src), \
+        "estimates.html reaches the network"
+    for tok in ("planner", "coder", "tester", "reviewer", "orch", "ok", "warn", "bad"):
+        hv = set(re.findall(rf"--{tok}\s*:\s*(#[0-9A-Fa-f]{{6}})", hall))
+        ev = set(re.findall(rf"--{tok}\s*:\s*(#[0-9A-Fa-f]{{6}})", src))
+        assert ev and ev <= hv, f"--{tok} has drifted from the hall: {sorted(ev)} vs {sorted(hv)}"
+    assert 'href="/estimates"' in hall, "the hall does not link to the estimates page"
+    assert "/estimates?open=" in open(os.path.join(REPO, "ui", "board.html"), encoding="utf-8").read(), \
+        "the board does not link to its run on the estimates page"
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = os.path.join(tmp, "aohome")
+        env = {"AGENT_ORCHESTRATION_HOME": home}
+        with Server(home) as s:
+            code, body = http_json(s.port, "/api/estimates")
+            assert code == 200 and json.loads(body) == {"report": None, "live": []}, body
+        finished_bus(home, "first", 0.4, "2026-01-01T10:00:00+00:00")
+        finished_bus(home, "second", 0.5, "2026-01-02T10:00:00+00:00", {"T1": 4, "T2": 6, "T3": 5})
+        live = os.path.join(home, "pipelines", "going", "pipeline")
+        run(live, "init", "--feature", "going", env=env)
+        write(os.path.join(live, "plan.json"), json.dumps(THREE_M_TASKS))
+        run(live, "phase", "implement", env=env)        # planned now: priced, and the report written
+        with Server(home) as s:
+            code, html = http_json(s.port, "/estimates")
+            assert code == 200 and "pageHTML" in html, f"/estimates served {code}"
+            code, body = http_json(s.port, "/api/estimates")
+            data = json.loads(body)
+            assert code == 200 and data["report"]["calibration"]["on"] is True, body[:400]
+            assert [p["slug"] for p in data["live"]] == ["going"] and data["live"][0]["eta"]["calibrated"], data["live"]
+
+    block = re.search(r"(const esc=.*?)\n/\* boot \*/", src, re.S)
+    assert block, "estimates.html no longer has esc ... pageHTML ahead of /* boot */"
+    js = ("var location={search:''};\n" + block.group(1) + "\nconst D=" + json.dumps(data) + ";\n"
+          "OPEN.add('second');\n"
+          "console.log(JSON.stringify({page:pageHTML(D),none:pageHTML({report:null,live:[]})}));")
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, f"estimates.html pageHTML() did not run:\n{r.stdout}{r.stderr}"
+    o = json.loads(r.stdout)
+    for want in ("Fixed rules missed by", "Calibrated missed by", "work only", "first", "second",
+                 "By phase", "By task size", "Running now", "going", "calibrated · 2 runs",
+                 "Phases", "Tasks", "over", "expected"):
+        assert want in o["page"], f"the page lacks {want!r}"
+    assert "pipe.py calibration" in o["none"], f"no report and no way to make one: {o['none']!r}"
+
+
 SCENARIOS = [
     ("S1", merge_lands_on_each_repos_own_base),
     ("S2/S5/S6/S8/S9/S10", workstream_checks),
@@ -2700,6 +2952,9 @@ SCENARIOS = [
     ("S76", a_write_survives_a_reader_holding_the_file),
     ("S77", the_floor_widens_to_fit_the_screen),
     ("S78", every_write_names_the_pipe_that_made_it),
+    ("S79", a_task_is_measured_in_work_not_wall_time),
+    ("S80", finished_runs_price_the_next_estimate),
+    ("S81", the_estimates_page_reads_the_report),
     ("S67", the_design_rules_and_their_fixes_stay_in_sync),
     ("S68", scenarios_are_written_as_use_cases),
     ("S53", every_agent_names_a_skill_that_exists),
